@@ -244,7 +244,7 @@ rt_db_connection() {
   fi
   rt_reject_placeholder "${prefix}_DB_PASSWORD"
 
-  printf 'Server=%s;Port=%s;Database=%s;User=%s;Password=%s;SslMode=None;AllowPublicKeyRetrieval=True;\n' \
+  printf 'Server=%s;Port=%s;Database=%s;User=%s;Password=%s;SslMode=Disabled;AllowPublicKeyRetrieval=True;\n' \
     "$MYSQL_HOST" "$MYSQL_PORT" "$db" "$user" "$password"
 }
 

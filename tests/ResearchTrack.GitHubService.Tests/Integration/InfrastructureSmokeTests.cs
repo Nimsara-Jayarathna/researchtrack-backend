@@ -19,24 +19,24 @@ public sealed class InfrastructureSmokeTests : IAsyncLifetime
     [Fact]
     public async Task Liveness_endpoint_is_healthy()
     {
-        var response = await Client.GetAsync("/health/live");
+        var response = await Client.GetAsync("/health/live", TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
     [Fact]
     public async Task Swagger_document_is_available_in_testing_environment()
     {
-        var response = await Client.GetAsync("/swagger/v1/swagger.json");
+        var response = await Client.GetAsync("/swagger/v1/swagger.json", TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
     [Fact]
     public async Task Unknown_route_uses_standard_error_envelope_with_trace_id()
     {
-        var response = await Client.GetAsync("/does-not-exist");
+        var response = await Client.GetAsync("/does-not-exist", TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
 
-        var payload = await response.Content.ReadFromJsonAsync<ErrorEnvelope>();
+        var payload = await response.Content.ReadFromJsonAsync<ErrorEnvelope>(TestContext.Current.CancellationToken);
         Assert.NotNull(payload);
         Assert.False(payload!.Success);
         Assert.Equal("NOT_FOUND", payload.Error?.Code);
@@ -50,7 +50,7 @@ public sealed class InfrastructureSmokeTests : IAsyncLifetime
         var connectionString = TestDatabaseConfiguration.GetRequiredConnectionString("GITHUB");
         await using var factory = new ResearchTrackWebApplicationFactory<Program>(connectionString);
         using var client = factory.CreateClient();
-        var response = await client.GetAsync("/health/ready");
+        var response = await client.GetAsync("/health/ready", TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
