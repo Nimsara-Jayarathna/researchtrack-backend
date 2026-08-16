@@ -1,0 +1,8 @@
+{
+  "sdk": {
+    "version": "10.0.300",
+    "rollForward": "latestFeature",
+    "allowPrerelease": false,
+    "errorMessage": "ResearchTrack requires .NET 10 SDK 10.0.300 or a compatible .NET 10 feature-band SDK."
+  }
+}

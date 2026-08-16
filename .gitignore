@@ -1,0 +1,230 @@
+# ============================================================
+# ResearchTrack Backend
+# .NET 10 / ASP.NET Core / EF Core / MySQL
+# ============================================================
+
+# ------------------------------------------------------------
+# .NET build output
+# ------------------------------------------------------------
+[Bb]in/
+[Oo]bj/
+artifacts/
+
+[Dd]ebug/
+[Rr]elease/
+
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+
+# ------------------------------------------------------------
+# Visual Studio
+# ------------------------------------------------------------
+.vs/
+
+*.user
+*.rsuser
+*.suo
+*.userosscache
+*.sln.docstates
+*.userprefs
+
+*.VC.db
+*.VC.VC.opendb
+
+# ------------------------------------------------------------
+# JetBrains Rider / ReSharper
+# ------------------------------------------------------------
+.idea/
+*.sln.iml
+
+_ReSharper*/
+*.[Rr]e[Ss]harper
+*.DotSettings.user
+
+# ------------------------------------------------------------
+# VS Code
+# Keep intentionally shared workspace files if the team adds them
+# ------------------------------------------------------------
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/tasks.json
+!.vscode/launch.json
+
+# ------------------------------------------------------------
+# NuGet / package artifacts
+# ------------------------------------------------------------
+*.nupkg
+*.snupkg
+
+packages/
+.nuget/
+
+project.lock.json
+project.fragment.lock.json
+
+*.nuget.props
+*.nuget.targets
+
+# ------------------------------------------------------------
+# Test output / coverage / benchmarking
+# ------------------------------------------------------------
+TestResults/
+test-results/
+
+coverage/
+coverage-results/
+coverage-report/
+
+*.coverage
+*.coveragexml
+*.trx
+
+BenchmarkDotNet.Artifacts/
+
+# ------------------------------------------------------------
+# Logs / runtime files
+# ------------------------------------------------------------
+logs/
+log/
+
+*.log
+*.log.*
+*.pid
+
+# ------------------------------------------------------------
+# Local environment files
+# ------------------------------------------------------------
+.env
+.env.local
+.env.*.local
+
+# Keep the committed template
+!.env.example
+
+# ------------------------------------------------------------
+# Local ASP.NET configuration overrides
+# ------------------------------------------------------------
+appsettings.Local.json
+appsettings.*.Local.json
+appsettings.local.json
+appsettings.*.local.json
+
+launchSettings.local.json
+
+# ------------------------------------------------------------
+# Development-only seed/account files
+# ------------------------------------------------------------
+dev-users.local.json
+dev-users.*.local.json
+*.seed.local.json
+
+# ------------------------------------------------------------
+# Secrets / credentials / certificates / private keys
+# ------------------------------------------------------------
+secrets/
+.local-secrets/
+
+credentials.json
+credentials.local.json
+
+*.pfx
+*.p12
+*.jks
+*.keystore
+*.pem
+*.key
+
+# NOTE:
+# ASP.NET User Secrets are stored outside the repository by dotnet-user-secrets,
+# so there is normally nothing additional to ignore here.
+
+# ------------------------------------------------------------
+# Local database / runtime data
+# ------------------------------------------------------------
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+.mysql/
+mysql-data/
+
+.local-data/
+data/local/
+
+# ------------------------------------------------------------
+# Generated database artifacts
+# ------------------------------------------------------------
+migration-script.local.sql
+migration-output/
+db-dumps/
+*.dump
+
+# IMPORTANT:
+# Do NOT ignore EF Core Migrations/ directories.
+# Migration source files are part of the application source code and must be committed.
+
+# ------------------------------------------------------------
+# Temporary / generated files
+# ------------------------------------------------------------
+tmp/
+temp/
+.cache/
+
+*.tmp
+*.temp
+*.bak
+*.old
+*.orig
+*.swp
+*.swo
+
+*~
+~$*
+
+# ------------------------------------------------------------
+# OS-generated files
+# ------------------------------------------------------------
+.DS_Store
+.AppleDouble
+.LSOverride
+.Spotlight-V100/
+.Trashes/
+
+Thumbs.db
+Thumbs.db:encryptable
+Desktop.ini
+$RECYCLE.BIN/
+
+# ------------------------------------------------------------
+# Tool-specific local state
+# ------------------------------------------------------------
+.fleet/
+.history/
+
+.sonar/
+.sonarqube/
+
+report/
+reports/local/
+
+# ------------------------------------------------------------
+# Local validation / scratch artifacts
+# ------------------------------------------------------------
+VALIDATION_REPORT.local.md
+ResearchTrack.local.*
+researchtrack.local.*
+
+# ------------------------------------------------------------
+# Keep important repository-controlled files tracked
+# ------------------------------------------------------------
+!global.json
+!Directory.Build.props
+!Directory.Packages.props
+!.editorconfig
+!.gitattributes
+!README.md
