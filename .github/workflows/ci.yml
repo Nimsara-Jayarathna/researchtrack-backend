@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - develop
+      - main
+  push:
+    branches:
+      - develop
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Backend quality gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore tools and packages
+        run: |
+          dotnet tool restore
+          dotnet restore ResearchTrack.sln
+
+      - name: Build
+        run: dotnet build ResearchTrack.sln -c Release --no-restore
+
+      - name: Run unit and non-database integration tests
+        run: dotnet test ResearchTrack.sln -c Release --no-build --filter "Category!=DatabaseIntegration" --collect:"XPlat Code Coverage" --results-directory TestResults
+
+      - name: Verify formatting
+        run: dotnet format ResearchTrack.sln --verify-no-changes --no-restore
+
+      - name: Publish services
+        run: |
+          dotnet publish src/Gateway/ResearchTrack.Gateway/ResearchTrack.Gateway.csproj -c Release --no-build -o artifacts/gateway
+          dotnet publish src/Services/ResearchTrack.AuthService/ResearchTrack.AuthService.csproj -c Release --no-build -o artifacts/auth-service
+          dotnet publish src/Services/ResearchTrack.ProjectService/ResearchTrack.ProjectService.csproj -c Release --no-build -o artifacts/project-service
+          dotnet publish src/Services/ResearchTrack.GitHubService/ResearchTrack.GitHubService.csproj -c Release --no-build -o artifacts/github-service
+          dotnet publish src/Services/ResearchTrack.JiraService/ResearchTrack.JiraService.csproj -c Release --no-build -o artifacts/jira-service
+          dotnet publish src/Services/ResearchTrack.MeetingService/ResearchTrack.MeetingService.csproj -c Release --no-build -o artifacts/meeting-service
+          dotnet publish src/Services/ResearchTrack.SubmissionService/ResearchTrack.SubmissionService.csproj -c Release --no-build -o artifacts/submission-service

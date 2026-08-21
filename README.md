@@ -1,8 +1,8 @@
 # ResearchTrack Backend
 
-ResearchTrack is an ASP.NET Core microservice backend for a final-year research supervision platform. This repository provides the shared development foundation for the backend monorepo: service boundaries, EF Core/MySQL conventions, the YARP API gateway, common API/error handling, health checks, test infrastructure, development scripts, and CI quality checks.
+ResearchTrack is an ASP.NET Core microservice backend for a final-year research supervision platform. This repository provides the shared development foundation for the backend monorepo: service boundaries, EF Core/MySQL conventions, the YARP API gateway, common API/error handling, health checks, test infrastructure, development scripts, CI quality checks, and the two-branch DevOps workflow.
 
-> **Current-stage boundary:** deployment infrastructure, production containerization, cloud configuration, monitoring deployment, and object/file storage are intentionally outside this baseline. They can be added later without changing the development configuration model described here.
+> **Current-stage boundary:** provider-specific cloud deployment commands, production container registry configuration, monitoring deployment, and object/file storage provisioning are intentionally outside this baseline. GitHub Actions now records the Test and Production deployment gates and can be connected to the team's hosting provider when credentials are available.
 
 ---
 
@@ -17,6 +17,19 @@ ResearchTrack is an ASP.NET Core microservice backend for a final-year research 
 - Swagger / OpenAPI
 - xUnit + `WebApplicationFactory`
 - GitHub Actions quality checks
+
+---
+
+## Git strategy and CI/CD
+
+ResearchTrack uses `develop` for integrated sprint work and Test deployment candidates, and `main` for production-ready releases.
+
+- Pull requests to `develop` and `main` run restore, build, non-database test, format, and publish checks.
+- Pushes to `develop` represent the backend Test deployment candidate.
+- Pushes to `main` represent the backend Production deployment candidate.
+- Deployment jobs use GitHub Environments named `test` and `production`; provider-specific Docker publishing and deployment commands can be added after infrastructure credentials are configured.
+
+For branching rules, merge gates, and release approval requirements, see `CONTRIBUTING.md` and `docs/devops/branching-strategy.md`.
 
 NuGet versions are centralized in `Directory.Packages.props`.
 
