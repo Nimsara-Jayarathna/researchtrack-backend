@@ -124,3 +124,9 @@ For example:
 ```text
 v1.0.0
 ```
+
+## Reference material
+
+![ResearchTrack branching workflow overview](assets/branching-workflow-overview.png)
+
+![ResearchTrack environment deployment overview](assets/environment-deployment-overview.png)
