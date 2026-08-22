@@ -10,7 +10,7 @@ public sealed class RegisterRequest
     public string? Password { get; init; }
     public string? RegistrationNumber { get; init; }
 
-    // SuperviseSuite-compatible aliases. Canonical ResearchTrack fields above take precedence.
+    // Temporary request aliases retained for the existing ResearchTrack registration UI.
     [JsonPropertyName("fname")]
     public string? LegacyFirstName { get; init; }
 

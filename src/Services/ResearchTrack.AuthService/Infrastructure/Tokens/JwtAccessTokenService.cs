@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using ResearchTrack.AuthService.Configuration;
 using ResearchTrack.AuthService.Domain;
+using ResearchTrack.BuildingBlocks.Api.Security;
 
 namespace ResearchTrack.AuthService.Infrastructure.Tokens;
 
@@ -19,7 +20,11 @@ public sealed class JwtAccessTokenService : IAccessTokenService
         var payload = new Dictionary<string, object>
         {
             ["sub"] = user.Id.ToString(),
-            ["role"] = user.Role == UserRole.Student ? "STUDENT" : "SUPERVISOR",
+            ["jti"] = Guid.NewGuid().ToString("N"),
+            ["email"] = user.Email,
+            ["role"] = user.Role == UserRole.Student
+                ? AuthSecurityConstants.Roles.Student
+                : AuthSecurityConstants.Roles.Supervisor,
             ["iss"] = _options.Issuer,
             ["aud"] = _options.Audience,
             ["iat"] = now.ToUnixTimeSeconds(),
