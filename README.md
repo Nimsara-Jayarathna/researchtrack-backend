@@ -2,7 +2,7 @@
 
 ResearchTrack is an ASP.NET Core microservice backend for a final-year research supervision platform. This repository provides the shared development foundation for the backend monorepo: service boundaries, EF Core/MySQL conventions, the YARP API gateway, common API/error handling, health checks, test infrastructure, development scripts, CI quality checks, and the two-branch DevOps workflow.
 
-> **Current-stage boundary:** provider-specific cloud deployment commands, production container registry configuration, monitoring deployment, and object/file storage provisioning are intentionally outside this baseline. GitHub Actions now records the Test and Production deployment gates and can be connected to the team's hosting provider when credentials are available.
+> **Current-stage boundary:** provider-specific cloud deployment commands, production container registry configuration, monitoring deployment, and object/file storage provisioning are intentionally outside this baseline. GitHub Actions records the Test and Production deployment gates and can be connected to the team's hosting provider when credentials are available.
 
 ---
 
@@ -28,6 +28,7 @@ ResearchTrack uses `develop` for integrated sprint work and Test deployment cand
 - Pushes to `develop` represent the backend Test deployment candidate.
 - Pushes to `main` represent the backend Production deployment candidate.
 - Deployment jobs use GitHub Environments named `test` and `production`; provider-specific Docker publishing and deployment commands can be added after infrastructure credentials are configured.
+- Test/production runtime values should be injected through the CI/CD or deployment platform's environment/secrets mechanism. They must not be committed as real `.env` files.
 
 For branching rules, merge gates, and release approval requirements, see `CONTRIBUTING.md` and `docs/devops/branching-strategy.md`.
 
@@ -62,20 +63,20 @@ ResearchTrack Gateway :5000
  meeting database                              submission database
 ```
 
-The monorepo is a source-management choice, not a shared service boundary. Each business service owns its own ASP.NET project, EF Core `DbContext`, migrations, configuration, tests, and database.
+The monorepo is a source-management choice, not a shared service boundary. Each business service owns its own ASP.NET project, EF Core `DbContext`, migrations, runtime configuration, tests, and database.
 
 ### Service ports
 
-| Component | Local port |
-|---|---:|
-| Gateway | `5000` |
-| Auth Service | `5101` |
-| Project Service | `5102` |
-| GitHub Service | `5103` |
-| Jira Service | `5104` |
-| Meeting Service | `5105` |
-| Submission Service | `5106` |
-| React frontend | `5173` |
+| Component | Local port | Responsibility |
+|---|---:|---|
+| Gateway | `5000` | Public API entry point and reverse proxy |
+| Auth Service | `5101` | Registration, authentication and user identity |
+| Project Service | `5102` | Research projects and memberships |
+| GitHub Service | `5103` | GitHub integration and synchronized evidence |
+| Jira Service | `5104` | Jira integration and synchronized progress |
+| Meeting Service | `5105` | Supervision meetings |
+| Submission Service | `5106` | Research submissions and versions |
+| React frontend | `5173` | User interface |
 
 The React frontend should use the gateway only:
 
@@ -83,51 +84,68 @@ The React frontend should use the gateway only:
 http://localhost:5000
 ```
 
+### Configuration boundary
+
+The service boundary also applies to configuration:
+
+```text
+Auth Service       <- config/env/auth/.env.local
+Project Service    <- config/env/project/.env.local
+GitHub Service     <- config/env/github/.env.local
+Jira Service       <- config/env/jira/.env.local
+Meeting Service    <- config/env/meeting/.env.local
+Submission Service <- config/env/submission/.env.local
+Gateway            <- config/env/gateway/.env.local
+```
+
+A service should receive only the runtime values it owns. Sharing infrastructure code does not mean sharing configuration values or database credentials.
+
 ---
 
 # Configuration model
 
-ResearchTrack development uses three clearly separated configuration locations.
+ResearchTrack uses a **per-service environment configuration model**. Runtime values are external to source code and are not centralized in one root `.env` file.
 
 ```text
-.env.local
-    normal local development/database configuration
-
-.env.admin.local
-    database provisioning administrator credentials only
-
-ASP.NET User Secrets
-    feature/application secrets such as JWT, GitHub, Jira, email, etc.
+config/env/
+├── admin/
+│   ├── .env.example
+│   └── .env.local        # local only, gitignored
+├── gateway/
+│   ├── .env.example
+│   └── .env.local
+├── auth/
+│   ├── .env.example
+│   └── .env.local
+├── project/
+│   ├── .env.example
+│   └── .env.local
+├── github/
+│   ├── .env.example
+│   └── .env.local
+├── jira/
+│   ├── .env.example
+│   └── .env.local
+├── meeting/
+│   ├── .env.example
+│   └── .env.local
+└── submission/
+    ├── .env.example
+    └── .env.local
 ```
 
-This separation prevents the MySQL administrator password from being placed in every developer's normal environment file.
+The rules are:
 
-## Files committed to Git
+1. **`.env.example` is the committed configuration contract.** It contains keys, comments and placeholders only.
+2. **`.env.local` contains actual developer-local values.** It is never committed.
+3. **Test/production values are injected externally** by CI/CD or the deployment platform rather than stored as real environment files in Git.
+4. **Secrets and configurable business policy are both externalized.** Institutional email rules, password policy, synchronization intervals, storage limits, OAuth credentials, DB credentials, and similar runtime policy belong in ENV configuration.
+5. **Stable domain invariants remain in code.** For example, ResearchTrack having `STUDENT` and `SUPERVISOR` roles is a domain rule; which institutional domain maps to each role is configurable policy.
+6. **No service should depend on another service's `.env.local`.** Each component receives only its own configuration.
 
-```text
-.env.example
-.env.admin.example
-```
+`appsettings.json` may still contain stable framework/application structure such as logging defaults, service identity, gateway route definitions, and empty YARP destination slots. Real runtime endpoints, credentials and configurable business-policy values must come from ENV.
 
-These files contain templates/placeholders only and must never contain real passwords.
-
-## Files never committed
-
-```text
-.env.local
-.env.admin.local
-```
-
-Both are ignored by `.gitignore`.
-
-On macOS/Linux/WSL, keep their permissions restrictive:
-
-```bash
-chmod 600 .env.local
-chmod 600 .env.admin.local
-```
-
-Normal developers usually need only `.env.local`. The database administrator needs `.env.admin.local` only when provisioning databases/users.
+For a shorter configuration reference, see `config/env/README.md`.
 
 ---
 
@@ -174,44 +192,63 @@ The setup script:
 
 - checks Git and .NET
 - verifies the expected .NET 10 SDK family
-- creates `.env.local` from `.env.example` if it does not already exist
+- creates a missing `.env.local` beside every committed service `.env.example`
+- never overwrites an existing service `.env.local`
 - applies restrictive local permissions where supported
-- validates the env-file syntax
 - restores repository-local .NET tools
 - restores NuGet packages
-- reports whether the MySQL client and `curl` are available
+
+It creates local files for:
+
+```text
+config/env/gateway/.env.local
+config/env/auth/.env.local
+config/env/project/.env.local
+config/env/github/.env.local
+config/env/jira/.env.local
+config/env/meeting/.env.local
+config/env/submission/.env.local
+```
 
 It deliberately **does not**:
 
 - install or start a database server
-- create databases
-- change existing credentials
-- create `.env.admin.local`
+- create databases or MySQL users
+- create `config/env/admin/.env.local`
+- replace `CHANGE_ME` values
+- overwrite existing local configuration
 - deploy anything
 
-Existing `.env.local` files are never overwritten by `setup.sh`.
+After setup, configure only the services you intend to run.
+
+On macOS/Linux/WSL, keep local files restrictive:
+
+```bash
+chmod 600 config/env/auth/.env.local
+chmod 600 config/env/project/.env.local
+```
 
 ---
 
-# 3. Configure `.env.local`
+# 3. Configure service-owned `.env.local` files
 
-After setup, open:
+Each runtime component has its own environment contract.
+
+## Gateway
 
 ```text
-.env.local
+config/env/gateway/.env.local
 ```
 
-The committed template contains:
+Important keys:
 
 ```env
 ASPNETCORE_ENVIRONMENT=Development
 DOTNET_ENVIRONMENT=Development
+ASPNETCORE_URLS=http://localhost:5000
+OpenApi__Enabled=true
 
-MYSQL_HOST=127.0.0.1
-MYSQL_PORT=3307
-
-FRONTEND_ORIGIN=http://localhost:5173
-
+FRONTEND_ORIGIN=...
 AUTH_SERVICE_URL=http://localhost:5101/
 PROJECT_SERVICE_URL=http://localhost:5102/
 GITHUB_SERVICE_URL=http://localhost:5103/
@@ -220,31 +257,51 @@ MEETING_SERVICE_URL=http://localhost:5105/
 SUBMISSION_SERVICE_URL=http://localhost:5106/
 ```
 
-The repository makes no assumption about where the MySQL server physically runs. All database-aware scripts and services use only:
+The committed gateway route structure remains in `appsettings.json`; the real destination URLs are supplied by ENV.
+
+## Business-service database configuration
+
+Every business service owns its own DB values:
 
 ```text
-MYSQL_HOST
-MYSQL_PORT
+Database__Host
+Database__Port
+Database__Name
+Database__TestName
+Database__Username
+Database__Password
+Database__SslMode
+Database__AllowPublicKeyRetrieval
 ```
 
-Set those values to the MySQL endpoint available in your development environment.
+Example service file:
 
-## Service database configuration
+```text
+config/env/project/.env.local
+```
 
-Each service has one development database and one isolated integration-test database.
-
-Example:
+Example shape:
 
 ```env
-AUTH_DB_NAME=researchtrack_auth
-AUTH_TEST_DB_NAME=researchtrack_test_auth
-AUTH_DB_USER=rt_auth
-AUTH_DB_PASSWORD=CHANGE_ME
+Database__Host=127.0.0.1
+Database__Port=3307
+Database__Name=researchtrack_project
+Database__TestName=researchtrack_test_project
+Database__Username=rt_project
+Database__Password=...
+Database__SslMode=...
+Database__AllowPublicKeyRetrieval=...
 ```
 
-The full set is:
+The repository makes no assumption about where MySQL physically runs. Each service uses the endpoint supplied to that service.
 
-| Service | Development DB | Test DB | User |
+`ConnectionStrings__DefaultConnection` is supported as an explicit deployment/design-time override. Otherwise the shared database connection-string resolver constructs the connection string from that service's injected `Database__*` variables.
+
+### Database ownership
+
+A typical local naming scheme is:
+
+| Service | Development DB | Integration-test DB | Suggested scoped user |
 |---|---|---|---|
 | Auth | `researchtrack_auth` | `researchtrack_test_auth` | `rt_auth` |
 | Project | `researchtrack_project` | `researchtrack_test_project` | `rt_project` |
@@ -253,45 +310,106 @@ The full set is:
 | Meeting | `researchtrack_meeting` | `researchtrack_test_meeting` | `rt_meeting` |
 | Submission | `researchtrack_submission` | `researchtrack_test_submission` | `rt_submission` |
 
-Replace every `CHANGE_ME` value with the real service password provided through your team's secure credential-sharing process.
+The actual values are intentionally not committed into the `.env.example` files; each team's local/test deployment supplies them externally.
 
-The scripts refuse DB-dependent operations while placeholder passwords remain.
+## Service-specific configuration
 
-> Do not send `.env.local` through Git commits, pull requests, Jira comments, or other public/shared project history. If it is accidentally committed, rotate every exposed credential.
+In addition to database values, services own their integration/policy configuration.
+
+### Auth
+
+```text
+config/env/auth/.env.local
+```
+
+Contains Story 1 registration policy, password policy, password hashing values, and reserved JWT keys for the later login/authentication story.
+
+### Project
+
+```text
+Kafka__BootstrapServers
+```
+
+### GitHub
+
+```text
+Kafka__BootstrapServers
+GitHub__AppId
+GitHub__ClientId
+GitHub__ClientSecret
+GitHub__PrivateKeyPath
+GitHub__WebhookSecret
+GitHub__SyncIntervalMinutes
+```
+
+### Jira
+
+```text
+Kafka__BootstrapServers
+Jira__ClientId
+Jira__ClientSecret
+Jira__RedirectUri
+Jira__SyncIntervalMinutes
+```
+
+### Meeting
+
+```text
+Kafka__BootstrapServers
+```
+
+### Submission
+
+```text
+Kafka__BootstrapServers
+Storage__Endpoint
+Storage__Bucket
+Storage__AccessKey
+Storage__SecretKey
+Storage__MaximumFileSizeBytes
+```
+
+Real provider values must stay outside Git.
 
 ---
 
 # 4. Database administrator configuration
 
-This section is only for the person responsible for provisioning ResearchTrack databases and service users.
+This section is only for the person responsible for provisioning ResearchTrack databases and scoped service users.
 
-Normal developers can skip it.
+Normal developers can skip it after provisioning is complete.
 
 Create:
 
 ```bash
-cp .env.admin.example .env.admin.local
-chmod 600 .env.admin.local
+cp config/env/admin/.env.example config/env/admin/.env.local
+chmod 600 config/env/admin/.env.local
 ```
 
-Edit `.env.admin.local`:
+Edit:
+
+```text
+config/env/admin/.env.local
+```
+
+Contract:
 
 ```env
-MYSQL_ADMIN_USER=root
-MYSQL_ADMIN_PASSWORD=CHANGE_ME
+MYSQL_HOST=...
+MYSQL_PORT=...
+MYSQL_ADMIN_USER=...
+MYSQL_ADMIN_PASSWORD=...
 ```
 
-Replace `CHANGE_ME` with the real MySQL administrator password.
-
-`.env.admin.local` is used only by:
+`config/env/admin/.env.local` is used only by:
 
 ```bash
 ./scripts/db-init.sh
 ```
 
-It is not needed by `run.sh`, `dev.sh`, migrations, application services, or normal database status checks.
+It is not needed by normal service startup, migrations, health checks, ordinary DB status checks, or normal application requests.
 
-Never distribute the administrator credentials to team members who do not need provisioning access.
+Never distribute administrator credentials to team members who do not need database provisioning access.
 
 ---
 
@@ -299,12 +417,10 @@ Never distribute the administrator credentials to team members who do not need p
 
 **Administrator only.**
 
-Ensure both files are configured:
+Before provisioning:
 
-```text
-.env.local
-.env.admin.local
-```
+1. configure `config/env/admin/.env.local`
+2. configure the `Database__*` values in each business service `.env.local`
 
 Then run:
 
@@ -314,34 +430,38 @@ Then run:
 
 The script:
 
-1. loads the configured MySQL host/port from `.env.local`
-2. loads the administrator username/password from `.env.admin.local`
-3. verifies administrator connectivity
-4. creates the six development databases if missing
-5. creates the six test databases if missing
+1. loads the administrator endpoint/credentials from `config/env/admin/.env.local`
+2. verifies administrator connectivity
+3. loads each business service's own `.env.local`
+4. creates that service's development database if missing
+5. creates that service's integration-test database if missing
 6. creates/updates one scoped MySQL account per service
-7. grants each account privileges only to that service's development and test databases
+7. grants that account privileges only to its service-owned development/test databases
+8. does not print database passwords
 
-It does not print database passwords.
-
-It creates database ownership equivalent to:
+Conceptually:
 
 ```text
-rt_auth       -> researchtrack_auth + researchtrack_test_auth
-rt_project    -> researchtrack_project + researchtrack_test_project
-rt_github     -> researchtrack_github + researchtrack_test_github
-rt_jira       -> researchtrack_jira + researchtrack_test_jira
-rt_meeting    -> researchtrack_meeting + researchtrack_test_meeting
-rt_submission -> researchtrack_submission + researchtrack_test_submission
+admin/.env.local
+       |
+       v
+   db-init.sh
+       |
+       +--> auth/.env.local       -> Auth DB + scoped Auth user
+       +--> project/.env.local    -> Project DB + scoped Project user
+       +--> github/.env.local     -> GitHub DB + scoped GitHub user
+       +--> jira/.env.local       -> Jira DB + scoped Jira user
+       +--> meeting/.env.local    -> Meeting DB + scoped Meeting user
+       +--> submission/.env.local -> Submission DB + scoped Submission user
 ```
 
-Application tables are **not** created by `db-init.sh`; schemas are owned by EF Core migrations.
+Application tables are **not** created by `db-init.sh`; schemas remain owned by EF Core migrations.
 
 ---
 
 # 6. Verify database access
 
-Normal developers can verify all service credentials with:
+Normal developers can verify every service's development and test credentials with:
 
 ```bash
 ./scripts/db-status.sh
@@ -350,8 +470,6 @@ Normal developers can verify all service credentials with:
 Example output:
 
 ```text
-MySQL endpoint: 127.0.0.1:3307
-
 SERVICE          DATABASE                           STATUS
 ---------------- ---------------------------------- ----------------------
 auth/dev         researchtrack_auth                 OK
@@ -371,13 +489,13 @@ DATABASE MISSING
 FAILED
 ```
 
-This script uses only the service credentials from `.env.local`. It never needs the MySQL administrator account.
+This script uses only service-scoped credentials. It never needs the MySQL administrator account.
 
 ---
 
 # 7. EF Core migrations
 
-Every business service owns its own `DbContext` and migration history.
+Every business service owns its own `DbContext` and migration history:
 
 ```text
 AuthDbContext
@@ -389,6 +507,8 @@ SubmissionDbContext
 ```
 
 There is no shared `ResearchTrackDbContext`.
+
+Each design-time `DbContextFactory` resolves the database connection from the **selected service's environment**, through the shared connection-string resolver. Sharing this resolver does not share database values between services.
 
 ## Apply one service's migrations
 
@@ -427,9 +547,9 @@ By default the generated file is written to:
 artifacts/migrations/project.sql
 ```
 
-Migration scripts resolve their connection strings entirely from `.env.local`.
+The migration scripts load only the target service's `.env.local` before invoking EF Core.
 
-> EF Core `Migrations/` directories are source code and must be committed to Git.
+> EF Core `Persistence/Migrations/` directories are source code and must be committed to Git.
 
 ---
 
@@ -447,9 +567,13 @@ Migration scripts resolve their connection strings entirely from `.env.local`.
 ./scripts/run.sh submission
 ```
 
-For business services, `run.sh` builds `ConnectionStrings__DefaultConnection` from `.env.local` and exports it only to that process.
+`run.sh <service>` loads only:
 
-For the gateway, `run.sh` loads the configured frontend origin and service URLs from `.env.local`.
+```text
+config/env/<service>/.env.local
+```
+
+For business services it validates DB configuration before startup. For the gateway it validates gateway service URLs/origin configuration.
 
 ## Run the core/Sprint 1 stack
 
@@ -555,15 +679,19 @@ auth         OK         OK
 project      OK         OK
 ```
 
-If `LIVE=OK` but `READY=FAIL`, inspect the service log and verify `.env.local` plus database connectivity.
+If `LIVE=OK` but `READY=FAIL`, inspect the service log and verify that service's `.env.local` plus its database connectivity.
 
 ---
 
 # 10. Swagger / OpenAPI
 
-Swagger is enabled in Development/Testing.
+Swagger is controlled through each component's environment configuration:
 
-Typical URLs:
+```text
+OpenApi__Enabled
+```
+
+Typical local URLs:
 
 ```text
 Gateway     http://localhost:5000/swagger
@@ -577,7 +705,198 @@ Submission  http://localhost:5106/swagger
 
 ---
 
-# 11. Testing
+# 11. Sprint 1 Story 1 — User Registration & Automatic Role Assignment
+
+Story 1 is implemented in `ResearchTrack.AuthService`.
+
+> **Story:** As a new ResearchTrack user, I want to register using my valid institutional email address so that the system can create my account and automatically assign the correct Student or Supervisor role.
+
+## Public endpoints
+
+Through the gateway:
+
+```text
+GET  /api/v1/auth/register/config
+POST /api/v1/auth/register
+```
+
+Direct local Auth Service equivalents are available on port `5101` while developing the service.
+
+## Registration request
+
+Canonical ResearchTrack fields:
+
+```json
+{
+  "firstName": "...",
+  "lastName": "...",
+  "email": "...",
+  "registrationNumber": "...",
+  "password": "..."
+}
+```
+
+For frontend compatibility during migration from SuperviseSuite, legacy `fname`, `lname`, and `name` aliases are accepted by the request contract.
+
+A client-supplied `role` may also arrive from a legacy payload, but it is **never trusted as authorization input**. The backend owns role assignment.
+
+## Environment-driven registration policy
+
+The Auth Service reads Story 1 policy from:
+
+```text
+config/env/auth/.env.local
+```
+
+Required registration-policy keys:
+
+```text
+Registration__StudentEmailDomain
+Registration__SupervisorEmailDomain
+Registration__StudentIdentifierPattern
+Registration__RequireStudentRegistrationNumber
+Registration__RequireStudentRegistrationNumberToMatchEmail
+Registration__MaxFirstNameLength
+Registration__MaxLastNameLength
+Registration__MaxEmailLength
+Registration__MaxRegistrationNumberLength
+```
+
+Password-policy keys:
+
+```text
+PasswordPolicy__MinimumLength
+PasswordPolicy__MaximumLength
+PasswordPolicy__RequireUppercase
+PasswordPolicy__RequireLowercase
+PasswordPolicy__RequireDigit
+PasswordPolicy__RequireSpecialCharacter
+```
+
+Password-hashing keys:
+
+```text
+PasswordHashing__Iterations
+PasswordHashing__SaltSizeBytes
+PasswordHashing__HashSizeBytes
+```
+
+No real institutional domain, student-identifier regex, password-policy threshold, or hashing cost is committed as a production business value in source code.
+
+The `.env.example` file documents only the required keys/placeholders. Actual values live in the local/deployment environment.
+
+## Role assignment
+
+The service owns the final decision:
+
+```text
+submitted institutional email
+           |
+           v
+normalized + validated
+           |
+           v
+configured institutional rules
+           |
+      +----+----+
+      |         |
+      v         v
+   STUDENT   SUPERVISOR
+```
+
+The user never manually chooses a privileged role.
+
+## Validation and security behavior
+
+Story 1 currently provides:
+
+- required-field validation
+- email syntax validation
+- institutional-domain validation
+- automatic Student/Supervisor role derivation
+- configurable student registration-number requirement
+- configurable registration-number/email identifier matching
+- configurable server-side password policy
+- email normalization to lowercase before persistence
+- student registration-number normalization to uppercase
+- duplicate email prevention
+- duplicate registration-number prevention where applicable
+- database unique indexes as a final concurrency-safe duplicate barrier
+- PBKDF2-SHA256 password hashing with random salts and ENV-controlled work factors
+- no plaintext password persistence or response exposure
+- standardized API error responses with field-level validation details
+- safe registration response data only
+
+## Acceptance-criteria mapping
+
+| Acceptance criterion | Backend implementation |
+|---|---|
+| AC1 — Successful Registration | Valid request creates a persisted user and returns success data |
+| AC2 — Automatic Role Assignment | Role is derived server-side from configured institutional rules |
+| AC3 — Invalid Institutional Email | Invalid/non-matching institutional email is rejected with validation error |
+| AC4 — Duplicate Account Prevention | Service checks plus DB unique constraint prevent duplicate email accounts |
+| AC5 — Required Field Validation | Missing/invalid fields return standardized field-level validation messages |
+
+## Auth database
+
+`AuthDbContext` now owns the User aggregate/table and the Story 1 migration:
+
+```text
+Persistence/Migrations/20260822083000_AddUsers.cs
+```
+
+The user schema stores identity/profile fields, server-assigned role, password hash, optional student registration number, and timestamps.
+
+## Registration configuration endpoint
+
+```text
+GET /api/v1/auth/register/config
+```
+
+This endpoint allows the already-built frontend to consume non-secret registration constraints from the same server-owned policy instead of duplicating validation values in frontend source.
+
+It must never expose secrets such as database passwords, hashing material, JWT signing keys, or provider credentials.
+
+## Story 1 detailed notes
+
+See:
+
+```text
+docs/development/story-01-registration.md
+```
+
+for the endpoint contract, acceptance-criteria mapping, security notes, and verification commands.
+
+### Story boundary
+
+Story 1 does **not** require email OTP/ownership verification, MFA, JWT login, or refresh tokens. JWT environment keys are reserved for the later secure-login story and should not be interpreted as implemented authentication functionality yet.
+
+---
+
+# 12. API response conventions
+
+ResearchTrack uses the shared API/error response infrastructure from `ResearchTrack.BuildingBlocks.Api`.
+
+Successful responses follow the shared envelope, for example:
+
+```json
+{
+  "success": true,
+  "data": {},
+  "meta": {
+    "traceId": "...",
+    "timestamp": "..."
+  }
+}
+```
+
+Validation responses expose field-level errors so the frontend can bind messages to individual form controls.
+
+The shared building blocks centralize technical conventions such as response envelopes, exception handling, configuration binding helpers, and DB connection-string construction. They do **not** centralize service-owned business data or database credentials.
+
+---
+
+# 13. Testing
 
 ## Normal tests
 
@@ -585,6 +904,8 @@ Run all non-database-integration tests:
 
 ```bash
 ./scripts/test.sh
+# equivalent explicit scope:
+./scripts/test.sh all
 ```
 
 Run one service test project:
@@ -592,9 +913,14 @@ Run one service test project:
 ```bash
 ./scripts/test.sh auth
 ./scripts/test.sh project
+./scripts/test.sh github
+./scripts/test.sh jira
+./scripts/test.sh meeting
+./scripts/test.sh submission
+./scripts/test.sh gateway
 ```
 
-These commands do not require `.env.local` database connectivity.
+These commands exclude tests categorized as `DatabaseIntegration`.
 
 ## Database integration tests
 
@@ -604,22 +930,44 @@ Run explicitly:
 ./scripts/test.sh integration
 ```
 
-This command loads `.env.local` and exports dedicated test connection strings using:
+The integration command builds dedicated test connection strings from each business service's own `.env.local` using:
 
 ```text
-researchtrack_test_auth
-researchtrack_test_project
-researchtrack_test_github
-researchtrack_test_jira
-researchtrack_test_meeting
-researchtrack_test_submission
+Database__TestName
+```
+
+and exports isolated test connections for:
+
+```text
+RESEARCHTRACK_TEST_AUTH_CONNECTION
+RESEARCHTRACK_TEST_PROJECT_CONNECTION
+RESEARCHTRACK_TEST_GITHUB_CONNECTION
+RESEARCHTRACK_TEST_JIRA_CONNECTION
+RESEARCHTRACK_TEST_MEETING_CONNECTION
+RESEARCHTRACK_TEST_SUBMISSION_CONNECTION
 ```
 
 Development databases must not be used for destructive integration-test cleanup.
 
+## Story 1 test coverage
+
+The Auth tests cover the registration/configuration behavior including:
+
+- valid Student registration
+- valid Supervisor registration
+- invalid institutional email
+- required-field errors
+- configurable password policy
+- server-owned role assignment
+- ignoring client-supplied role as authority
+- legacy frontend field aliases
+- password hashing behavior
+- duplicate prevention
+- database integration behavior where categorized accordingly
+
 ---
 
-# 12. Pre-PR quality check
+# 14. Pre-PR quality check
 
 Before opening a pull request:
 
@@ -644,55 +992,19 @@ Database integration tests remain explicit:
 ./scripts/test.sh integration
 ```
 
-This keeps normal quality checks independent from external database availability.
+This keeps the normal quality gate independent from external database availability while still allowing DB verification before merge/release.
+
+Other useful quality commands:
+
+```bash
+./scripts/build.sh
+./scripts/format.sh
+./scripts/clean.sh
+```
 
 ---
 
-# 13. ASP.NET User Secrets
-
-Do not place future application secrets in `.env.local` merely because they are secrets.
-
-Use ASP.NET User Secrets for feature/application values such as:
-
-```text
-JWT signing keys
-GitHub application/client secrets
-Jira OAuth secrets
-email provider credentials
-future storage credentials
-```
-
-Store a secret:
-
-```bash
-./scripts/secrets-set.sh auth "Jwt:SigningKey"
-```
-
-The value is requested interactively and is not put into shell history by the script.
-
-List configured keys with values masked:
-
-```bash
-./scripts/secrets-list.sh auth
-```
-
-Remove one key:
-
-```bash
-./scripts/secrets-remove.sh auth "Jwt:SigningKey"
-```
-
-Clear all User Secrets for a project:
-
-```bash
-./scripts/secrets-clear.sh auth
-```
-
-User Secrets are development-only configuration and are stored outside the repository.
-
----
-
-# 14. Environment file format
+# 15. Environment file format
 
 The env loader deliberately treats env files as **data rather than executable shell scripts**.
 
@@ -714,52 +1026,78 @@ KEY=$(command)
 KEY=`command`
 ```
 
-The scripts do not `source .env.local`; they parse it as a simple key/value file.
+The scripts do not `source` the service `.env.local` files as arbitrary shell programs; they parse them as key/value configuration data.
 
 This design also accepts Windows CRLF line endings when files are edited from Windows/WSL workflows.
 
+ASP.NET's `__` convention is used for nested configuration:
+
+```text
+Registration__StudentEmailDomain
+```
+
+maps to:
+
+```text
+Registration:StudentEmailDomain
+```
+
+inside `IConfiguration` / `IOptions<T>`.
+
 ---
 
-# 15. Secret-handling rules
+# 16. Secret and configuration handling rules
 
 Never commit or share publicly:
 
 ```text
-.env.local
-.env.admin.local
+config/env/**/.env.local
 service database passwords
 MySQL administrator password
 private keys
 JWT signing keys
 GitHub/Jira OAuth secrets
-future provider credentials
+GitHub webhook secrets
+future email/provider credentials
+storage access/secret keys
 ```
 
-Safe repository templates:
+Safe repository contracts:
 
 ```text
-.env.example
-.env.admin.example
+config/env/**/.env.example
 ```
+
+The `.env.example` files must contain placeholders only; do not put actual institutional domains, production OAuth IDs, provider endpoints requiring confidentiality, or real credentials into templates simply because a value is not technically a password.
 
 Additional rules:
 
-1. Give the administrator password only to people who actually provision the DB server.
-2. Normal application processes use service-specific DB accounts, not the MySQL administrator account.
+1. Give the database administrator password only to people who actually provision the DB server.
+2. Normal application processes use service-specific DB accounts, never the MySQL administrator account.
 3. Each service DB account receives access only to its own development/test databases.
-4. Do not print database passwords in scripts or logs.
+4. Do not print secrets in scripts, exceptions, responses, or normal application logs.
 5. Rotate credentials immediately if a secret enters Git history or another uncontrolled location.
-6. Do not reuse development passwords in staging/production.
+6. Do not reuse development secrets in Test/Production.
+7. Do not hard-code configurable business policy in C# or `appsettings.json` simply for convenience.
+8. Strongly typed `Options` classes define the configuration contract; ENV supplies the actual runtime values.
+9. Required configuration should fail fast during startup rather than silently falling back to insecure or misleading defaults.
+
+### Why ASP.NET User Secrets are not used as the primary project model
+
+ResearchTrack deliberately uses the same environment-key contract across local development, CI/CD, containers, and future hosting platforms. That avoids one configuration model for local development and a different one for deployment.
+
+Local values are kept in gitignored service `.env.local` files; deployment values are injected through the deployment platform's secure environment/secrets capability.
 
 ---
 
-# 16. Common command reference
+# 17. Common command reference
 
 ```bash
 # First setup
 ./scripts/setup.sh
 
 # Database provisioning - administrator only
+cp config/env/admin/.env.example config/env/admin/.env.local
 ./scripts/db-init.sh
 
 # Normal DB verification
@@ -767,36 +1105,40 @@ Additional rules:
 
 # EF Core
 ./scripts/migrate.sh all
+./scripts/migrate.sh auth
 ./scripts/migration-add.sh project AddProjectSchema
 ./scripts/migration-list.sh project
 ./scripts/migration-script.sh project
 
 # Development
+./scripts/run.sh auth
 ./scripts/run.sh project
+./scripts/run.sh gateway
 ./scripts/dev.sh core
+./scripts/dev.sh integrations
+./scripts/dev.sh research
+./scripts/dev.sh all
 ./scripts/health.sh core
 ./scripts/stop.sh core
+
+# Optional development data seeding
+./scripts/seed-dev.sh <service>
 
 # Quality
 ./scripts/build.sh
 ./scripts/test.sh
+./scripts/test.sh auth
 ./scripts/test.sh integration
 ./scripts/check.sh
 ./scripts/format.sh
 ./scripts/clean.sh
-
-# User Secrets
-./scripts/secrets-set.sh auth "Jwt:SigningKey"
-./scripts/secrets-list.sh auth
-./scripts/secrets-remove.sh auth "Jwt:SigningKey"
-./scripts/secrets-clear.sh auth
 ```
 
 ---
 
-# 17. Troubleshooting
+# 18. Troubleshooting
 
-## `Missing .env.local`
+## Missing `config/env/<service>/.env.local`
 
 Run:
 
@@ -804,68 +1146,82 @@ Run:
 ./scripts/setup.sh
 ```
 
-Then configure the copied `.env.local`.
+The script creates missing local files from the committed `.env.example` contracts without overwriting existing ones.
 
-## `Environment variable ... still contains a placeholder value`
+## `CHANGE_ME` or placeholder configuration remains
 
-A DB password still has:
+Open the affected service file:
 
 ```text
-CHANGE_ME
+config/env/<service>/.env.local
 ```
 
-Replace it with the real service credential.
+and replace the required placeholders with real local values.
 
-## `Missing .env.admin.local`
+For Story 1, this includes the Auth registration/password policy as well as its DB values.
+
+## Missing `config/env/admin/.env.local`
 
 Only `db-init.sh` requires this file.
 
 If you are the database administrator:
 
 ```bash
-cp .env.admin.example .env.admin.local
-chmod 600 .env.admin.local
+cp config/env/admin/.env.example config/env/admin/.env.local
+chmod 600 config/env/admin/.env.local
 ```
 
-Then configure the administrator credentials.
+Then configure administrator credentials.
 
-Normal developers should not create this file unless they are responsible for provisioning.
+Normal developers should not create or request this file unless they are responsible for provisioning.
 
 ## `CONNECTION FAILED`
 
-Verify:
+Verify the selected service's:
 
 ```text
-MYSQL_HOST
-MYSQL_PORT
+Database__Host
+Database__Port
 ```
 
-and confirm that the configured MySQL endpoint is reachable.
+and confirm that the MySQL endpoint is reachable from the environment where the script/service is running.
 
 ## `AUTH FAILED`
 
-Verify the service's:
+Verify the selected service's:
 
 ```text
-*_DB_USER
-*_DB_PASSWORD
+Database__Username
+Database__Password
 ```
-
-values.
 
 Do not solve this by switching the application to the MySQL administrator account.
 
 ## `DATABASE MISSING`
 
-The configured database has not been provisioned or its name is wrong. Ask the database administrator to verify provisioning.
+Verify:
 
-## EF Core cannot create the DbContext
+```text
+Database__Name
+Database__TestName
+```
 
-Use the repository migration scripts rather than manually invoking `dotnet ef`; the scripts export the correct connection string for the selected service.
+The database may not have been provisioned yet, or the configured name may be wrong.
+
+## EF Core cannot create the `DbContext`
+
+Use the repository migration scripts rather than manually invoking `dotnet ef` without the proper environment:
+
+```bash
+./scripts/migrate.sh <service>
+./scripts/migration-list.sh <service>
+```
+
+The selected service's `DbContextFactory` receives configuration from that service's environment through the shared connection-string resolver.
 
 ## Service is LIVE but not READY
 
-Check:
+Check database access:
 
 ```bash
 ./scripts/db-status.sh
@@ -877,48 +1233,131 @@ and inspect:
 .run/logs/<service>.log
 ```
 
+Also verify that service's own `.env.local` contains all required configuration.
+
+## Gateway returns routing/connection errors
+
+Check:
+
+```text
+config/env/gateway/.env.local
+```
+
+especially:
+
+```text
+AUTH_SERVICE_URL
+PROJECT_SERVICE_URL
+GITHUB_SERVICE_URL
+JIRA_SERVICE_URL
+MEETING_SERVICE_URL
+SUBMISSION_SERVICE_URL
+FRONTEND_ORIGIN
+```
+
+The gateway route definitions are stable configuration, but destination addresses are environment-owned.
+
+## Registration endpoint fails at startup/configuration validation
+
+Check:
+
+```text
+config/env/auth/.env.local
+```
+
+and ensure all required `Registration__*`, `PasswordPolicy__*`, and `PasswordHashing__*` values are valid.
+
+Story 1 is intentionally designed to fail fast when required policy is missing instead of silently applying hard-coded business defaults.
+
 ---
 
-# 18. Repository configuration principles
+# 19. Repository configuration principles
 
-The configuration model is intentionally infrastructure-agnostic:
+The ResearchTrack configuration model is intentionally infrastructure-agnostic and service-owned.
 
-```text
-ResearchTrack application/scripts
-             |
-             v
-      MYSQL_HOST:MYSQL_PORT
-             |
-             v
-           MySQL
-```
-
-The backend does not need to know how that endpoint is provided.
-
-Database provisioning is intentionally separate:
+## Code defines contracts; ENV provides values
 
 ```text
-.env.local
-    +
-.env.admin.local
-    |
-    v
- db-init.sh
-    |
-    v
-MySQL provisioning
+C# Options / service code
+        |
+        | defines required keys/types
+        v
+Environment configuration
+        |
+        | supplies actual runtime values
+        v
+Service behavior
 ```
 
-Normal development uses:
+Example:
 
 ```text
-.env.local
-    |
-    +--> run.sh
-    +--> dev.sh
-    +--> db-status.sh
-    +--> migration scripts
-    +--> database integration tests
+UserRole.Student / UserRole.Supervisor
+    -> stable domain invariant -> code
+
+Registration__StudentEmailDomain
+    -> configurable institutional policy -> ENV
 ```
 
-Future deployment configuration can use the platform's own secure environment/secrets system without changing these application configuration keys.
+## Each service owns its runtime environment
+
+```text
+config/env/auth/.env.local
+        |
+        v
+    Auth Service
+        |
+        v
+      Auth DB
+
+config/env/jira/.env.local
+        |
+        v
+    Jira Service
+        |
+        v
+      Jira DB
+```
+
+The Auth Service does not need Jira credentials; Jira does not need Auth DB credentials.
+
+## Shared technical helpers do not create shared service state
+
+ResearchTrack may centralize technical infrastructure such as:
+
+```text
+API envelopes
+exception handling
+configuration-binding helpers
+DB connection-string construction
+health-check conventions
+```
+
+but each service still owns its own:
+
+```text
+business logic
+configuration values
+DbContext
+migrations
+database
+integration credentials
+service tests
+```
+
+## Local, Test and future Production use the same keys
+
+```text
+Local
+    config/env/<service>/.env.local
+
+Test
+    CI/CD / deployment environment variables
+
+Production
+    deployment platform secure environment/secrets
+```
+
+The application configuration keys remain the same; only the values and delivery mechanism change.
+
+This keeps ResearchTrack flexible without putting environment-specific or configurable business values into the committed codebase.
