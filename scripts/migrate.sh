@@ -14,20 +14,20 @@ rt_require_command dotnet
 service="${1:-}"
 
 if [[ -n "$service" ]]; then
-  shift
+    shift
 fi
 
 skip_build=false
 
 while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --no-build)
-      skip_build=true
-      shift
-      ;;
+    case "$1" in
+        --no-build)
+            skip_build=true
+            shift
+            ;;
 
-    -h|--help)
-      cat <<'USAGE'
+        -h|--help)
+            cat <<'USAGE'
 Usage:
   ./scripts/migrate.sh <service|all> [--no-build]
 
@@ -38,29 +38,30 @@ Examples:
   ./scripts/migrate.sh all --no-build
 
 Behavior:
-  1. Builds the selected project/solution unless --no-build is supplied.
-  2. Checks the database for pending EF Core migrations.
-  3. Skips services whose migrations are already fully applied.
-  4. Runs "dotnet ef database update" only when pending migrations exist.
+  1. Builds first unless --no-build is supplied.
+  2. Checks EF Core migrations for each selected service.
+  3. Skips the database update when no migrations are pending.
+  4. Applies only pending migrations.
 
-Use --no-build when the backend has already been successfully built,
-for example from scripts/start-all.sh.
+Use --no-build when the solution has already been built,
+such as from scripts/start-all.sh.
 USAGE
-      exit 0
-      ;;
+            exit 0
+            ;;
 
-    *)
-      echo "Unknown option: $1" >&2
-      exit 1
-      ;;
-  esac
+        *)
+            printf 'Unknown option: %s\n' "$1" >&2
+            exit 1
+            ;;
+    esac
 done
 
 if [[ -z "$service" ]]; then
-  echo "Usage: ./scripts/migrate.sh <service|all> [--no-build]" >&2
-  exit 1
+    printf 'Usage: ./scripts/migrate.sh <service|all> [--no-build]\n' >&2
+    exit 1
 fi
 
+service="${service,,}"
 configuration="${CONFIGURATION:-Debug}"
 
 # ---------------------------------------------------------------------------
@@ -68,78 +69,77 @@ configuration="${CONFIGURATION:-Debug}"
 # ---------------------------------------------------------------------------
 
 build_for_migration() {
-  local requested="${1,,}"
-  local project
+    local requested="$1"
+    local project
 
-  if [[ "$skip_build" == true ]]; then
-    return 0
-  fi
+    if [[ "$skip_build" == true ]]; then
+        return 0
+    fi
 
-  if [[ "$requested" == "all" ]]; then
-    echo "Building ResearchTrack solution before migration checks..."
+    if [[ "$requested" == "all" ]]; then
+        printf 'Building ResearchTrack solution before migration checks...\n\n'
+
+        dotnet build \
+            ResearchTrack.sln \
+            -c "$configuration" \
+            --no-restore
+
+        return 0
+    fi
+
+    project="$(rt_service_project "$requested")"
+
+    printf 'Building %s before migration checks...\n\n' "$requested"
 
     dotnet build \
-      ResearchTrack.sln \
-      -c "$configuration" \
-      --no-restore
-
-    return 0
-  fi
-
-  project="$(rt_service_project "$requested")"
-
-  echo "Building $requested before migration checks..."
-
-  dotnet build \
-    "$project" \
-    -c "$configuration" \
-    --no-restore
+        "$project" \
+        -c "$configuration" \
+        --no-restore
 }
 
 # ---------------------------------------------------------------------------
-# Pending migration check
+# Migration state
+#
+# Prints:
+#   pending
+#   none
+#
+# Returns non-zero ONLY when EF itself fails.
+# "No pending migrations" is NOT treated as an error.
 # ---------------------------------------------------------------------------
 
-has_pending_migrations() {
-  local svc="$1"
-  local project="$2"
-  local context="$3"
+get_migration_state() {
+    local svc="$1"
+    local project="$2"
+    local context="$3"
 
-  local migration_json
-  local status
+    local output
 
-  set +e
+    if ! output="$(
+        dotnet ef migrations list \
+            --project "$project" \
+            --startup-project "$project" \
+            --context "$context" \
+            --configuration "$configuration" \
+            --no-build \
+            --json \
+            2>&1
+    )"; then
+        printf 'Failed to inspect migrations for %s.\n\n' "$svc" >&2
+        printf '%s\n' "$output" >&2
+        return 1
+    fi
 
-  migration_json="$(
-    dotnet ef migrations list \
-      --project "$project" \
-      --startup-project "$project" \
-      --context "$context" \
-      --configuration "$configuration" \
-      --no-build \
-      --json \
-      2>&1
-  )"
+    if grep -Eq \
+        '"applied"[[:space:]]*:[[:space:]]*false' \
+        <<< "$output"; then
 
-  status=$?
-
-  set -e
-
-  if [[ "$status" -ne 0 ]]; then
-    echo "Failed to inspect migrations for $svc." >&2
-    echo >&2
-    echo "$migration_json" >&2
-    return 2
-  fi
-
-  if grep -Eq \
-    '"applied"[[:space:]]*:[[:space:]]*false' \
-    <<< "$migration_json"; then
+        printf 'pending'
+    else
+        printf 'none'
+    fi
 
     return 0
-  fi
-
-  return 1
 }
 
 # ---------------------------------------------------------------------------
@@ -147,82 +147,87 @@ has_pending_migrations() {
 # ---------------------------------------------------------------------------
 
 migrate_one() {
-  local svc="$1"
-  local project
-  local context
-  local pending_status
+    local svc="$1"
 
-  rt_load_dev_env "$svc"
-  rt_validate_db_environment
+    local project
+    local context
+    local state
 
-  project="$(rt_service_project "$svc")"
-  context="$(rt_service_context "$svc")"
+    # Load service-specific development configuration.
+    rt_load_dev_env "$svc"
+    rt_validate_db_environment
 
-  printf 'Checking %s (%s)...\n' "$svc" "$context"
+    project="$(rt_service_project "$svc")"
+    context="$(rt_service_context "$svc")"
 
-  set +e
+    printf 'Checking %s (%s)...\n' "$svc" "$context"
 
-  has_pending_migrations \
-    "$svc" \
-    "$project" \
-    "$context"
+    # IMPORTANT:
+    # Use the function inside an if condition so set -e does not terminate
+    # the script if migration inspection itself fails.
+    if ! state="$(get_migration_state "$svc" "$project" "$context")"; then
+        printf '  FAILED   Unable to determine migration state.\n'
+        return 1
+    fi
 
-  pending_status=$?
+    case "$state" in
+        pending)
+            printf '  PENDING  Migration(s) found.\n'
+            printf '  APPLY    Applying pending migration(s)...\n'
 
-  set -e
+            dotnet ef database update \
+                --project "$project" \
+                --startup-project "$project" \
+                --context "$context" \
+                --configuration "$configuration" \
+                --no-build
 
-  case "$pending_status" in
-    0)
-      printf '  PENDING  Migration(s) found.\n'
-      printf '  APPLY    Applying migrations...\n'
+            printf '  DONE     %s database is up to date.\n' "$svc"
+            ;;
 
-      dotnet ef database update \
-        --project "$project" \
-        --startup-project "$project" \
-        --context "$context" \
-        --configuration "$configuration" \
-        --no-build
+        none)
+            printf '  SKIP     No pending migrations.\n'
+            ;;
 
-      printf '  DONE     %s database is up to date.\n' "$svc"
-      ;;
+        *)
+            printf \
+                '  FAILED   Unexpected migration state: %s\n' \
+                "$state" \
+                >&2
 
-    1)
-      printf '  SKIP     No pending migrations.\n'
-      ;;
+            return 1
+            ;;
+    esac
 
-    *)
-      printf '  FAILED   Could not determine migration state for %s.\n' \
-        "$svc" >&2
-
-      return 1
-      ;;
-  esac
+    return 0
 }
 
 # ---------------------------------------------------------------------------
 # Execute
 # ---------------------------------------------------------------------------
 
-if [[ "${service,,}" == "all" ]]; then
+if [[ "$service" == "all" ]]; then
 
-  build_for_migration all
+    build_for_migration all
 
-  echo
+    printf '\n'
 
-  for svc in $(rt_all_db_services); do
-    migrate_one "$svc"
-    echo
-  done
+    for svc in $(rt_all_db_services); do
+        migrate_one "$svc"
+        printf '\n'
+    done
 
 else
 
-  # Validate service name early.
-  rt_service_context "$service" >/dev/null
-  rt_service_project "$service" >/dev/null
+    # Validate the requested service before doing any work.
+    rt_service_project "$service" >/dev/null
+    rt_service_context "$service" >/dev/null
 
-  build_for_migration "$service"
+    build_for_migration "$service"
 
-  echo
+    printf '\n'
 
-  migrate_one "${service,,}"
+    migrate_one "$service"
 fi
+
+printf 'Migration check completed successfully.\n'
