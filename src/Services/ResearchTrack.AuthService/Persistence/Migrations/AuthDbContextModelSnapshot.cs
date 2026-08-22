@@ -19,6 +19,50 @@ partial class AuthDbContextModelSnapshot : ModelSnapshot
             .HasAnnotation("ProductVersion", "10.0.9")
             .HasAnnotation("Relational:MaxIdentifierLength", 64);
 
+
+        modelBuilder.Entity("ResearchTrack.AuthService.Domain.EmailOtp", b =>
+        {
+            b.Property<Guid>("Id").ValueGeneratedNever().HasColumnType("char(36)");
+            b.Property<DateTime>("CreatedAt").HasColumnType("datetime(6)");
+            b.Property<string>("Email").IsRequired().HasMaxLength(320).HasColumnType("varchar(320)");
+            b.Property<DateTime>("ExpiresAt").HasColumnType("datetime(6)");
+            b.Property<string>("OtpHash").IsRequired().HasMaxLength(64).HasColumnType("varchar(64)");
+            b.Property<DateTime?>("UsedAt").HasColumnType("datetime(6)");
+            b.HasKey("Id");
+            b.HasIndex("Email").HasDatabaseName("ix_email_otps_email");
+            b.HasIndex("ExpiresAt").HasDatabaseName("ix_email_otps_expires_at");
+            b.ToTable("email_otps", (string)null);
+        });
+
+        modelBuilder.Entity("ResearchTrack.AuthService.Domain.RegistrationSession", b =>
+        {
+            b.Property<Guid>("Id").ValueGeneratedNever().HasColumnType("char(36)");
+            b.Property<DateTime>("CreatedAt").HasColumnType("datetime(6)");
+            b.Property<string>("Email").IsRequired().HasMaxLength(320).HasColumnType("varchar(320)");
+            b.Property<DateTime>("ExpiresAt").HasColumnType("datetime(6)");
+            b.Property<UserRole?>("Role").HasConversion<string>().HasMaxLength(32).HasColumnType("varchar(32)");
+            b.Property<string>("TokenHash").IsRequired().HasMaxLength(64).HasColumnType("varchar(64)");
+            b.Property<DateTime?>("UsedAt").HasColumnType("datetime(6)");
+            b.HasKey("Id");
+            b.HasIndex("ExpiresAt").HasDatabaseName("ix_registration_sessions_expires_at");
+            b.HasIndex("TokenHash").IsUnique().HasDatabaseName("ux_registration_sessions_token_hash");
+            b.ToTable("registration_sessions", (string)null);
+        });
+
+        modelBuilder.Entity("ResearchTrack.AuthService.Domain.RefreshToken", b =>
+        {
+            b.Property<Guid>("Id").ValueGeneratedNever().HasColumnType("char(36)");
+            b.Property<DateTime>("CreatedAt").HasColumnType("datetime(6)");
+            b.Property<DateTime>("ExpiresAt").HasColumnType("datetime(6)");
+            b.Property<DateTime?>("RevokedAt").HasColumnType("datetime(6)");
+            b.Property<string>("TokenHash").IsRequired().HasMaxLength(64).HasColumnType("varchar(64)");
+            b.Property<Guid>("UserId").HasColumnType("char(36)");
+            b.HasKey("Id");
+            b.HasIndex("TokenHash").IsUnique().HasDatabaseName("ux_refresh_tokens_token_hash");
+            b.HasIndex("UserId").HasDatabaseName("ix_refresh_tokens_user_id");
+            b.ToTable("refresh_tokens", (string)null);
+        });
+
         modelBuilder.Entity("ResearchTrack.AuthService.Domain.User", b =>
         {
             b.Property<Guid>("Id")
@@ -72,6 +116,15 @@ partial class AuthDbContextModelSnapshot : ModelSnapshot
                 .HasDatabaseName("ux_users_registration_number");
 
             b.ToTable("users", (string)null);
+        });
+
+        modelBuilder.Entity("ResearchTrack.AuthService.Domain.RefreshToken", b =>
+        {
+            b.HasOne("ResearchTrack.AuthService.Domain.User", null)
+                .WithMany()
+                .HasForeignKey("UserId")
+                .OnDelete(DeleteBehavior.Cascade)
+                .IsRequired();
         });
 #pragma warning restore 612, 618
     }
