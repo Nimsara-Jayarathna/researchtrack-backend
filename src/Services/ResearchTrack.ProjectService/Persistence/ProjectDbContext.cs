@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using ResearchTrack.ProjectService.Domain;
 
 namespace ResearchTrack.ProjectService.Persistence;
 
@@ -9,5 +10,11 @@ public sealed class ProjectDbContext : DbContext
     {
     }
 
-    // Sprint feature implementations add service-owned entity sets here.
+    public DbSet<Project> Projects => Set<Project>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        base.OnModelCreating(modelBuilder);
+        modelBuilder.ApplyConfigurationsFromAssembly(typeof(ProjectDbContext).Assembly);
+    }
 }
