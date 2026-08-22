@@ -1,10 +1,12 @@
 using ResearchTrack.BuildingBlocks.Api.Extensions;
+using ResearchTrack.BuildingBlocks.Api.Security;
 using ResearchTrack.ProjectService.Persistence;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.ConfigureKestrel(options => options.AddServerHeader = false);
 
 builder.Services.AddResearchTrackApi("ResearchTrack Project Service");
+builder.Services.AddResearchTrackJwtAuthentication(builder.Configuration);
 builder.Services.AddProjectPersistence(builder.Configuration);
 
 var app = builder.Build();
