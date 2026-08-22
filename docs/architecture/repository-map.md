@@ -42,7 +42,7 @@ Development-only seeding host. It remains intentionally feature-empty until real
 
 ## `scripts`
 
-Developer convenience and safety layer for setup, local MySQL, EF migrations, running services, health checks, tests, quality checks, and local User Secrets.
+Developer convenience and safety layer for setup, local MySQL, EF migrations, running services, health checks, tests, quality checks, and service-owned environment configuration.
 
 ## `docs`
 

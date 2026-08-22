@@ -33,10 +33,18 @@ All examples run from repository root.
 ./scripts/test.sh integration
 ```
 
-## Secrets
+## Service environment configuration
 
 ```bash
-./scripts/secrets-set.sh auth "Jwt:SigningKey"
-./scripts/secrets-list.sh auth
-./scripts/secrets-remove.sh auth "Jwt:SigningKey"
+# Creates missing service-local files without overwriting existing values
+./scripts/setup.sh
+
+# Edit only the service you are working on
+${EDITOR:-vi} config/env/auth/.env.local
+
+# DB administrators provision credentials from the separate admin contract
+cp config/env/admin/.env.example config/env/admin/.env.local
+./scripts/db-init.sh
 ```
+
+Actual local values live only in gitignored `config/env/<service>/.env.local` files. Test/deployment values are injected by the CI/CD or hosting environment.

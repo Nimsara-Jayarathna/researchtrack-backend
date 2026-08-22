@@ -7,15 +7,12 @@ rt_require_command dotnet
 scope="${1:-all}"
 
 if [[ "$scope" == "integration" ]]; then
-  rt_load_dev_env
-  rt_validate_db_environment
-
-  export RESEARCHTRACK_TEST_AUTH_CONNECTION="$(rt_db_connection auth test)"
-  export RESEARCHTRACK_TEST_PROJECT_CONNECTION="$(rt_db_connection project test)"
-  export RESEARCHTRACK_TEST_GITHUB_CONNECTION="$(rt_db_connection github test)"
-  export RESEARCHTRACK_TEST_JIRA_CONNECTION="$(rt_db_connection jira test)"
-  export RESEARCHTRACK_TEST_MEETING_CONNECTION="$(rt_db_connection meeting test)"
-  export RESEARCHTRACK_TEST_SUBMISSION_CONNECTION="$(rt_db_connection submission test)"
+  export RESEARCHTRACK_TEST_AUTH_CONNECTION="$(rt_db_connection_for_service auth test)"
+  export RESEARCHTRACK_TEST_PROJECT_CONNECTION="$(rt_db_connection_for_service project test)"
+  export RESEARCHTRACK_TEST_GITHUB_CONNECTION="$(rt_db_connection_for_service github test)"
+  export RESEARCHTRACK_TEST_JIRA_CONNECTION="$(rt_db_connection_for_service jira test)"
+  export RESEARCHTRACK_TEST_MEETING_CONNECTION="$(rt_db_connection_for_service meeting test)"
+  export RESEARCHTRACK_TEST_SUBMISSION_CONNECTION="$(rt_db_connection_for_service submission test)"
 
   dotnet test ResearchTrack.sln \
     -c "${CONFIGURATION:-Debug}" \

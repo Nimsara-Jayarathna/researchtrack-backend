@@ -16,19 +16,24 @@ rt_require_command() {
 }
 
 rt_env_file() {
-  printf '%s/.env.local\n' "$RESEARCHTRACK_ROOT"
+  local service="${1,,}"
+  printf '%s/config/env/%s/.env.local\n' "$RESEARCHTRACK_ROOT" "$service"
 }
 
 rt_admin_env_file() {
-  printf '%s/.env.admin.local\n' "$RESEARCHTRACK_ROOT"
+  printf '%s/config/env/admin/.env.local\n' "$RESEARCHTRACK_ROOT"
 }
 
 rt_warn_if_insecure_permissions() {
   local file="$1"
   [[ -f "$file" ]] || return 0
 
-  # stat syntax differs between GNU/Linux and macOS. A warning is enough;
-  # chmod 600 is attempted by setup and documented for developers.
+  # Git Bash/MSYS/Cygwin on Windows does not provide reliable POSIX mode
+  # semantics for files on NTFS. Avoid warning about an artificial 644 mode.
+  case "$(uname -s 2>/dev/null || true)" in
+    MINGW*|MSYS*|CYGWIN*) return 0 ;;
+  esac
+
   local mode=""
   if stat -c '%a' "$file" >/dev/null 2>&1; then
     mode="$(stat -c '%a' "$file")"
@@ -64,7 +69,6 @@ rt_load_env_file() {
     key="${line%%=*}"
     value="${line#*=}"
 
-    # The format is deliberately simple and treats this file as data, not shell code.
     if [[ ! "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
       echo "Invalid environment variable name '$key' in $env_file at line $line_number." >&2
       return 1
@@ -81,19 +85,27 @@ rt_load_env_file() {
 }
 
 rt_load_dev_env() {
-  local file
-  file="$(rt_env_file)"
+  local service="${1:-}"
+  if [[ -z "$service" ]]; then
+    echo "rt_load_dev_env requires a service name." >&2
+    return 1
+  fi
 
+  local file
+  file="$(rt_env_file "$service")"
   if [[ ! -f "$file" ]]; then
-    echo "Missing .env.local. Run ./scripts/setup.sh first, then configure the file." >&2
+    echo "Missing $file. Run ./scripts/setup.sh first, then configure the service file." >&2
     exit 1
   fi
 
   rt_warn_if_insecure_permissions "$file"
   rt_load_env_file "$file"
-
   export ASPNETCORE_ENVIRONMENT="${ASPNETCORE_ENVIRONMENT:-Development}"
   export DOTNET_ENVIRONMENT="${DOTNET_ENVIRONMENT:-Development}"
+  if [[ "${service,,}" != "gateway" ]]; then
+    export MYSQL_HOST="${Database__Host:-}"
+    export MYSQL_PORT="${Database__Port:-}"
+  fi
 }
 
 rt_load_admin_env() {
@@ -102,10 +114,10 @@ rt_load_admin_env() {
 
   if [[ ! -f "$file" ]]; then
     cat >&2 <<'MSG'
-Missing .env.admin.local.
+Missing config/env/admin/.env.local.
 
 Database provisioning requires administrator credentials.
-Create it from .env.admin.example only on the administrator machine/account.
+Copy config/env/admin/.env.example to .env.local only on the administrator machine/account.
 Normal developers do not need this file.
 MSG
     exit 1
@@ -113,7 +125,8 @@ MSG
 
   rt_warn_if_insecure_permissions "$file"
   rt_load_env_file "$file"
-  rt_require_env MYSQL_ADMIN_USER MYSQL_ADMIN_PASSWORD
+  rt_require_env MYSQL_HOST MYSQL_PORT MYSQL_ADMIN_USER MYSQL_ADMIN_PASSWORD
+  rt_reject_placeholder MYSQL_ADMIN_USER
   rt_reject_placeholder MYSQL_ADMIN_PASSWORD
 }
 
@@ -139,26 +152,58 @@ rt_reject_placeholder() {
 }
 
 rt_validate_db_environment() {
-  rt_require_env MYSQL_HOST MYSQL_PORT
+  rt_require_env \
+    Database__Host \
+    Database__Port \
+    Database__Name \
+    Database__TestName \
+    Database__Username \
+    Database__Password \
+    Database__SslMode \
+    Database__AllowPublicKeyRetrieval
 
-  if [[ ! "$MYSQL_PORT" =~ ^[0-9]+$ || "$MYSQL_PORT" -lt 1 || "$MYSQL_PORT" -gt 65535 ]]; then
-    echo "MYSQL_PORT must be a valid TCP port number (1-65535)." >&2
+  rt_reject_placeholder Database__Name
+  rt_reject_placeholder Database__TestName
+  rt_reject_placeholder Database__Username
+  rt_reject_placeholder Database__Password
+  rt_reject_placeholder Database__SslMode
+  rt_reject_placeholder Database__AllowPublicKeyRetrieval
+
+  if [[ ! "$Database__Port" =~ ^[0-9]+$ || "$Database__Port" -lt 1 || "$Database__Port" -gt 65535 ]]; then
+    echo "Database__Port must be a valid TCP port number (1-65535)." >&2
     return 1
   fi
-
-  local service prefix key
-  for service in $(rt_all_db_services); do
-    prefix="$(rt_service_prefix "$service")"
-    for key in \
-      "${prefix}_DB_NAME" \
-      "${prefix}_TEST_DB_NAME" \
-      "${prefix}_DB_USER" \
-      "${prefix}_DB_PASSWORD"; do
-      rt_require_env "$key"
-      [[ "$key" == *_PASSWORD ]] && rt_reject_placeholder "$key"
-    done
-  done
+  if [[ "$Database__AllowPublicKeyRetrieval" != "true" && "$Database__AllowPublicKeyRetrieval" != "false" ]]; then
+    echo "Database__AllowPublicKeyRetrieval must be true or false." >&2
+    return 1
+  fi
 }
+
+rt_database_name() {
+  local mode="${2:-${1:-dev}}"
+  case "$mode" in
+    dev) rt_require_env Database__Name; printf '%s\n' "$Database__Name" ;;
+    test) rt_require_env Database__TestName; printf '%s\n' "$Database__TestName" ;;
+    *) echo "Unknown database mode '$mode'. Expected dev or test." >&2; return 1 ;;
+  esac
+}
+
+rt_db_connection() {
+  local mode="${2:-${1:-dev}}" db
+  rt_validate_db_environment
+  db="$(rt_database_name "$mode")"
+  printf 'Server=%s;Port=%s;Database=%s;User=%s;Password=%s;SslMode=%s;AllowPublicKeyRetrieval=%s;\n' \
+    "$Database__Host" "$Database__Port" "$db" "$Database__Username" "$Database__Password" \
+    "$Database__SslMode" "$Database__AllowPublicKeyRetrieval"
+}
+
+rt_db_connection_for_service() (
+  set -euo pipefail
+  local service="${1,,}" mode="${2:-dev}"
+  rt_load_dev_env "$service"
+  rt_validate_db_environment
+  rt_db_connection "$mode"
+)
 
 rt_service_project() {
   case "${1,,}" in
@@ -210,56 +255,23 @@ rt_service_prefix() {
   esac
 }
 
-rt_env_value() {
-  local key="$1"
-  printf '%s' "${!key:-}"
-}
-
-rt_database_name() {
-  local service="${1,,}" mode="${2:-dev}" prefix key
-  prefix="$(rt_service_prefix "$service")"
-
-  case "$mode" in
-    dev) key="${prefix}_DB_NAME" ;;
-    test) key="${prefix}_TEST_DB_NAME" ;;
-    *) echo "Unknown database mode '$mode'. Expected dev or test." >&2; return 1 ;;
-  esac
-
-  rt_require_env "$key"
-  printf '%s\n' "${!key}"
-}
-
-rt_db_connection() {
-  local service="${1,,}" mode="${2:-dev}" prefix db user password
-
-  rt_require_env MYSQL_HOST MYSQL_PORT
-  prefix="$(rt_service_prefix "$service")"
-  db="$(rt_database_name "$service" "$mode")"
-  user="$(rt_env_value "${prefix}_DB_USER")"
-  password="$(rt_env_value "${prefix}_DB_PASSWORD")"
-
-  if [[ -z "$user" || -z "$password" ]]; then
-    echo "Missing database credentials for service '$service'." >&2
-    return 1
-  fi
-  rt_reject_placeholder "${prefix}_DB_PASSWORD"
-
-  printf 'Server=%s;Port=%s;Database=%s;User=%s;Password=%s;SslMode=Disabled;AllowPublicKeyRetrieval=True;\n' \
-    "$MYSQL_HOST" "$MYSQL_PORT" "$db" "$user" "$password"
-}
-
 rt_all_db_services() {
   echo "auth project github jira meeting submission"
 }
 
 rt_gateway_env() {
-  export Frontend__AllowedOrigins__0="${FRONTEND_ORIGIN:-http://localhost:5173}"
-  export ReverseProxy__Clusters__auth__Destinations__primary__Address="${AUTH_SERVICE_URL:-http://localhost:5101/}"
-  export ReverseProxy__Clusters__project__Destinations__primary__Address="${PROJECT_SERVICE_URL:-http://localhost:5102/}"
-  export ReverseProxy__Clusters__github__Destinations__primary__Address="${GITHUB_SERVICE_URL:-http://localhost:5103/}"
-  export ReverseProxy__Clusters__jira__Destinations__primary__Address="${JIRA_SERVICE_URL:-http://localhost:5104/}"
-  export ReverseProxy__Clusters__meeting__Destinations__primary__Address="${MEETING_SERVICE_URL:-http://localhost:5105/}"
-  export ReverseProxy__Clusters__submission__Destinations__primary__Address="${SUBMISSION_SERVICE_URL:-http://localhost:5106/}"
+  rt_require_env FRONTEND_ORIGIN AUTH_SERVICE_URL PROJECT_SERVICE_URL GITHUB_SERVICE_URL JIRA_SERVICE_URL MEETING_SERVICE_URL SUBMISSION_SERVICE_URL
+  for key in FRONTEND_ORIGIN AUTH_SERVICE_URL PROJECT_SERVICE_URL GITHUB_SERVICE_URL JIRA_SERVICE_URL MEETING_SERVICE_URL SUBMISSION_SERVICE_URL; do
+    rt_reject_placeholder "$key"
+  done
+
+  export Frontend__AllowedOrigins__0="$FRONTEND_ORIGIN"
+  export ReverseProxy__Clusters__auth__Destinations__primary__Address="$AUTH_SERVICE_URL"
+  export ReverseProxy__Clusters__project__Destinations__primary__Address="$PROJECT_SERVICE_URL"
+  export ReverseProxy__Clusters__github__Destinations__primary__Address="$GITHUB_SERVICE_URL"
+  export ReverseProxy__Clusters__jira__Destinations__primary__Address="$JIRA_SERVICE_URL"
+  export ReverseProxy__Clusters__meeting__Destinations__primary__Address="$MEETING_SERVICE_URL"
+  export ReverseProxy__Clusters__submission__Destinations__primary__Address="$SUBMISSION_SERVICE_URL"
 }
 
 rt_mysql_defaults_file() {
