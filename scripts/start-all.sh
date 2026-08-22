@@ -172,6 +172,9 @@ rt_require_command curl
 echo "Required commands are available."
 
 missing_env=false
+if [[ ! -f "$(rt_shared_env_file)" ]]; then
+  missing_env=true
+fi
 for service in "${services[@]}"; do
   if [[ ! -f "$(rt_env_file "$service")" ]]; then
     missing_env=true

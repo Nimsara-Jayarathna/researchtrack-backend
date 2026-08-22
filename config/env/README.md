@@ -12,4 +12,6 @@ Create local files with `./scripts/setup.sh`, then edit each service file before
 
 The Auth Service Story 1 values live in `config/env/auth/.env.local`, including institutional domains, student identifier policy, password policy, and password hashing settings.
 
-The Auth Service Story 2 values use the same `Jwt__Issuer`, `Jwt__Audience`, and `Jwt__SigningKey` in every service that validates access tokens. Project Service now requires those three values for supervisor/student authorization.
+## Shared JWT configuration
+
+For local development, Auth Service and protected services load `Jwt__Issuer`, `Jwt__Audience`, and `Jwt__SigningKey` from `config/env/shared/.env.local`. Auth-specific token lifetimes remain in `config/env/auth/.env.local`.
