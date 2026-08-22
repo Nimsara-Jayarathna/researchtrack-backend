@@ -1,4 +1,6 @@
+using ResearchTrack.AuthService.Features.Authentication;
 using ResearchTrack.AuthService.Features.Registration;
+using ResearchTrack.AuthService.Infrastructure.Cookies;
 using ResearchTrack.AuthService.Infrastructure.Email;
 using ResearchTrack.AuthService.Infrastructure.Security;
 using ResearchTrack.AuthService.Infrastructure.Tokens;
@@ -28,6 +30,8 @@ public static class AuthFeatureExtensions
         services.AddSingleton(jwtOptions);
         services.AddSingleton(cookieOptions);
         services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();
+        services.AddSingleton<InvalidPasswordTimingGuard>();
+        services.AddSingleton<IAuthCookieService, AuthCookieService>();
         services.AddSingleton<IAccessTokenService, JwtAccessTokenService>();
 
         services.AddHttpClient<IEmailProvider, BrevoEmailProvider>(client =>
@@ -36,6 +40,7 @@ public static class AuthFeatureExtensions
         });
         services.AddScoped<IRegistrationEmailService, RegistrationEmailService>();
         services.AddScoped<IRegistrationService, RegistrationService>();
+        services.AddScoped<IUserAuthenticationService, UserAuthenticationService>();
         return services;
     }
 }

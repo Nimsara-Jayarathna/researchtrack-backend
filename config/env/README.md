@@ -11,3 +11,5 @@ Each runtime component owns its own environment contract under `config/env/<serv
 Create local files with `./scripts/setup.sh`, then edit each service file before running that service. The setup script never overwrites an existing `.env.local`.
 
 The Auth Service Story 1 values live in `config/env/auth/.env.local`, including institutional domains, student identifier policy, password policy, and password hashing settings.
+
+The Auth Service Story 2 values use the same `Jwt__Issuer`, `Jwt__Audience`, and `Jwt__SigningKey` in every service that validates access tokens. Project Service now requires those three values for supervisor/student authorization.

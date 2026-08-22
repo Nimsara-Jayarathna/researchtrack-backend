@@ -23,6 +23,10 @@ public static class ApplicationBuilderExtensions
         });
 
 
+        app.UseAuthentication();
+        app.UseAuthorization();
+
+
         if (app.Environment.IsDevelopment() || app.Configuration.GetValue<bool>("OpenApi:Enabled"))
         {
             app.UseSwagger();

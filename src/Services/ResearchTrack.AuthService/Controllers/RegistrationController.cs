@@ -1,36 +1,33 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ResearchTrack.AuthService.Configuration;
 using ResearchTrack.AuthService.Contracts;
 using ResearchTrack.AuthService.Features.Registration;
+using ResearchTrack.AuthService.Infrastructure.Cookies;
 using ResearchTrack.BuildingBlocks.Api.Contracts;
 using ResearchTrack.BuildingBlocks.Api.Controllers;
 
 namespace ResearchTrack.AuthService.Controllers;
 
+[AllowAnonymous]
 [Route("api/v1/auth")]
 public sealed class RegistrationController : ApiControllerBase
 {
-    private const string AccessCookieName = "ss_access_token";
-    private const string RefreshCookieName = "ss_refresh_token";
-
     private readonly IRegistrationService _registrationService;
     private readonly RegistrationOptions _registrationOptions;
     private readonly PasswordPolicyOptions _passwordPolicyOptions;
-    private readonly JwtOptions _jwtOptions;
-    private readonly AuthCookieOptions _cookieOptions;
+    private readonly IAuthCookieService _cookieService;
 
     public RegistrationController(
         IRegistrationService registrationService,
         RegistrationOptions registrationOptions,
         PasswordPolicyOptions passwordPolicyOptions,
-        JwtOptions jwtOptions,
-        AuthCookieOptions cookieOptions)
+        IAuthCookieService cookieService)
     {
         _registrationService = registrationService;
         _registrationOptions = registrationOptions;
         _passwordPolicyOptions = passwordPolicyOptions;
-        _jwtOptions = jwtOptions;
-        _cookieOptions = cookieOptions;
+        _cookieService = cookieService;
     }
 
     [HttpGet("register/config")]
@@ -69,7 +66,6 @@ public sealed class RegistrationController : ApiControllerBase
         return ApiCreated($"/api/v1/users/{registered.Id}", registered);
     }
 
-    // SuperviseSuite: POST /api/auth/register/init
     [HttpPost("register/init")]
     [ProducesResponseType<ApiResponse<RegisterInitResponse>>(StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<RegisterInitResponse>>> RegisterInit(
@@ -80,7 +76,6 @@ public sealed class RegistrationController : ApiControllerBase
         return ApiOk(new RegisterInitResponse("OTP sent successfully"));
     }
 
-    // SuperviseSuite: POST /api/auth/register/verify
     [HttpPost("register/verify")]
     [ProducesResponseType<ApiResponse<RegisterVerifyResponse>>(StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<RegisterVerifyResponse>>> RegisterVerify(
@@ -91,7 +86,6 @@ public sealed class RegistrationController : ApiControllerBase
         return ApiOk(response);
     }
 
-    // SuperviseSuite: POST /api/auth/register/complete
     [HttpPost("register/complete")]
     [ProducesResponseType<ApiResponse<RegistrationCompleteResponse>>(StatusCodes.Status201Created)]
     public async Task<ActionResult<ApiResponse<RegistrationCompleteResponse>>> RegisterComplete(
@@ -100,23 +94,7 @@ public sealed class RegistrationController : ApiControllerBase
     {
         var completed = await _registrationService.CompleteRegistrationAsync(request, cancellationToken);
 
-        Response.Cookies.Append(AccessCookieName, completed.AccessToken, new CookieOptions
-        {
-            HttpOnly = true,
-            Secure = _cookieOptions.Secure,
-            SameSite = SameSiteMode.Strict,
-            Path = "/api",
-            MaxAge = TimeSpan.FromMinutes(_jwtOptions.AccessTokenMinutes)
-        });
-
-        Response.Cookies.Append(RefreshCookieName, completed.RefreshToken, new CookieOptions
-        {
-            HttpOnly = true,
-            Secure = _cookieOptions.Secure,
-            SameSite = SameSiteMode.Strict,
-            Path = "/api/v1/auth",
-            MaxAge = TimeSpan.FromDays(_jwtOptions.RefreshTokenDays)
-        });
+        _cookieService.WriteSession(Response, completed.AccessToken, completed.RefreshToken);
 
         return ApiCreated("/api/v1/auth/register/complete", completed.Response);
     }

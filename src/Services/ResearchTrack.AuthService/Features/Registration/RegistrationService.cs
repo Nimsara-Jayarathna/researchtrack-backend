@@ -156,7 +156,7 @@ public sealed class RegistrationService : IRegistrationService
         dbContext.EmailOtps.Add(otp);
         await dbContext.SaveChangesAsync(cancellationToken);
 
-        // Matches SuperviseSuite semantics: if OTP delivery fails, initiation fails.
+        // OTP delivery is part of registration initiation; delivery failure fails the request.
         await _emailService.SendOtpEmailAsync(normalizedEmail, rawOtp, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
     }
@@ -337,7 +337,7 @@ public sealed class RegistrationService : IRegistrationService
         }
         catch (Exception exception)
         {
-            // Matches SuperviseSuite: account creation succeeds even if the success email fails.
+            // Account creation remains successful even if the non-critical success email fails.
             _logger.LogError(exception, "Failed to send registration success email to {Email}", user.Email);
         }
 
