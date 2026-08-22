@@ -3,8 +3,6 @@ set -euo pipefail
 source "$(dirname "$0")/lib/env.sh"
 rt_cd_root
 rt_require_command dotnet
-rt_load_dev_env
-rt_validate_db_environment
 
 service="${1:-}"
 if [[ -z "$service" ]]; then
@@ -14,10 +12,11 @@ fi
 
 migrate_one() {
   local svc="$1" project context
+  rt_load_dev_env "$svc"
+  rt_validate_db_environment
   project="$(rt_service_project "$svc")"
   context="$(rt_service_context "$svc")"
-  export ConnectionStrings__DefaultConnection="$(rt_db_connection "$svc" dev)"
-  echo "Applying migrations for $svc ($context)..."
+    echo "Applying migrations for $svc ($context)..."
   dotnet ef database update \
     --project "$project" \
     --startup-project "$project" \

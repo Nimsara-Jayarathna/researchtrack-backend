@@ -1,29 +1,10 @@
-# Local development setup
+# Local setup
 
-## Requirements
-
-- Git
-- .NET 10 SDK compatible with root `global.json` (team baseline 10.0.300)
-- MySQL 8+ server and CLI
-- curl
-- Bash (Linux/macOS/WSL for provided scripts)
-
-## Setup
-
-```bash
-./scripts/setup.sh
-```
-
-Start the local MySQL service using your OS-specific method, then:
-
-```bash
-./scripts/db-init.sh
-./scripts/db-status.sh
-./scripts/migrate.sh all
-./scripts/dev.sh core
-./scripts/health.sh core
-```
-
-Use `./scripts/stop.sh core` when done.
-
-The repository deliberately does not manage MySQL through Docker at this stage.
+1. Install the .NET SDK required by `global.json`, Git, Bash/WSL, and a MySQL 8+ compatible client/server.
+2. Run `./scripts/setup.sh`.
+3. Edit `config/env/<service>/.env.local` for each service you plan to run.
+4. If provisioning is required, create `config/env/admin/.env.local` from its example and run `./scripts/db-init.sh`.
+5. Run `./scripts/db-status.sh`.
+6. Apply migrations with `./scripts/migrate.sh all`.
+7. Start a profile, for example `./scripts/dev.sh core`.
+8. Check `./scripts/health.sh core`.

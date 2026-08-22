@@ -3,7 +3,6 @@ set -euo pipefail
 source "$(dirname "$0")/lib/env.sh"
 rt_cd_root
 rt_require_command dotnet
-rt_load_dev_env
 
 service="${1:-}"
 if [[ -z "$service" ]]; then
@@ -11,16 +10,16 @@ if [[ -z "$service" ]]; then
   exit 1
 fi
 
+rt_load_dev_env "$service"
 project="$(rt_service_project "$service")"
 port="$(rt_service_port "$service")"
-export ASPNETCORE_URLS="http://localhost:$port"
+export ASPNETCORE_URLS="${ASPNETCORE_URLS:-http://localhost:$port}"
 
 if [[ "${service,,}" == "gateway" ]]; then
   rt_gateway_env
 else
   rt_validate_db_environment
-  export ConnectionStrings__DefaultConnection="$(rt_db_connection "$service" dev)"
-fi
+  fi
 
-echo "Starting $service on http://localhost:$port"
+echo "Starting $service on $ASPNETCORE_URLS"
 exec dotnet run --project "$project" --no-launch-profile

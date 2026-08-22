@@ -3,7 +3,6 @@ set -euo pipefail
 source "$(dirname "$0")/lib/env.sh"
 rt_cd_root
 rt_require_command dotnet
-rt_load_dev_env
 
 profile="${1:-core}"
 case "$profile" in

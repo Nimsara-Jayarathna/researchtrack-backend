@@ -1,103 +1,46 @@
 # ResearchTrack development scripts
 
-Run all scripts from the repository root. Bash is the supported scripted workflow on Linux/macOS; WSL is recommended on Windows.
-
-## Configuration sources
-
-| Source | Purpose | Who needs it? |
-|---|---|---|
-| `.env.local` | Normal development/database configuration | All backend developers |
-| `.env.admin.local` | MySQL provisioning administrator credentials | Database administrator only |
-| ASP.NET User Secrets | Feature/application secrets | Developer working on the relevant feature |
-
-The scripts parse `.env.local`/`.env.admin.local` as simple `KEY=value` data. They are not sourced as executable Bash.
-
-## Script reference
+All local runtime configuration is service-owned under `config/env/<service>/.env.local`.
 
 | Script | Configuration used | Purpose |
 |---|---|---|
-| `setup.sh` | creates/validates `.env.local` | Validate prerequisites, restore tools/packages |
-| `db-init.sh` | `.env.local` + `.env.admin.local` | Provision dev/test DBs and scoped service users |
-| `db-status.sh` | `.env.local` | Verify every service dev/test DB |
-| `run.sh <service>` | `.env.local` | Run one ASP.NET project |
-| `dev.sh <profile>` | `.env.local` via `run.sh` | Run multiple ASP.NET projects in background |
-| `stop.sh <profile>` | none | Stop background processes |
-| `health.sh <profile>` | none | Check `/health/live` and `/health/ready` |
-| `migrate.sh <service|all>` | `.env.local` | Apply EF Core migrations |
-| `migration-add.sh <service> <name>` | `.env.local` | Add migration to owning service |
-| `migration-list.sh <service>` | `.env.local` | List migrations |
-| `migration-script.sh <service>` | `.env.local` | Generate idempotent migration SQL |
-| `test.sh [scope]` | only integration scope uses `.env.local` | Run tests/coverage |
-| `check.sh` | none | Pre-PR restore/build/test/format gate |
-| `build.sh` | none | Build solution |
-| `format.sh` | none | Apply formatting |
-| `clean.sh` | none | Remove build/test artifacts |
-| `seed-dev.sh <service>` | `.env.local` | Reserved development seeding entry point |
-| `secrets-set.sh` | ASP.NET User Secrets | Store feature secret |
-| `secrets-list.sh` | ASP.NET User Secrets | List secret keys with masked values |
-| `secrets-remove.sh` | ASP.NET User Secrets | Remove one secret |
-| `secrets-clear.sh` | ASP.NET User Secrets | Clear all project User Secrets |
+| `setup.sh` | all committed `.env.example` files | Create missing service `.env.local` files and restore .NET tools/packages |
+| `db-init.sh` | `admin/.env.local` + each business service `.env.local` | Provision dev/test DBs and scoped DB users |
+| `db-status.sh` | each business service `.env.local` | Verify service dev/test DB access |
+| `run.sh <service>` | selected service `.env.local` | Run one component |
+| `dev.sh <profile>` | delegated to each `run.sh` process | Run a local service profile |
+| `migrate.sh <service|all>` | selected service `.env.local` | Apply EF Core migrations |
+| `migration-add.sh` | selected service `.env.local` | Add an EF migration |
+| `migration-list.sh` | selected service `.env.local` | List migrations |
+| `migration-script.sh` | selected service `.env.local` | Generate migration SQL |
+| `test.sh integration` | every business service `.env.local` | Build test DB connection strings and run DB integration tests |
+| `health.sh <profile>` | none | Probe liveness/readiness endpoints |
 
-## Profiles
-
-Supported by `dev.sh`, `stop.sh`, and `health.sh`:
-
-```text
-core
-integrations
-research
-all
-```
-
-## Normal developer workflow
+## Setup
 
 ```bash
 ./scripts/setup.sh
-# configure .env.local
-./scripts/db-status.sh
-./scripts/migrate.sh all
-./scripts/dev.sh core
-./scripts/health.sh core
 ```
 
-## Database administrator workflow
+Then replace `CHANGE_ME` values only in the service files you need.
+
+## Database administrator setup
 
 ```bash
-cp .env.admin.example .env.admin.local
-chmod 600 .env.admin.local
-# configure .env.admin.local and .env.local
+cp config/env/admin/.env.example config/env/admin/.env.local
+chmod 600 config/env/admin/.env.local
 ./scripts/db-init.sh
-./scripts/db-status.sh
 ```
 
-Normal developers do not need `.env.admin.local`.
+Normal developers do not need the admin file after databases and scoped users have been provisioned.
 
-## Database configuration
-
-All database-aware scripts use:
+## Profiles
 
 ```text
-MYSQL_HOST
-MYSQL_PORT
+core         auth + project + gateway
+integrations auth + project + github + jira + gateway
+research     auth + project + meeting + submission + gateway
+all          every component
 ```
 
-plus the selected service's:
-
-```text
-<SERVICE>_DB_NAME
-<SERVICE>_TEST_DB_NAME
-<SERVICE>_DB_USER
-<SERVICE>_DB_PASSWORD
-```
-
-No script hard-codes a database server address or administrator credentials.
-
-## Safety rules
-
-- `.env.local` and `.env.admin.local` are gitignored.
-- Keep both files permission `600` where supported.
-- `db-init.sh` is the only script that loads `.env.admin.local`.
-- Service scripts never use `MYSQL_ADMIN_USER`/`MYSQL_ADMIN_PASSWORD`.
-- Database integration tests use only the `*_TEST_DB_NAME` values.
-- `check.sh` does not require database availability.
-- User Secrets are used for future application/feature secrets rather than adding everything to `.env.local`.
+The env parser treats files as data (`KEY=value`); it does not execute them as shell scripts.
