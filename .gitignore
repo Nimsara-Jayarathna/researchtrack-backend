@@ -103,6 +103,7 @@ log/
 
 # Keep the committed template
 !.env.example
+!**/.env.example
 
 # ------------------------------------------------------------
 # Local ASP.NET configuration overrides
@@ -137,9 +138,6 @@ credentials.local.json
 *.pem
 *.key
 
-# NOTE:
-# ASP.NET User Secrets are stored outside the repository by dotnet-user-secrets,
-# so there is normally nothing additional to ignore here.
 
 # ------------------------------------------------------------
 # Local database / runtime data
