@@ -7,8 +7,8 @@ All local runtime configuration is service-owned under `config/env/<service>/.en
 | `setup.sh` | all committed `.env.example` files | Create missing service `.env.local` files and restore .NET tools/packages |
 | `db-init.sh` | `admin/.env.local` + each business service `.env.local` | Provision dev/test DBs and scoped DB users |
 | `db-status.sh` | each business service `.env.local` | Verify service dev/test DB access |
-| `run.sh <service>` | selected service `.env.local` | Run one component |
-| `dev.sh <profile>` | delegated to each `run.sh` process | Run a local service profile |
+| `run.sh <service> [--no-build]` | selected service `.env.local` | Run one component; `--no-build` reuses an existing build |
+| `dev.sh <profile> [--no-build]` | delegated to each `run.sh` process | Run a local service profile; `--no-build` avoids concurrent rebuilds |
 | `migrate.sh <service|all>` | selected service `.env.local` | Apply EF Core migrations |
 | `migration-add.sh` | selected service `.env.local` | Add an EF migration |
 | `migration-list.sh` | selected service `.env.local` | List migrations |

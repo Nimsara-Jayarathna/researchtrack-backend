@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Mvc;
 using ResearchTrack.AuthService.Configuration;
 using ResearchTrack.AuthService.Contracts;
 using ResearchTrack.AuthService.Features.Registration;

@@ -28,6 +28,12 @@ rt_warn_if_insecure_permissions() {
   local file="$1"
   [[ -f "$file" ]] || return 0
 
+  # Git Bash/MSYS/Cygwin on Windows does not provide reliable POSIX mode
+  # semantics for files on NTFS. Avoid warning about an artificial 644 mode.
+  case "$(uname -s 2>/dev/null || true)" in
+    MINGW*|MSYS*|CYGWIN*) return 0 ;;
+  esac
+
   local mode=""
   if stat -c '%a' "$file" >/dev/null 2>&1; then
     mode="$(stat -c '%a' "$file")"

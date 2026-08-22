@@ -15,9 +15,10 @@ Default workflow:
   2. Create missing service .env.local files via setup.sh.
   3. Validate service ENV/database configuration.
   4. Verify every service development database is reachable.
-  5. Apply all pending EF Core migrations.
-  6. Restart and launch every backend microservice plus the gateway.
-  7. Wait for all readiness checks and print the final health table.
+  5. Build the complete backend and show compiler errors directly.
+  6. Apply all pending EF Core migrations.
+  7. Restart and launch every backend microservice plus the gateway.
+  8. Wait for all readiness checks and print the final health table.
 
 Options:
   --provision          If DB checks fail, run db-init.sh using admin/.env.local,
@@ -162,7 +163,7 @@ wait_for_readiness() {
   done
 }
 
-section "1/7  Preflight"
+section "1/8  Preflight"
 rt_require_command git
 rt_require_command dotnet
 rt_require_command mysql
@@ -188,10 +189,10 @@ else
   dotnet tool restore
 fi
 
-section "2/7  Validate service configuration"
+section "2/8  Validate service configuration"
 validate_service_envs
 
-section "3/7  Verify MySQL databases"
+section "3/8  Verify MySQL databases"
 if ! ./scripts/db-status.sh dev; then
   if [[ "$provision" == true ]]; then
     echo
@@ -220,7 +221,10 @@ MSG
   fi
 fi
 
-section "4/7  Stop tracked backend processes"
+section "4/8  Build backend"
+./scripts/build.sh
+
+section "5/8  Stop tracked backend processes"
 if [[ "$restart" == true ]]; then
   ./scripts/stop.sh all
   echo "Tracked ResearchTrack processes stopped (if any were running)."
@@ -228,17 +232,17 @@ else
   echo "Skipping stop because --no-restart was supplied."
 fi
 
-section "5/7  Apply EF Core migrations"
+section "6/8  Apply EF Core migrations"
 if [[ "$skip_migrations" == true ]]; then
   echo "Skipping migrations because --skip-migrations was supplied."
 else
-  ./scripts/migrate.sh all
+  ./scripts/migrate.sh all --no-build
 fi
 
-section "6/7  Start all backend services"
-./scripts/dev.sh all
+section "7/8  Start all backend services"
+./scripts/dev.sh all --no-build
 
-section "7/7  Wait for service readiness"
+section "8/8  Wait for service readiness"
 if ! wait_for_readiness; then
   printf '\nServices did not all become ready within %s seconds.\n' "$startup_timeout" >&2
   ./scripts/health.sh all || true
