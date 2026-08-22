@@ -1,7 +1,4 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
-  <PropertyGroup>
-    <UserSecretsId>researchtrack-ad9a0bf8-3d13-5605-86b5-f05a85b9f51d</UserSecretsId>
-  </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../BuildingBlocks/ResearchTrack.BuildingBlocks.Api/ResearchTrack.BuildingBlocks.Api.csproj" />
     <PackageReference Include="Yarp.ReverseProxy" />

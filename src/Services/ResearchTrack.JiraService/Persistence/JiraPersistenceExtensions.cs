@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using ResearchTrack.BuildingBlocks.Api.Configuration;
 using ResearchTrack.BuildingBlocks.Api.Health;
 
 namespace ResearchTrack.JiraService.Persistence;
@@ -7,11 +8,7 @@ public static class JiraPersistenceExtensions
 {
     public static IServiceCollection AddJiraPersistence(this IServiceCollection services, IConfiguration configuration)
     {
-        var connectionString = configuration.GetConnectionString("DefaultConnection");
-        if (string.IsNullOrWhiteSpace(connectionString))
-        {
-            throw new InvalidOperationException("ConnectionStrings:DefaultConnection is required for ResearchTrack Jira Service.");
-        }
+        var connectionString = DatabaseConnectionStringResolver.Resolve(configuration);
 
         services.AddDbContextFactory<JiraDbContext>(options => options.UseMySQL(connectionString));
         services.AddHealthChecks().AddCheck<DatabaseHealthCheck<JiraDbContext>>(
