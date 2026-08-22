@@ -118,7 +118,7 @@ public sealed class RegistrationIntegrationTests : IAsyncLifetime
 
     [Fact]
     [Trait("Category", "DatabaseIntegration")]
-    public async Task SuperviseSuite_field_aliases_are_accepted_but_role_is_still_server_assigned()
+    public async Task Registration_field_aliases_are_accepted_but_role_is_still_server_assigned()
     {
         var response = await Client.PostAsJsonAsync(
             "/api/v1/auth/register",
