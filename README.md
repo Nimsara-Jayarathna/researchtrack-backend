@@ -310,7 +310,7 @@ A typical local naming scheme is:
 | Meeting | `researchtrack_meeting` | `researchtrack_test_meeting` | `rt_meeting` |
 | Submission | `researchtrack_submission` | `researchtrack_test_submission` | `rt_submission` |
 
-The actual values are intentionally not committed into the `.env.example` files; each team's local/test deployment supplies them externally.
+The `.env.example` files commit the configuration shape and safe development defaults/placeholders only. Real passwords, tokens, private keys, environment-specific endpoints, and other sensitive runtime values are supplied through gitignored local files or the deployment environment.
 
 ## Service-specific configuration
 
@@ -1403,3 +1403,7 @@ Production
 The application configuration keys remain the same; only the values and delivery mechanism change.
 
 This keeps ResearchTrack flexible without putting environment-specific or configurable business values into the committed codebase.
+
+## Backend deployment
+
+The Docker/GHCR/Test/Production backend deployment baseline is documented in [`docs/devops/backend-deployment.md`](docs/devops/backend-deployment.md). The deployment source lives under `deploy/` and `.github/workflows/`.

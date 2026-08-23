@@ -1,0 +1,164 @@
+# ResearchTrack backend deployment
+
+This deployment baseline runs the ResearchTrack API Gateway and all currently available backend microservices in two remote environments:
+
+- `develop` -> GitHub Environment `test` -> Docker Compose project `researchtrack-test`
+- `main` -> GitHub Environment `production` -> Docker Compose project `researchtrack-production`
+
+Kafka and the observability stack are intentionally not part of this baseline. They can be added after the core backend deployment is stable.
+
+## Deployed services
+
+- API Gateway
+- Auth Service
+- Project Service
+- GitHub Service
+- Jira Service
+- Meeting Service
+- Submission Service
+- one MySQL 8.4 container per environment, with a separate logical database and DB account for each service
+
+Only the Gateway joins the external reverse-proxy Docker network. Microservices and MySQL do not publish host ports.
+
+## GitHub repository configuration
+
+### Repository secrets
+
+These values are shared because Test and Production currently deploy to the same VPS:
+
+- `SSH_HOST`
+- `SSH_PORT`
+- `SSH_USER`
+- `SSH_PRIVATE_KEY`
+
+### Repository variables
+
+- `NPM_NET_NAME` - normally `npm_default`
+- `BACKEND_DEPLOY_ROOT` - recommended `/opt/researchtrack/backend`
+
+### GitHub Environments
+
+Create exactly two GitHub Environments:
+
+- `test`
+- `production`
+
+Create the following secrets in **both** environments. Use the same names but different environment values:
+
+- `MYSQL_ENV_FILE`
+- `SHARED_AUTH_ENV_FILE`
+- `GATEWAY_ENV_FILE`
+- `AUTH_ENV_FILE`
+- `PROJECT_ENV_FILE`
+- `GITHUB_ENV_FILE`
+- `JIRA_ENV_FILE`
+- `MEETING_ENV_FILE`
+- `SUBMISSION_ENV_FILE`
+
+The canonical shape for each multiline secret is the matching `config/env/<component>/.env.example`. There is no duplicate deployment-template directory. Copy the complete example shape, replace local values with the target Test/Production values, and store the result as the corresponding GitHub Environment secret. During deployment the files are written with restrictive permissions; the previous environment directory is retained only while deployment is in progress/failing and is deleted after a successful health-verified deployment.
+
+For the Test environment, set `ASPNETCORE_ENVIRONMENT=Test` and `DOTNET_ENVIRONMENT=Test`. Production uses `Production`. All containerized application files use `ASPNETCORE_URLS=http://+:8080`. The deployment validator enforces these values for the selected GitHub Environment.
+
+Do not commit the real environment files.
+
+
+## Single environment-contract source
+
+`config/env` serves local development and remote deployment. Local developers use gitignored `.env.local` files created beside the committed examples. GitHub Test/Production Environments store completed multiline copies of the same contracts. `deploy/validate-env-files.sh` compares materialized deployment files against those committed contracts before any secret is uploaded to the VPS.
+
+The Gateway canonical contract keeps the friendly `FRONTEND_ORIGIN` and `*_SERVICE_URL` names already used by local tooling. Gateway startup maps those variables into `Frontend:AllowedOrigins` and YARP `ReverseProxy` configuration, so local and container deployments use one contract instead of two.
+
+## Reverse proxy
+
+The deployment workflow attaches each Gateway to `NPM_NET_NAME` with a stable environment alias:
+
+- Test: `researchtrack-gateway-test`
+- Production: `researchtrack-gateway-production`
+
+Nginx Proxy Manager can therefore route:
+
+- Test API hostname -> `researchtrack-gateway-test:8080`
+- Production API hostname -> `researchtrack-gateway-production:8080`
+
+All other backend containers remain on private Compose networks.
+
+## CI and branch protection
+
+`backend-ci.yml` runs on pull requests targeting `develop` or `main` and executes:
+
+1. `dotnet restore ResearchTrack.sln`
+2. `dotnet build ResearchTrack.sln -c Release --no-restore`
+3. `dotnet test ResearchTrack.sln -c Release --no-build`
+
+Configure GitHub rulesets so the status check **Restore, Build and Test** must pass before a PR can merge into either protected branch. The deployment workflows intentionally do not repeat the complete test suite after a protected merge.
+
+## Image build strategy
+
+A push to `develop` or `main` detects the changed deployable services. A service image is rebuilt only when its service source changes. Changes to shared compilation inputs such as BuildingBlocks, central package versions, the solution, global SDK selection, or the shared service Dockerfile rebuild every executable image.
+
+Each built image receives:
+
+- the environment moving tag (`test` or `production`)
+- the immutable Git commit SHA tag
+
+Images are published to GHCR using the workflow `GITHUB_TOKEN`.
+
+## Database deployment
+
+Each environment has one MySQL container to conserve VPS memory. Service ownership remains logically separated:
+
+- Auth -> `researchtrack_auth`
+- Project -> `researchtrack_project`
+- GitHub -> `researchtrack_github`
+- Jira -> `researchtrack_jira`
+- Meeting -> `researchtrack_meeting`
+- Submission -> `researchtrack_submission`
+
+Each database has its own service DB user and password.
+
+`MYSQL_ENV_FILE`, based on `config/env/mysql/.env.example`, holds the MySQL root bootstrap credential and the six database/user/password triples. Each service environment file repeats only the credentials that service needs. `deploy/validate-env-files.sh` verifies these values agree before deployment, preventing accidental password/database drift.
+
+The database reconciliation script runs on first initialization and on each deployment. It creates missing databases/users and updates service DB-user passwords when the service password changes.
+
+**Important:** changing `MYSQL_ROOT_PASSWORD` in GitHub after the MySQL volume has already been initialized does not rotate the existing MySQL root password. Root-password rotation requires an explicit MySQL administrative procedure.
+
+## EF Core migrations
+
+Database-service images contain an EF Core migration bundle at `/app/migrate`. After MySQL is healthy and DB accounts are reconciled, the deployment workflow runs each service's migration bundle before reconciling the running application containers.
+
+Production migrations should remain backward-compatible with the currently running application version because this baseline is a single-VPS deployment and does not implement blue/green schema migration orchestration.
+
+## GHCR authentication
+
+The VPS does not need a permanent GHCR Personal Access Token. The deploy job has `packages: read`, creates a temporary Docker config on the VPS, logs in using the job's short-lived `GITHUB_TOKEN`, pulls the images, and removes the temporary Docker config in an `always()` cleanup step.
+
+The GHCR packages must grant Actions access to this repository if GitHub does not associate them automatically.
+
+## VPS prerequisites
+
+The SSH deployment user must be able to run:
+
+- Docker Engine
+- Docker Compose v2 (`docker compose`)
+
+The user should have access to Docker without interactive sudo because GitHub Actions runs non-interactively.
+
+The workflow creates `NPM_NET_NAME` when it does not exist. If Nginx Proxy Manager already owns/uses `npm_default`, the Gateway simply joins that existing network.
+
+## Resource note
+
+The Compose defaults are intentionally conservative because the planned VPS has limited memory. They are safety ceilings rather than expected steady-state usage. Test and Production together plus other applications on an 8 GB host must be measured with `docker stats` and `free -h`; do not assume both complete environments can consume their limits simultaneously.
+
+## Deployment flow
+
+### Test
+
+`develop` push -> detect changes -> build/push changed `:test` images -> upload Test env files -> start/reconcile MySQL -> pull current Test images -> run migrations -> reconcile application containers -> verify health.
+
+### Production
+
+`main` push -> detect changes -> build/push changed `:production` images -> upload Production env files -> start/reconcile MySQL -> pull current Production images -> run migrations -> reconcile application containers -> verify health.
+
+## Health verification
+
+Every application image uses `/health/live` for its Docker health check. After liveness succeeds, the deployment workflow also calls `/health/ready` inside each container. The workflow fails if a service stops, reports unhealthy, cannot reach its required database, or does not become ready within the deployment window.

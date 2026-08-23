@@ -1,0 +1,407 @@
+name: Backend Deploy Reusable
+
+on:
+  workflow_call:
+    inputs:
+      environment_name:
+        required: true
+        type: string
+      image_tag:
+        required: true
+        type: string
+      compose_project:
+        required: true
+        type: string
+      gateway_alias:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  build:
+    name: Build Changed Images
+    uses: ./.github/workflows/backend-build-images.yml
+    with:
+      image_tag: ${{ inputs.image_tag }}
+    permissions:
+      contents: read
+      packages: write
+
+  deploy:
+    name: Deploy ${{ inputs.environment_name }}
+    needs: build
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment_name }}
+
+    permissions:
+      contents: read
+      packages: read
+
+    env:
+      SSH_HOST: ${{ secrets.SSH_HOST }}
+      SSH_PORT: ${{ secrets.SSH_PORT }}
+      SSH_USER: ${{ secrets.SSH_USER }}
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+      EDGE_NETWORK: ${{ vars.NPM_NET_NAME }}
+      DEPLOY_ROOT: ${{ vars.BACKEND_DEPLOY_ROOT }}
+      IMAGE_TAG: ${{ inputs.image_tag }}
+      COMPOSE_PROJECT: ${{ inputs.compose_project }}
+      GATEWAY_ALIAS: ${{ inputs.gateway_alias }}
+      REMOTE_DOCKER_CONFIG: /tmp/researchtrack-ghcr-${{ github.run_id }}-${{ github.run_attempt }}
+
+    steps:
+      - name: Checkout deployment files
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            deploy
+            config/env
+          sparse-checkout-cone-mode: false
+
+      - name: Validate deployment configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          required=(SSH_HOST SSH_PORT SSH_USER SSH_PRIVATE_KEY EDGE_NETWORK DEPLOY_ROOT)
+          for key in "${required[@]}"; do
+            if [[ -z "${!key:-}" ]]; then
+              echo "$key is not configured." >&2
+              exit 1
+            fi
+          done
+
+          if [[ ! "$SSH_PORT" =~ ^[0-9]+$ ]]; then
+            echo "SSH_PORT must be numeric." >&2
+            exit 1
+          fi
+
+          if [[ ! "$DEPLOY_ROOT" =~ ^/ ]]; then
+            echo "BACKEND_DEPLOY_ROOT must be an absolute VPS path." >&2
+            exit 1
+          fi
+
+          echo "Deployment configuration validated."
+
+      - name: Configure SSH
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          touch ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+          ssh-keyscan -H -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Materialize and validate environment files
+        shell: bash
+        env:
+          MYSQL_ENV_FILE: ${{ secrets.MYSQL_ENV_FILE }}
+          SHARED_AUTH_ENV_FILE: ${{ secrets.SHARED_AUTH_ENV_FILE }}
+          AUTH_ENV_FILE: ${{ secrets.AUTH_ENV_FILE }}
+          PROJECT_ENV_FILE: ${{ secrets.PROJECT_ENV_FILE }}
+          GITHUB_ENV_FILE: ${{ secrets.RT_GITHUB_SERVICE_ENV }}
+          JIRA_ENV_FILE: ${{ secrets.JIRA_ENV_FILE }}
+          MEETING_ENV_FILE: ${{ secrets.MEETING_ENV_FILE }}
+          SUBMISSION_ENV_FILE: ${{ secrets.SUBMISSION_ENV_FILE }}
+          GATEWAY_ENV_FILE: ${{ secrets.GATEWAY_ENV_FILE }}
+        run: |
+          set -euo pipefail
+          umask 077
+
+          secret_dir="$RUNNER_TEMP/researchtrack-env"
+          rm -rf "$secret_dir"
+          mkdir -p "$secret_dir"
+
+          write_secret() {
+            local filename="$1"
+            local value="$2"
+            if [[ -z "$value" ]]; then
+              echo "Required GitHub Environment secret for $filename is empty." >&2
+              exit 1
+            fi
+            printf '%s\n' "$value" > "$secret_dir/$filename"
+          }
+
+          write_secret mysql.env "$MYSQL_ENV_FILE"
+          write_secret shared-auth.env "$SHARED_AUTH_ENV_FILE"
+          write_secret auth.env "$AUTH_ENV_FILE"
+          write_secret project.env "$PROJECT_ENV_FILE"
+          write_secret github.env "$GITHUB_ENV_FILE"
+          write_secret jira.env "$JIRA_ENV_FILE"
+          write_secret meeting.env "$MEETING_ENV_FILE"
+          write_secret submission.env "$SUBMISSION_ENV_FILE"
+          write_secret gateway.env "$GATEWAY_ENV_FILE"
+
+          ./deploy/validate-env-files.sh "$secret_dir" config/env "${{ inputs.environment_name }}"
+
+      - name: Upload deployment definition and environment files
+        shell: bash
+        run: |
+          set -euo pipefail
+          remote="$DEPLOY_ROOT/${{ inputs.environment_name }}"
+          secret_dir="$RUNNER_TEMP/researchtrack-env"
+
+          tar -C deploy -czf "$RUNNER_TEMP/researchtrack-deploy.tgz" \
+            compose.yml mysql
+          tar -C "$secret_dir" -czf "$RUNNER_TEMP/researchtrack-env.tgz" .
+
+          ssh \
+            -i ~/.ssh/id_ed25519 \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -p "$SSH_PORT" \
+            "$SSH_USER@$SSH_HOST" \
+            "mkdir -p '$remote' && chmod 700 '$remote'"
+
+          scp \
+            -i ~/.ssh/id_ed25519 \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -P "$SSH_PORT" \
+            "$RUNNER_TEMP/researchtrack-deploy.tgz" \
+            "$RUNNER_TEMP/researchtrack-env.tgz" \
+            "$SSH_USER@$SSH_HOST:$remote/"
+
+          ssh \
+            -i ~/.ssh/id_ed25519 \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -p "$SSH_PORT" \
+            "$SSH_USER@$SSH_HOST" \
+            "REMOTE='$remote' bash -s" <<'REMOTE_SCRIPT'
+          set -euo pipefail
+
+          tar -xzf "$REMOTE/researchtrack-deploy.tgz" -C "$REMOTE"
+          chmod 700 "$REMOTE"
+          chmod 700 "$REMOTE/mysql"
+          chmod 700 "$REMOTE/mysql/reconcile-databases.sh"
+
+          next="$REMOTE/env.next"
+          previous="$REMOTE/env.previous"
+          current="$REMOTE/env"
+
+          rm -rf "$next"
+          mkdir -p "$next"
+          chmod 700 "$next"
+          tar -xzf "$REMOTE/researchtrack-env.tgz" -C "$next"
+          chmod 600 "$next"/*
+
+          rm -rf "$previous"
+          if [[ -d "$current" ]]; then
+            mv "$current" "$previous"
+          fi
+          mv "$next" "$current"
+
+          rm -f "$REMOTE/researchtrack-deploy.tgz" "$REMOTE/researchtrack-env.tgz"
+          REMOTE_SCRIPT
+
+      - name: Authenticate deployment host to GHCR
+        shell: bash
+        env:
+          GHCR_USERNAME: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          ssh \
+            -T \
+            -i ~/.ssh/id_ed25519 \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -p "$SSH_PORT" \
+            "$SSH_USER@$SSH_HOST" \
+            "rm -rf '$REMOTE_DOCKER_CONFIG' && mkdir -m 700 '$REMOTE_DOCKER_CONFIG'"
+
+          printf '%s' "$GHCR_TOKEN" | \
+            ssh \
+              -T \
+              -i ~/.ssh/id_ed25519 \
+              -o IdentitiesOnly=yes \
+              -o StrictHostKeyChecking=yes \
+              -p "$SSH_PORT" \
+              "$SSH_USER@$SSH_HOST" \
+              "DOCKER_CONFIG='$REMOTE_DOCKER_CONFIG' docker login ghcr.io -u '$GHCR_USERNAME' --password-stdin >/dev/null"
+
+          echo "Authenticated deployment host to GHCR for this workflow run."
+
+      - name: Deploy backend stack
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          remote="$DEPLOY_ROOT/${{ inputs.environment_name }}"
+          image_prefix="ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
+
+          ssh \
+            -T \
+            -i ~/.ssh/id_ed25519 \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -p "$SSH_PORT" \
+            "$SSH_USER@$SSH_HOST" \
+            "REMOTE='$remote' \
+             COMPOSE_PROJECT='$COMPOSE_PROJECT' \
+             IMAGE_PREFIX='$image_prefix' \
+             IMAGE_TAG='$IMAGE_TAG' \
+             EDGE_NETWORK='$EDGE_NETWORK' \
+             GATEWAY_ALIAS='$GATEWAY_ALIAS' \
+             DOCKER_CONFIG='$REMOTE_DOCKER_CONFIG' \
+             bash -s" <<'REMOTE_SCRIPT'
+          set -euo pipefail
+
+          cd "$REMOTE"
+          export COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT"
+          export IMAGE_PREFIX IMAGE_TAG EDGE_NETWORK GATEWAY_ALIAS DOCKER_CONFIG
+
+          docker network inspect "$EDGE_NETWORK" >/dev/null 2>&1 \
+            || docker network create "$EDGE_NETWORK" >/dev/null
+
+          echo "Starting MySQL..."
+          docker compose -f compose.yml up -d mysql
+
+          mysql_id="$(docker compose -f compose.yml ps -q mysql)"
+          [[ -n "$mysql_id" ]] || { echo "MySQL container was not created." >&2; exit 1; }
+
+          echo "Waiting for MySQL health..."
+          mysql_ready=false
+          for attempt in $(seq 1 30); do
+            status="$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$mysql_id")"
+            if [[ "$status" == "healthy" ]]; then
+              mysql_ready=true
+              break
+            fi
+            if [[ "$status" == "unhealthy" ]]; then
+              docker logs --tail 100 "$mysql_id" || true
+              exit 1
+            fi
+            sleep 2
+          done
+          [[ "$mysql_ready" == "true" ]] || { echo "Timed out waiting for MySQL." >&2; docker logs --tail 100 "$mysql_id" || true; exit 1; }
+
+          echo "Reconciling service databases and database users..."
+          docker compose -f compose.yml exec -T mysql /opt/researchtrack/reconcile-databases.sh
+
+          echo "Pulling current environment image tags..."
+          docker compose -f compose.yml pull gateway auth project github jira meeting submission
+
+          echo "Applying EF Core migrations..."
+          for service in auth project github jira meeting submission; do
+            echo "Migrating $service..."
+            docker compose -f compose.yml run --rm --no-deps --entrypoint /app/migrate "$service"
+          done
+
+          echo "Reconciling application containers..."
+          docker compose -f compose.yml up -d --remove-orphans \
+            gateway auth project github jira meeting submission
+
+          docker compose -f compose.yml ps
+          REMOTE_SCRIPT
+
+      - name: Verify service health
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          remote="$DEPLOY_ROOT/${{ inputs.environment_name }}"
+          image_prefix="ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
+
+          ssh \
+            -T \
+            -i ~/.ssh/id_ed25519 \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -p "$SSH_PORT" \
+            "$SSH_USER@$SSH_HOST" \
+            "REMOTE='$remote' \
+             COMPOSE_PROJECT='$COMPOSE_PROJECT' \
+             IMAGE_PREFIX='$image_prefix' \
+             IMAGE_TAG='$IMAGE_TAG' \
+             EDGE_NETWORK='$EDGE_NETWORK' \
+             GATEWAY_ALIAS='$GATEWAY_ALIAS' \
+             bash -s" <<'REMOTE_SCRIPT'
+          set -euo pipefail
+
+          cd "$REMOTE"
+          export COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT"
+          export IMAGE_PREFIX IMAGE_TAG EDGE_NETWORK GATEWAY_ALIAS
+
+          for service in gateway auth project github jira meeting submission; do
+            container_id="$(docker compose -f compose.yml ps -q "$service")"
+            [[ -n "$container_id" ]] || { echo "Missing container: $service" >&2; exit 1; }
+
+            healthy=false
+            for attempt in $(seq 1 35); do
+              running="$(docker inspect --format='{{.State.Running}}' "$container_id" 2>/dev/null || true)"
+              health="$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$container_id" 2>/dev/null || true)"
+
+              if [[ "$running" != "true" ]]; then
+                echo "$service stopped before becoming healthy." >&2
+                docker logs --tail 100 "$container_id" || true
+                exit 1
+              fi
+
+              if [[ "$health" == "healthy" ]]; then
+                healthy=true
+                break
+              fi
+
+              if [[ "$health" == "unhealthy" ]]; then
+                echo "$service reported unhealthy." >&2
+                docker logs --tail 100 "$container_id" || true
+                exit 1
+              fi
+
+              sleep 2
+            done
+
+            [[ "$healthy" == "true" ]] || {
+              echo "Timed out waiting for $service to become healthy." >&2
+              docker logs --tail 100 "$container_id" || true
+              exit 1
+            }
+
+            if ! docker exec "$container_id" curl -fsS http://127.0.0.1:8080/health/ready >/dev/null; then
+              echo "$service is live but not ready." >&2
+              docker logs --tail 100 "$container_id" || true
+              exit 1
+            fi
+
+            echo "$service is healthy and ready."
+          done
+
+          echo "All ResearchTrack backend services are healthy."
+          REMOTE_SCRIPT
+
+      - name: Finalize successful deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          remote="$DEPLOY_ROOT/${{ inputs.environment_name }}"
+          ssh \
+            -T \
+            -i ~/.ssh/id_ed25519 \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -p "$SSH_PORT" \
+            "$SSH_USER@$SSH_HOST" \
+            "rm -rf '$remote/env.previous'"
+
+      - name: Remove temporary GHCR credentials from deployment host
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          ssh \
+            -T \
+            -i ~/.ssh/id_ed25519 \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -p "$SSH_PORT" \
+            "$SSH_USER@$SSH_HOST" \
+            "rm -rf '$REMOTE_DOCKER_CONFIG'" || true
+

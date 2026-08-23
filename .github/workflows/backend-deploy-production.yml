@@ -1,0 +1,27 @@
+name: Backend Deploy - Production
+
+on:
+  push:
+    branches: ["main"]
+
+concurrency:
+  group: researchtrack-backend-production-deployment
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  deploy:
+    name: Build and Deploy Production
+    uses: ./.github/workflows/backend-deploy-reusable.yml
+    with:
+      environment_name: production
+      image_tag: production
+      compose_project: researchtrack-production
+      gateway_alias: researchtrack-gateway-production
+    permissions:
+      contents: read
+      packages: write
+    secrets: inherit

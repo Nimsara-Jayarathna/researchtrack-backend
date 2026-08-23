@@ -95,13 +95,30 @@ log/
 *.pid
 
 # ------------------------------------------------------------
-# Local environment files
+# Local / deployment environment files
 # ------------------------------------------------------------
+
+# Generic local env files
 .env
 .env.local
 .env.*.local
 
-# Keep the committed template
+# Environment-specific runtime files
+.env.test
+.env.prod
+.env.production
+
+# Also ignore them anywhere in the repository
+**/.env.test
+**/.env.prod
+**/.env.production
+
+# Optional alternate naming if you ever use these forms
+*.env.test
+*.env.prod
+*.env.production
+
+# Keep committed templates
 !.env.example
 !**/.env.example
 

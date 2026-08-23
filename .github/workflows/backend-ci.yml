@@ -1,0 +1,35 @@
+name: Backend CI
+
+on:
+  pull_request:
+    branches: ["develop", "main"]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Restore, Build and Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: |
+            **/*.csproj
+            Directory.Packages.props
+
+      - name: Restore
+        run: dotnet restore ResearchTrack.sln
+
+      - name: Build
+        run: dotnet build ResearchTrack.sln -c Release --no-restore
+
+      - name: Test
+        run: dotnet test ResearchTrack.sln -c Release --no-build --verbosity normal

@@ -1,0 +1,27 @@
+name: Backend Deploy - Test
+
+on:
+  push:
+    branches: ["devops/infrastructure-setup"]
+
+concurrency:
+  group: researchtrack-backend-test-deployment
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  deploy:
+    name: Build and Deploy Test
+    uses: ./.github/workflows/backend-deploy-reusable.yml
+    with:
+      environment_name: test
+      image_tag: test
+      compose_project: researchtrack-test
+      gateway_alias: researchtrack-gateway-test
+    permissions:
+      contents: read
+      packages: write
+    secrets: inherit
