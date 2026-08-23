@@ -136,6 +136,7 @@ networks:
     external: true
     name: ${EDGE_NETWORK:-npm_default}
   backend:
-    internal: true
+    driver: bridge
   database:
+    driver: bridge
     internal: true

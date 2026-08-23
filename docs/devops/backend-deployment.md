@@ -112,7 +112,13 @@ Nginx Proxy Manager can therefore route:
 - Test API hostname -> `researchtrack-gateway-test:8080`
 - Production API hostname -> `researchtrack-gateway-production:8080`
 
-All other backend containers remain on private Compose networks.
+The deployment Compose topology keeps each environment isolated:
+
+- Gateway joins the external edge network and the environment backend network.
+- Auth, Project, GitHub, Jira, Meeting, and Submission join the backend network and the internal database network.
+- MySQL joins only the internal database network and does not publish port `3306` to the host.
+
+Service database files must use `Database__Host=mysql` and `Database__Port=3306`; Docker DNS resolves `mysql` on the internal database network.
 
 ## CI and branch protection
 
