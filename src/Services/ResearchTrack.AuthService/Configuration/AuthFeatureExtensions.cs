@@ -1,5 +1,6 @@
 using ResearchTrack.AuthService.Features.Authentication;
 using ResearchTrack.AuthService.Features.Registration;
+using ResearchTrack.AuthService.Features.Users;
 using ResearchTrack.AuthService.Infrastructure.Cookies;
 using ResearchTrack.AuthService.Infrastructure.Email;
 using ResearchTrack.AuthService.Infrastructure.Security;
@@ -41,6 +42,7 @@ public static class AuthFeatureExtensions
         services.AddScoped<IRegistrationEmailService, RegistrationEmailService>();
         services.AddScoped<IRegistrationService, RegistrationService>();
         services.AddScoped<IUserAuthenticationService, UserAuthenticationService>();
+        services.AddScoped<IUserDirectoryService, UserDirectoryService>();
         return services;
     }
 }

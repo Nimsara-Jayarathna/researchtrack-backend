@@ -24,6 +24,17 @@ rt_admin_env_file() {
   printf '%s/config/env/admin/.env.local\n' "$RESEARCHTRACK_ROOT"
 }
 
+rt_shared_env_file() {
+  printf '%s/config/env/shared/.env.local\n' "$RESEARCHTRACK_ROOT"
+}
+
+rt_service_uses_shared_auth() {
+  case "${1,,}" in
+    auth|project) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 rt_warn_if_insecure_permissions() {
   local file="$1"
   [[ -f "$file" ]] || return 0
@@ -100,6 +111,21 @@ rt_load_dev_env() {
 
   rt_warn_if_insecure_permissions "$file"
   rt_load_env_file "$file"
+
+  # Shared JWT values load after service-local settings so the platform
+  # issuer/audience/signing key cannot drift across protected services.
+  if rt_service_uses_shared_auth "$service"; then
+    local shared_file
+    shared_file="$(rt_shared_env_file)"
+    if [[ ! -f "$shared_file" ]]; then
+      echo "Missing $shared_file. Run ./scripts/setup.sh, then configure shared JWT values." >&2
+      exit 1
+    fi
+    rt_warn_if_insecure_permissions "$shared_file"
+    rt_load_env_file "$shared_file"
+    rt_validate_shared_auth_environment
+  fi
+
   export ASPNETCORE_ENVIRONMENT="${ASPNETCORE_ENVIRONMENT:-Development}"
   export DOTNET_ENVIRONMENT="${DOTNET_ENVIRONMENT:-Development}"
   if [[ "${service,,}" != "gateway" ]]; then
@@ -149,6 +175,13 @@ rt_reject_placeholder() {
       return 1
       ;;
   esac
+}
+
+rt_validate_shared_auth_environment() {
+  rt_require_env Jwt__Issuer Jwt__Audience Jwt__SigningKey
+  rt_reject_placeholder Jwt__Issuer
+  rt_reject_placeholder Jwt__Audience
+  rt_reject_placeholder Jwt__SigningKey
 }
 
 rt_validate_db_environment() {

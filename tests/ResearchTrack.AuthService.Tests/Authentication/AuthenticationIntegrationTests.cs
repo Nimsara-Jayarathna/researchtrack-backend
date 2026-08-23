@@ -129,6 +129,63 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime
 
     [Fact]
     [Trait("Category", "DatabaseIntegration")]
+    public async Task Supervisor_can_search_and_resolve_registered_students_but_student_cannot()
+    {
+        var supervisorLogin = await LoginAsync("supervisor@staff.example.edu");
+        var supervisorAccessToken = ExtractCookie(supervisorLogin, AuthSecurityConstants.AccessCookieName);
+
+        using var searchRequest = new HttpRequestMessage(
+            HttpMethod.Get,
+            "/api/v1/users/students?query=student");
+        searchRequest.Headers.Add(
+            "Cookie",
+            $"{AuthSecurityConstants.AccessCookieName}={supervisorAccessToken}");
+        var searchResponse = await Client.SendAsync(
+            searchRequest,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, searchResponse.StatusCode);
+        var searchPayload = await searchResponse.Content.ReadFromJsonAsync<
+            ApiResponse<IReadOnlyList<UserDirectoryResponse>>>(
+            TestContext.Current.CancellationToken);
+        var student = Assert.Single(searchPayload?.Data ?? []);
+        Assert.Equal(AuthSecurityConstants.Roles.Student, student.Role);
+
+        using var resolveRequest = new HttpRequestMessage(
+            HttpMethod.Post,
+            "/api/v1/users/students/resolve");
+        resolveRequest.Headers.Add(
+            "Cookie",
+            $"{AuthSecurityConstants.AccessCookieName}={supervisorAccessToken}");
+        resolveRequest.Content = JsonContent.Create(new
+        {
+            studentIds = new[] { student.Id, Guid.NewGuid() }
+        });
+        var resolveResponse = await Client.SendAsync(
+            resolveRequest,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, resolveResponse.StatusCode);
+        var resolvedPayload = await resolveResponse.Content.ReadFromJsonAsync<
+            ApiResponse<IReadOnlyList<UserDirectoryResponse>>>(
+            TestContext.Current.CancellationToken);
+        Assert.Single(resolvedPayload?.Data ?? []);
+
+        var studentLogin = await LoginAsync("student@students.example.edu");
+        var studentAccessToken = ExtractCookie(studentLogin, AuthSecurityConstants.AccessCookieName);
+        using var deniedRequest = new HttpRequestMessage(
+            HttpMethod.Get,
+            "/api/v1/users/students?query=student");
+        deniedRequest.Headers.Add(
+            "Cookie",
+            $"{AuthSecurityConstants.AccessCookieName}={studentAccessToken}");
+        var deniedResponse = await Client.SendAsync(
+            deniedRequest,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Forbidden, deniedResponse.StatusCode);
+    }
+
+    [Fact]
+    [Trait("Category", "DatabaseIntegration")]
     public async Task Logout_revokes_refresh_token_and_clears_auth_cookies()
     {
         var login = await LoginAsync("supervisor@staff.example.edu");

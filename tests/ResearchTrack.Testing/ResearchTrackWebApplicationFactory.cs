@@ -65,7 +65,8 @@ public sealed class ResearchTrackWebApplicationFactory<TProgram> : WebApplicatio
                 ["Jwt:SigningKey"] = "test-signing-key-that-is-at-least-32-bytes-long-123456789",
                 ["Jwt:AccessTokenMinutes"] = "15",
                 ["Jwt:RefreshTokenDays"] = "7",
-                ["Cookie:Secure"] = "false"
+                ["Cookie:Secure"] = "false",
+                ["Services:Auth:BaseUrl"] = "http://localhost:5101/"
             };
 
             if (!string.IsNullOrWhiteSpace(_connectionString))
