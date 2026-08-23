@@ -6,6 +6,10 @@ on:
       image_tag:
         required: true
         type: string
+      force_full_build:
+        required: false
+        type: boolean
+        default: false
     outputs:
       services:
         description: Space-separated Compose services whose images were rebuilt.
@@ -41,6 +45,16 @@ jobs:
 
           before="${{ github.event.before }}"
           after="${{ github.sha }}"
+
+          if [[ "${{ inputs.force_full_build }}" == "true" ]]; then
+            services=(gateway auth project github jira meeting submission)
+            matrix="$(printf '%s\n' "${services[@]}" | jq -R . | jq -sc .)"
+            echo "Force full backend image build requested."
+            echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+            echo "services=${services[*]}" >> "$GITHUB_OUTPUT"
+            echo 'has_changes=true' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
 
           if [[ -z "$before" || "$before" =~ ^0+$ ]]; then
             before="$(git rev-parse "${after}^" 2>/dev/null || echo "$after")"

@@ -3,6 +3,13 @@ name: Backend Deploy - Production
 on:
   push:
     branches: ["main"]
+  workflow_dispatch:
+    inputs:
+      force_full_build:
+        description: Build and publish all backend service images before deploying.
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
   group: researchtrack-backend-production-deployment
@@ -18,6 +25,7 @@ jobs:
     uses: ./.github/workflows/backend-deploy-reusable.yml
     with:
       environment_name: production
+      force_full_build: ${{ inputs.force_full_build || false }}
     permissions:
       contents: read
       packages: write

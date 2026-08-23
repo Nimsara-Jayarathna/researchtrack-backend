@@ -128,6 +128,8 @@ Configure GitHub rulesets so the status check **Restore, Build and Test** must p
 
 A push to `develop` or `main` detects the changed deployable services. A service image is rebuilt only when its service source changes. Changes to shared compilation inputs such as BuildingBlocks, central package versions, the solution, global SDK selection, or the shared service Dockerfile rebuild every executable image.
 
+For a first deployment of an environment, run the matching backend deploy workflow manually with `force_full_build=true`. This publishes all seven required backend image tags before Compose tries to pull and start the full stack.
+
 Each built image receives:
 
 - the environment moving tag (`test` or `production`)

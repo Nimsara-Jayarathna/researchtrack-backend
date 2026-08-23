@@ -6,6 +6,10 @@ on:
       environment_name:
         required: true
         type: string
+      force_full_build:
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -17,6 +21,7 @@ jobs:
     uses: ./.github/workflows/backend-build-images.yml
     with:
       image_tag: ${{ inputs.environment_name }}
+      force_full_build: ${{ inputs.force_full_build }}
     permissions:
       contents: read
       packages: write
@@ -321,6 +326,7 @@ jobs:
              DOCKER_CONFIG='$REMOTE_DOCKER_CONFIG' \
              bash -s" <<'REMOTE_SCRIPT'
           set -euo pipefail
+          export DOCKER_CONFIG
 
           cd "$REMOTE"
           set -a
@@ -363,7 +369,32 @@ jobs:
           "${compose[@]}" exec -T mysql /opt/researchtrack/reconcile-databases.sh
 
           echo "Pulling current environment image tags..."
-          "${compose[@]}" pull gateway auth project github jira meeting submission
+          if ! "${compose[@]}" pull \
+            gateway \
+            auth \
+            project \
+            github \
+            jira \
+            meeting \
+            submission; then
+            echo "Backend image pull failed." >&2
+            exit 1
+          fi
+
+          echo "Pulled backend images:"
+          docker images --format '{{.Repository}}:{{.Tag}}' \
+            | grep 'ghcr.io/nimsara-jayarathna/researchtrack' || true
+
+          for service in gateway auth project github jira meeting submission; do
+            image="${IMAGE_PREFIX}/researchtrack-${service}:${DEPLOY_ENV}"
+
+            if ! docker image inspect "$image" >/dev/null 2>&1; then
+              echo "Required backend image is missing after pull: $image" >&2
+              exit 1
+            fi
+
+            echo "Image available: $image"
+          done
 
           echo "Applying EF Core migrations..."
           for service in auth project github jira meeting submission; do
