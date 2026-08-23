@@ -375,7 +375,20 @@ jobs:
           "${compose[@]}" up -d --remove-orphans \
             gateway auth project github jira meeting submission
 
-          "${compose[@]}" ps
+          echo "Application container state:"
+          "${compose[@]}" ps -a
+
+          for service in gateway auth project github jira meeting submission; do
+            container_id="$("${compose[@]}" ps -a -q "$service")"
+
+            if [[ -z "$container_id" ]]; then
+              echo "ERROR: $service was not created during deployment." >&2
+              "${compose[@]}" ps -a
+              exit 1
+            fi
+          done
+
+          echo "All application containers were created."
           REMOTE_SCRIPT
 
       - name: Verify service health
