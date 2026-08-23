@@ -31,14 +31,25 @@ builder.Services.AddRateLimiter(options =>
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
     options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
     {
-        var key = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-        return RateLimitPartition.GetFixedWindowLimiter(key, _ => new FixedWindowRateLimiterOptions
+        var remoteIp = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        var path = context.Request.Path.Value ?? string.Empty;
+
+        var (bucket, permitLimit) = path switch
         {
-            PermitLimit = 120,
-            Window = TimeSpan.FromMinutes(1),
-            QueueLimit = 0,
-            AutoReplenishment = true
-        });
+            "/api/v1/auth/login" => ("auth-login", 10),
+            "/api/v1/auth/refresh" => ("auth-refresh", 30),
+            _ => ("general", 120)
+        };
+
+        return RateLimitPartition.GetFixedWindowLimiter(
+            $"{bucket}:{remoteIp}",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = permitLimit,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                AutoReplenishment = true
+            });
     });
     options.OnRejected = async (context, _) =>
     {

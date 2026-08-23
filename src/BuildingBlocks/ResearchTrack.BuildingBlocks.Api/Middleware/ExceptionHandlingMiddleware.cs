@@ -21,6 +21,18 @@ public sealed class ExceptionHandlingMiddleware
         {
             await _next(context);
         }
+        catch (ApiValidationException exception)
+        {
+            if (!context.Response.HasStarted)
+            {
+                await ApiErrorResponseWriter.WriteAsync(
+                    context,
+                    exception.StatusCode,
+                    exception.Code,
+                    exception.Message,
+                    fieldErrors: exception.FieldErrors);
+            }
+        }
         catch (ApiException exception)
         {
             if (!context.Response.HasStarted)

@@ -35,6 +35,9 @@ public static class ServiceCollectionExtensions
                 };
             });
 
+        services.AddAuthentication();
+        services.AddAuthorization();
+
         services.AddEndpointsApiExplorer();
         services.AddSwaggerGen(options =>
         {
