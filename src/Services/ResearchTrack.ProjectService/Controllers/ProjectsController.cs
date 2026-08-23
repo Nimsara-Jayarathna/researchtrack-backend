@@ -12,7 +12,7 @@ using ResearchTrack.ProjectService.Features.Projects;
 namespace ResearchTrack.ProjectService.Controllers;
 
 [Route("api/v1/projects")]
-[Authorize(Policy = AuthSecurityConstants.Policies.SupervisorOnly)]
+[Authorize(Policy = AuthSecurityConstants.Policies.Authenticated)]
 public sealed class ProjectsController : ApiControllerBase
 {
     private readonly IProjectService _projectService;
@@ -22,43 +22,49 @@ public sealed class ProjectsController : ApiControllerBase
         _projectService = projectService;
     }
 
+    [Authorize(Policy = AuthSecurityConstants.Policies.SupervisorOnly)]
     [HttpPost]
-    [ProducesResponseType<ApiResponse<ProjectResponse>>(StatusCodes.Status201Created)]
+    [ProducesResponseType<ApiResponse<CreateProjectResponse>>(StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    public async Task<ActionResult<ApiResponse<ProjectResponse>>> Create(
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public async Task<ActionResult<ApiResponse<CreateProjectResponse>>> Create(
         [FromBody] CreateProjectRequest request,
         CancellationToken cancellationToken)
     {
-        var supervisorUserId = GetRequiredUserId();
-        var created = await _projectService.CreateAsync(supervisorUserId, request, cancellationToken);
+        var userId = GetRequiredUserId();
+        var created = await _projectService.CreateAsync(userId, request, cancellationToken);
         return ApiCreated($"/api/v1/projects/{created.Id}", created);
     }
 
     [HttpGet]
     [ProducesResponseType<ApiResponse<IReadOnlyList<ProjectSummaryResponse>>>(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<ApiResponse<IReadOnlyList<ProjectSummaryResponse>>>> GetAll(
         CancellationToken cancellationToken)
     {
-        var supervisorUserId = GetRequiredUserId();
-        var projects = await _projectService.GetOwnedProjectsAsync(supervisorUserId, cancellationToken);
+        var projects = await _projectService.GetAccessibleProjectsAsync(
+            GetRequiredUserId(),
+            GetRequiredRole(),
+            cancellationToken);
         return ApiOk(projects);
     }
 
     [HttpGet("{projectId:guid}")]
     [ProducesResponseType<ApiResponse<ProjectResponse>>(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ApiResponse<ProjectResponse>>> GetById(
         Guid projectId,
         CancellationToken cancellationToken)
     {
-        var supervisorUserId = GetRequiredUserId();
-        var project = await _projectService.GetOwnedProjectAsync(supervisorUserId, projectId, cancellationToken);
+        var project = await _projectService.GetAccessibleProjectAsync(
+            GetRequiredUserId(),
+            GetRequiredRole(),
+            projectId,
+            cancellationToken);
+
         if (project is null)
         {
             throw new ApiException(
@@ -75,11 +81,23 @@ public sealed class ProjectsController : ApiControllerBase
         var subject = User.FindFirstValue(AuthSecurityConstants.SubjectClaim);
         if (!Guid.TryParse(subject, out var userId))
         {
-            throw new ApiException(
-                StatusCodes.Status401Unauthorized,
-                ErrorCodes.Unauthorized,
-                "Authentication is required.");
+            throw CreateUnauthorizedException();
         }
         return userId;
     }
+
+    private string GetRequiredRole()
+    {
+        var role = User.FindFirstValue(AuthSecurityConstants.RoleClaim);
+        if (string.IsNullOrWhiteSpace(role))
+        {
+            throw CreateUnauthorizedException();
+        }
+        return role.Trim().ToUpperInvariant();
+    }
+
+    private static ApiException CreateUnauthorizedException() => new(
+        StatusCodes.Status401Unauthorized,
+        ErrorCodes.Unauthorized,
+        "Authentication is required.");
 }

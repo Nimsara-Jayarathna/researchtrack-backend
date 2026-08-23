@@ -4,7 +4,19 @@ namespace ResearchTrack.ProjectService.Features.Projects;
 
 public interface IProjectService
 {
-    Task<ProjectResponse> CreateAsync(Guid supervisorUserId, CreateProjectRequest request, CancellationToken cancellationToken);
-    Task<IReadOnlyList<ProjectSummaryResponse>> GetOwnedProjectsAsync(Guid supervisorUserId, CancellationToken cancellationToken);
-    Task<ProjectResponse?> GetOwnedProjectAsync(Guid supervisorUserId, Guid projectId, CancellationToken cancellationToken);
+    Task<CreateProjectResponse> CreateAsync(
+        Guid supervisorUserId,
+        CreateProjectRequest request,
+        CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<ProjectSummaryResponse>> GetAccessibleProjectsAsync(
+        Guid userId,
+        string role,
+        CancellationToken cancellationToken);
+
+    Task<ProjectResponse?> GetAccessibleProjectAsync(
+        Guid userId,
+        string role,
+        Guid projectId,
+        CancellationToken cancellationToken);
 }
