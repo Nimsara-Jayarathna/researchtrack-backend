@@ -11,6 +11,6 @@ public static class DesignTimeDatabase
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(databaseName);
 
-        return $"Server=127.0.0.1;Port=3306;Database={databaseName};User=design;Password=design;SslMode=None;AllowPublicKeyRetrieval=true;";
+        return $"Server=127.0.0.1;Port=3306;Database={databaseName};User=design;Password=design;SslMode=Disabled;AllowPublicKeyRetrieval=true;";
     }
 }
