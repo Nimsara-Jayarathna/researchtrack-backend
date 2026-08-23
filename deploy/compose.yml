@@ -1,19 +1,21 @@
+name: researchtrack-${DEPLOY_ENV}
+
 services:
   gateway:
-    image: ${IMAGE_PREFIX}/researchtrack-gateway:${IMAGE_TAG}
+    image: ${IMAGE_PREFIX}/researchtrack-gateway:${DEPLOY_ENV}
     restart: unless-stopped
     env_file:
       - ./env/gateway.env
     networks:
       edge:
         aliases:
-          - ${GATEWAY_ALIAS}
+          - researchtrack-gateway-${DEPLOY_ENV}
       backend: {}
     mem_limit: ${GATEWAY_MEMORY_LIMIT:-384m}
     cpus: ${GATEWAY_CPU_LIMIT:-0.50}
 
   auth:
-    image: ${IMAGE_PREFIX}/researchtrack-auth:${IMAGE_TAG}
+    image: ${IMAGE_PREFIX}/researchtrack-auth:${DEPLOY_ENV}
     restart: unless-stopped
     env_file:
       - ./env/shared-auth.env
@@ -28,7 +30,7 @@ services:
     cpus: ${AUTH_CPU_LIMIT:-0.50}
 
   project:
-    image: ${IMAGE_PREFIX}/researchtrack-project:${IMAGE_TAG}
+    image: ${IMAGE_PREFIX}/researchtrack-project:${DEPLOY_ENV}
     restart: unless-stopped
     env_file:
       - ./env/shared-auth.env
@@ -43,7 +45,7 @@ services:
     cpus: ${PROJECT_CPU_LIMIT:-0.50}
 
   github:
-    image: ${IMAGE_PREFIX}/researchtrack-github:${IMAGE_TAG}
+    image: ${IMAGE_PREFIX}/researchtrack-github:${DEPLOY_ENV}
     restart: unless-stopped
     env_file:
       - ./env/github.env
@@ -57,7 +59,7 @@ services:
     cpus: ${GITHUB_CPU_LIMIT:-0.40}
 
   jira:
-    image: ${IMAGE_PREFIX}/researchtrack-jira:${IMAGE_TAG}
+    image: ${IMAGE_PREFIX}/researchtrack-jira:${DEPLOY_ENV}
     restart: unless-stopped
     env_file:
       - ./env/jira.env
@@ -71,7 +73,7 @@ services:
     cpus: ${JIRA_CPU_LIMIT:-0.40}
 
   meeting:
-    image: ${IMAGE_PREFIX}/researchtrack-meeting:${IMAGE_TAG}
+    image: ${IMAGE_PREFIX}/researchtrack-meeting:${DEPLOY_ENV}
     restart: unless-stopped
     env_file:
       - ./env/meeting.env
@@ -85,7 +87,7 @@ services:
     cpus: ${MEETING_CPU_LIMIT:-0.40}
 
   submission:
-    image: ${IMAGE_PREFIX}/researchtrack-submission:${IMAGE_TAG}
+    image: ${IMAGE_PREFIX}/researchtrack-submission:${DEPLOY_ENV}
     restart: unless-stopped
     env_file:
       - ./env/submission.env
@@ -132,7 +134,7 @@ volumes:
 networks:
   edge:
     external: true
-    name: ${EDGE_NETWORK}
+    name: ${EDGE_NETWORK:-npm_default}
   backend:
     internal: true
   database:

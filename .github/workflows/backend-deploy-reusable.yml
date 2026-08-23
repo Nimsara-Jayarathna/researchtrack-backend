@@ -6,15 +6,6 @@ on:
       environment_name:
         required: true
         type: string
-      image_tag:
-        required: true
-        type: string
-      compose_project:
-        required: true
-        type: string
-      gateway_alias:
-        required: true
-        type: string
 
 permissions:
   contents: read
@@ -25,7 +16,7 @@ jobs:
     name: Build Changed Images
     uses: ./.github/workflows/backend-build-images.yml
     with:
-      image_tag: ${{ inputs.image_tag }}
+      image_tag: ${{ inputs.environment_name }}
     permissions:
       contents: read
       packages: write
@@ -47,9 +38,6 @@ jobs:
       SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
       EDGE_NETWORK: ${{ vars.NPM_NET_NAME }}
       DEPLOY_ROOT: ${{ vars.BACKEND_DEPLOY_ROOT }}
-      IMAGE_TAG: ${{ inputs.image_tag }}
-      COMPOSE_PROJECT: ${{ inputs.compose_project }}
-      GATEWAY_ALIAS: ${{ inputs.gateway_alias }}
       REMOTE_DOCKER_CONFIG: /tmp/researchtrack-ghcr-${{ github.run_id }}-${{ github.run_attempt }}
 
     steps:
@@ -66,7 +54,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          required=(SSH_HOST SSH_PORT SSH_USER SSH_PRIVATE_KEY EDGE_NETWORK DEPLOY_ROOT)
+          required=(SSH_HOST SSH_PORT SSH_USER SSH_PRIVATE_KEY DEPLOY_ROOT)
           for key in "${required[@]}"; do
             if [[ -z "${!key:-}" ]]; then
               echo "$key is not configured." >&2
@@ -78,6 +66,11 @@ jobs:
             echo "SSH_PORT must be numeric." >&2
             exit 1
           fi
+
+          case "${{ inputs.environment_name }}" in
+            test|production) ;;
+            *) echo "environment_name must be 'test' or 'production'." >&2; exit 1 ;;
+          esac
 
           if [[ ! "$DEPLOY_ROOT" =~ ^/ ]]; then
             echo "BACKEND_DEPLOY_ROOT must be an absolute VPS path." >&2
@@ -145,6 +138,52 @@ jobs:
           set -euo pipefail
           remote="$DEPLOY_ROOT/${{ inputs.environment_name }}"
           secret_dir="$RUNNER_TEMP/researchtrack-env"
+          image_prefix="ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
+          edge_network="${EDGE_NETWORK:-npm_default}"
+          deploy_env="${{ inputs.environment_name }}"
+
+          validate_deploy_env() {
+            local file="$1" key deploy_env_value image_prefix_value edge_network_value
+            declare -A seen=()
+
+            while IFS= read -r line || [[ -n "$line" ]]; do
+              line="${line%$'\r'}"
+              [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+              [[ "$line" == *=* ]] || { echo "Invalid deploy.env entry: $line" >&2; exit 1; }
+              key="${line%%=*}"
+              case "$key" in
+                DEPLOY_ENV|IMAGE_PREFIX|EDGE_NETWORK) ;;
+                *) echo "deploy.env contains unsupported key '$key'." >&2; exit 1 ;;
+              esac
+              if [[ -n "${seen[$key]:-}" ]]; then
+                echo "deploy.env contains duplicate key '$key'." >&2
+                exit 1
+              fi
+              seen[$key]=1
+            done < "$file"
+
+            deploy_env_value="$(grep -E '^DEPLOY_ENV=' "$file" | cut -d= -f2- || true)"
+            image_prefix_value="$(grep -E '^IMAGE_PREFIX=' "$file" | cut -d= -f2- || true)"
+            edge_network_value="$(grep -E '^EDGE_NETWORK=' "$file" | cut -d= -f2- || true)"
+
+            case "$deploy_env_value" in
+              test|production) ;;
+              *) echo "deploy.env DEPLOY_ENV must be 'test' or 'production'." >&2; exit 1 ;;
+            esac
+            [[ "$deploy_env_value" == "$deploy_env" ]] || {
+              echo "deploy.env DEPLOY_ENV does not match workflow environment." >&2
+              exit 1
+            }
+            [[ -n "$image_prefix_value" ]] || { echo "deploy.env IMAGE_PREFIX is required." >&2; exit 1; }
+            [[ -n "$edge_network_value" ]] || { echo "deploy.env EDGE_NETWORK is required." >&2; exit 1; }
+          }
+
+          cat > "$RUNNER_TEMP/deploy.env" <<EOF
+          DEPLOY_ENV=$deploy_env
+          IMAGE_PREFIX=$image_prefix
+          EDGE_NETWORK=$edge_network
+          EOF
+          validate_deploy_env "$RUNNER_TEMP/deploy.env"
 
           tar -C deploy -czf "$RUNNER_TEMP/researchtrack-deploy.tgz" \
             compose.yml mysql
@@ -165,6 +204,7 @@ jobs:
             -P "$SSH_PORT" \
             "$RUNNER_TEMP/researchtrack-deploy.tgz" \
             "$RUNNER_TEMP/researchtrack-env.tgz" \
+            "$RUNNER_TEMP/deploy.env" \
             "$SSH_USER@$SSH_HOST:$remote/"
 
           ssh \
@@ -180,6 +220,40 @@ jobs:
           chmod 700 "$REMOTE"
           chmod 700 "$REMOTE/mysql"
           chmod 700 "$REMOTE/mysql/reconcile-databases.sh"
+          chmod 640 "$REMOTE/deploy.env"
+
+          validate_deploy_env() {
+            local file="$1" key deploy_env_value image_prefix_value edge_network_value
+            declare -A seen=()
+
+            while IFS= read -r line || [[ -n "$line" ]]; do
+              line="${line%$'\r'}"
+              [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+              [[ "$line" == *=* ]] || { echo "Invalid deploy.env entry: $line" >&2; exit 1; }
+              key="${line%%=*}"
+              case "$key" in
+                DEPLOY_ENV|IMAGE_PREFIX|EDGE_NETWORK) ;;
+                *) echo "deploy.env contains unsupported key '$key'." >&2; exit 1 ;;
+              esac
+              if [[ -n "${seen[$key]:-}" ]]; then
+                echo "deploy.env contains duplicate key '$key'." >&2
+                exit 1
+              fi
+              seen[$key]=1
+            done < "$file"
+
+            deploy_env_value="$(grep -E '^DEPLOY_ENV=' "$file" | cut -d= -f2- || true)"
+            image_prefix_value="$(grep -E '^IMAGE_PREFIX=' "$file" | cut -d= -f2- || true)"
+            edge_network_value="$(grep -E '^EDGE_NETWORK=' "$file" | cut -d= -f2- || true)"
+
+            case "$deploy_env_value" in
+              test|production) ;;
+              *) echo "deploy.env DEPLOY_ENV must be 'test' or 'production'." >&2; exit 1 ;;
+            esac
+            [[ -n "$image_prefix_value" ]] || { echo "deploy.env IMAGE_PREFIX is required." >&2; exit 1; }
+            [[ -n "$edge_network_value" ]] || { echo "deploy.env EDGE_NETWORK is required." >&2; exit 1; }
+          }
+          validate_deploy_env "$REMOTE/deploy.env"
 
           next="$REMOTE/env.next"
           previous="$REMOTE/env.previous"
@@ -235,7 +309,6 @@ jobs:
           set -euo pipefail
 
           remote="$DEPLOY_ROOT/${{ inputs.environment_name }}"
-          image_prefix="ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
 
           ssh \
             -T \
@@ -245,26 +318,29 @@ jobs:
             -p "$SSH_PORT" \
             "$SSH_USER@$SSH_HOST" \
             "REMOTE='$remote' \
-             COMPOSE_PROJECT='$COMPOSE_PROJECT' \
-             IMAGE_PREFIX='$image_prefix' \
-             IMAGE_TAG='$IMAGE_TAG' \
-             EDGE_NETWORK='$EDGE_NETWORK' \
-             GATEWAY_ALIAS='$GATEWAY_ALIAS' \
              DOCKER_CONFIG='$REMOTE_DOCKER_CONFIG' \
              bash -s" <<'REMOTE_SCRIPT'
           set -euo pipefail
 
           cd "$REMOTE"
-          export COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT"
-          export IMAGE_PREFIX IMAGE_TAG EDGE_NETWORK GATEWAY_ALIAS DOCKER_CONFIG
+          set -a
+          . ./deploy.env
+          set +a
+          case "${DEPLOY_ENV:-}" in
+            test|production) ;;
+            *) echo "deploy.env DEPLOY_ENV must be 'test' or 'production'." >&2; exit 1 ;;
+          esac
+          [[ -n "${IMAGE_PREFIX:-}" ]] || { echo "deploy.env IMAGE_PREFIX is required." >&2; exit 1; }
+          [[ -n "${EDGE_NETWORK:-}" ]] || { echo "deploy.env EDGE_NETWORK is required." >&2; exit 1; }
+          compose=(docker compose --env-file deploy.env -f compose.yml)
 
           docker network inspect "$EDGE_NETWORK" >/dev/null 2>&1 \
             || docker network create "$EDGE_NETWORK" >/dev/null
 
           echo "Starting MySQL..."
-          docker compose -f compose.yml up -d mysql
+          "${compose[@]}" up -d mysql
 
-          mysql_id="$(docker compose -f compose.yml ps -q mysql)"
+          mysql_id="$("${compose[@]}" ps -q mysql)"
           [[ -n "$mysql_id" ]] || { echo "MySQL container was not created." >&2; exit 1; }
 
           echo "Waiting for MySQL health..."
@@ -284,22 +360,22 @@ jobs:
           [[ "$mysql_ready" == "true" ]] || { echo "Timed out waiting for MySQL." >&2; docker logs --tail 100 "$mysql_id" || true; exit 1; }
 
           echo "Reconciling service databases and database users..."
-          docker compose -f compose.yml exec -T mysql /opt/researchtrack/reconcile-databases.sh
+          "${compose[@]}" exec -T mysql /opt/researchtrack/reconcile-databases.sh
 
           echo "Pulling current environment image tags..."
-          docker compose -f compose.yml pull gateway auth project github jira meeting submission
+          "${compose[@]}" pull gateway auth project github jira meeting submission
 
           echo "Applying EF Core migrations..."
           for service in auth project github jira meeting submission; do
             echo "Migrating $service..."
-            docker compose -f compose.yml run --rm --no-deps --entrypoint /app/migrate "$service"
+            "${compose[@]}" run --rm --no-deps --entrypoint /app/migrate "$service"
           done
 
           echo "Reconciling application containers..."
-          docker compose -f compose.yml up -d --remove-orphans \
+          "${compose[@]}" up -d --remove-orphans \
             gateway auth project github jira meeting submission
 
-          docker compose -f compose.yml ps
+          "${compose[@]}" ps
           REMOTE_SCRIPT
 
       - name: Verify service health
@@ -308,7 +384,6 @@ jobs:
           set -euo pipefail
 
           remote="$DEPLOY_ROOT/${{ inputs.environment_name }}"
-          image_prefix="ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
 
           ssh \
             -T \
@@ -317,21 +392,14 @@ jobs:
             -o StrictHostKeyChecking=yes \
             -p "$SSH_PORT" \
             "$SSH_USER@$SSH_HOST" \
-            "REMOTE='$remote' \
-             COMPOSE_PROJECT='$COMPOSE_PROJECT' \
-             IMAGE_PREFIX='$image_prefix' \
-             IMAGE_TAG='$IMAGE_TAG' \
-             EDGE_NETWORK='$EDGE_NETWORK' \
-             GATEWAY_ALIAS='$GATEWAY_ALIAS' \
-             bash -s" <<'REMOTE_SCRIPT'
+            "REMOTE='$remote' bash -s" <<'REMOTE_SCRIPT'
           set -euo pipefail
 
           cd "$REMOTE"
-          export COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT"
-          export IMAGE_PREFIX IMAGE_TAG EDGE_NETWORK GATEWAY_ALIAS
+          compose=(docker compose --env-file deploy.env -f compose.yml)
 
           for service in gateway auth project github jira meeting submission; do
-            container_id="$(docker compose -f compose.yml ps -q "$service")"
+            container_id="$("${compose[@]}" ps -q "$service")"
             [[ -n "$container_id" ]] || { echo "Missing container: $service" >&2; exit 1; }
 
             healthy=false
@@ -404,4 +472,3 @@ jobs:
             -p "$SSH_PORT" \
             "$SSH_USER@$SSH_HOST" \
             "rm -rf '$REMOTE_DOCKER_CONFIG'" || true
-
