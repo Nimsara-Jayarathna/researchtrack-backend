@@ -371,21 +371,44 @@ jobs:
             "${compose[@]}" run --rm --no-deps --entrypoint /app/migrate "$service"
           done
 
-          echo "Reconciling application containers..."
+          echo "Creating application containers..."
           "${compose[@]}" up -d --remove-orphans \
-            gateway auth project github jira meeting submission
+            gateway \
+            auth \
+            project \
+            github \
+            jira \
+            meeting \
+            submission
 
-          echo "Application container state:"
+          echo
+          echo "========== COMPOSE STATE AFTER UP =========="
           "${compose[@]}" ps -a
+          echo "============================================"
+          echo
 
           for service in gateway auth project github jira meeting submission; do
             container_id="$("${compose[@]}" ps -a -q "$service")"
 
             if [[ -z "$container_id" ]]; then
-              echo "ERROR: $service was not created during deployment." >&2
-              "${compose[@]}" ps -a
+              echo "ERROR: docker compose up returned successfully but '$service' was not created." >&2
+
+              echo
+              echo "Resolved Compose services:"
+              "${compose[@]}" config --services || true
+
+              echo
+              echo "Resolved Compose images:"
+              "${compose[@]}" config --images || true
+
+              echo
+              echo "Current Compose containers:"
+              "${compose[@]}" ps -a || true
+
               exit 1
             fi
+
+            echo "$service created: $container_id"
           done
 
           echo "All application containers were created."
