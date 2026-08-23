@@ -11,6 +11,8 @@ public sealed class ProjectDbContext : DbContext
     }
 
     public DbSet<Project> Projects => Set<Project>();
+    public DbSet<ProjectMember> ProjectMembers => Set<ProjectMember>();
+    public DbSet<ProjectMilestone> ProjectMilestones => Set<ProjectMilestone>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

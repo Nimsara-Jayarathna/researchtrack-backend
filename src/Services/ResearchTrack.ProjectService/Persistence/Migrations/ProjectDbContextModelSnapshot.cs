@@ -22,7 +22,10 @@ partial class ProjectDbContextModelSnapshot : ModelSnapshot
             b.Property<Guid>("Id").ValueGeneratedNever().HasColumnType("char(36)");
             b.Property<string>("Batch").IsRequired().HasMaxLength(32).HasColumnType("varchar(32)");
             b.Property<DateTime>("CreatedAt").HasColumnType("datetime(6)");
+            b.Property<DateTime>("LastActivityAt").HasColumnType("datetime(6)").HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
+            b.Property<Guid?>("LeaderStudentUserId").HasColumnType("char(36)");
             b.Property<string>("LifecycleStatus").IsRequired().HasMaxLength(32).HasColumnType("varchar(32)");
+            b.Property<DateOnly?>("MilestoneDate").HasColumnType("date");
             b.Property<int>("ProgressPercent").HasColumnType("int");
             b.Property<string>("Semester").IsRequired().HasMaxLength(32).HasColumnType("varchar(32)");
             b.Property<string>("Summary").IsRequired().HasMaxLength(250).HasColumnType("varchar(250)");
@@ -33,6 +36,61 @@ partial class ProjectDbContextModelSnapshot : ModelSnapshot
             b.HasIndex("SupervisorUserId").HasDatabaseName("ix_projects_supervisor_user_id");
             b.HasIndex("SupervisorUserId", "CreatedAt").HasDatabaseName("ix_projects_supervisor_created_at");
             b.ToTable("projects", (string)null);
+        });
+
+        modelBuilder.Entity("ResearchTrack.ProjectService.Domain.ProjectMember", b =>
+        {
+            b.Property<Guid>("Id").ValueGeneratedNever().HasColumnType("char(36)");
+            b.Property<DateTime>("CreatedAt").HasColumnType("datetime(6)");
+            b.Property<string>("Email").IsRequired().HasMaxLength(320).HasColumnType("varchar(320)");
+            b.Property<string>("FirstName").IsRequired().HasMaxLength(500).HasColumnType("varchar(500)");
+            b.Property<string>("LastName").IsRequired().HasMaxLength(500).HasColumnType("varchar(500)");
+            b.Property<string>("MemberRole").IsRequired().HasMaxLength(32).HasColumnType("varchar(32)");
+            b.Property<Guid>("ProjectId").HasColumnType("char(36)");
+            b.Property<string>("RegistrationNumber").HasMaxLength(100).HasColumnType("varchar(100)");
+            b.Property<DateTime>("UpdatedAt").HasColumnType("datetime(6)");
+            b.Property<Guid>("UserId").HasColumnType("char(36)");
+            b.HasKey("Id");
+            b.HasIndex("ProjectId").HasDatabaseName("ix_project_members_project_id");
+            b.HasIndex("ProjectId", "UserId").IsUnique().HasDatabaseName("ux_project_members_project_user");
+            b.HasIndex("UserId", "MemberRole").HasDatabaseName("ix_project_members_user_role");
+            b.ToTable("project_members", (string)null);
+        });
+
+        modelBuilder.Entity("ResearchTrack.ProjectService.Domain.ProjectMilestone", b =>
+        {
+            b.Property<Guid>("Id").ValueGeneratedNever().HasColumnType("char(36)");
+            b.Property<DateTime>("CreatedAt").HasColumnType("datetime(6)");
+            b.Property<Guid>("CreatedByUserId").HasColumnType("char(36)");
+            b.Property<string>("Description").HasMaxLength(250).HasColumnType("varchar(250)");
+            b.Property<DateOnly>("DueDate").HasColumnType("date");
+            b.Property<Guid>("ProjectId").HasColumnType("char(36)");
+            b.Property<int>("SequenceNo").HasColumnType("int");
+            b.Property<string>("Status").IsRequired().HasMaxLength(32).HasColumnType("varchar(32)");
+            b.Property<string>("Title").IsRequired().HasMaxLength(40).HasColumnType("varchar(40)");
+            b.Property<DateTime>("UpdatedAt").HasColumnType("datetime(6)");
+            b.HasKey("Id");
+            b.HasIndex("ProjectId").HasDatabaseName("ix_project_milestones_project_id");
+            b.HasIndex("ProjectId", "SequenceNo").IsUnique().HasDatabaseName("ux_project_milestones_project_sequence");
+            b.ToTable("project_milestones", (string)null);
+        });
+
+        modelBuilder.Entity("ResearchTrack.ProjectService.Domain.ProjectMember", b =>
+        {
+            b.HasOne("ResearchTrack.ProjectService.Domain.Project", null)
+                .WithMany()
+                .HasForeignKey("ProjectId")
+                .OnDelete(DeleteBehavior.Cascade)
+                .IsRequired();
+        });
+
+        modelBuilder.Entity("ResearchTrack.ProjectService.Domain.ProjectMilestone", b =>
+        {
+            b.HasOne("ResearchTrack.ProjectService.Domain.Project", null)
+                .WithMany()
+                .HasForeignKey("ProjectId")
+                .OnDelete(DeleteBehavior.Cascade)
+                .IsRequired();
         });
 #pragma warning restore 612, 618
     }
