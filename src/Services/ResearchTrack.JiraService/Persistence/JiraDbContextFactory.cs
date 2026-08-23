@@ -8,10 +8,10 @@ public sealed class JiraDbContextFactory : IDesignTimeDbContextFactory<JiraDbCon
 {
     public JiraDbContext CreateDbContext(string[] args)
     {
-        var connectionString = DatabaseConnectionStringResolver.ResolveFromEnvironment();
-
         var optionsBuilder = new DbContextOptionsBuilder<JiraDbContext>();
-        optionsBuilder.UseMySQL(connectionString);
+        optionsBuilder.UseMySQL(
+            DesignTimeDatabase.CreateConnectionString("researchtrack_jira_design"));
+
         return new JiraDbContext(optionsBuilder.Options);
     }
 }

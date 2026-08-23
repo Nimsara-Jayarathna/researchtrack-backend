@@ -8,10 +8,10 @@ public sealed class SubmissionDbContextFactory : IDesignTimeDbContextFactory<Sub
 {
     public SubmissionDbContext CreateDbContext(string[] args)
     {
-        var connectionString = DatabaseConnectionStringResolver.ResolveFromEnvironment();
-
         var optionsBuilder = new DbContextOptionsBuilder<SubmissionDbContext>();
-        optionsBuilder.UseMySQL(connectionString);
+        optionsBuilder.UseMySQL(
+            DesignTimeDatabase.CreateConnectionString("researchtrack_submission_design"));
+
         return new SubmissionDbContext(optionsBuilder.Options);
     }
 }
