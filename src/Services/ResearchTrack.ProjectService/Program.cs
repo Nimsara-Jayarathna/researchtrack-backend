@@ -9,7 +9,7 @@ builder.WebHost.ConfigureKestrel(options => options.AddServerHeader = false);
 builder.Services.AddResearchTrackApi("ResearchTrack Project Service");
 builder.Services.AddResearchTrackJwtAuthentication(builder.Configuration);
 builder.Services.AddProjectPersistence(builder.Configuration);
-builder.Services.AddProjectFeatures();
+builder.Services.AddProjectFeatures(builder.Configuration);
 
 var app = builder.Build();
 app.UseResearchTrackApi();
