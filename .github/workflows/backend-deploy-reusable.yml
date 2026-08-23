@@ -366,7 +366,7 @@ jobs:
           [[ "$mysql_ready" == "true" ]] || { echo "Timed out waiting for MySQL." >&2; docker logs --tail 100 "$mysql_id" || true; exit 1; }
 
           echo "Reconciling service databases and database users..."
-          "${compose[@]}" exec -T mysql /opt/researchtrack/reconcile-databases.sh
+          "${compose[@]}" exec -T mysql /opt/researchtrack/reconcile-databases.sh </dev/null
 
           echo "Pulling current environment image tags..."
           if ! "${compose[@]}" pull \
@@ -399,7 +399,7 @@ jobs:
           echo "Applying EF Core migrations..."
           for service in auth project github jira meeting submission; do
             echo "Migrating $service..."
-            "${compose[@]}" run --rm --no-deps --entrypoint /app/migrate "$service"
+            "${compose[@]}" run --rm --no-deps -T --entrypoint /app/migrate "$service" </dev/null
           done
 
           echo "Creating application containers..."
