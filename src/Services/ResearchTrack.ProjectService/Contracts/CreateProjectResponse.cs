@@ -1,16 +1,14 @@
 namespace ResearchTrack.ProjectService.Contracts;
 
-public sealed record ProjectResponse(
+public sealed record CreateProjectResponse(
     Guid Id,
     string Title,
     string Summary,
-    string LifecycleStatus,
     string Batch,
     string Semester,
-    DateOnly? MilestoneDate,
-    DateTime? LastActivityAt,
+    string LifecycleStatus,
     int ProgressPercent,
-    ProjectUserResponse? Supervisor,
+    DateOnly MilestoneDate,
+    IReadOnlyList<ProjectUserResponse> Students,
     ProjectUserResponse? Leader,
-    IReadOnlyList<ProjectMemberResponse> Members,
     IReadOnlyList<ProjectMilestoneResponse> Milestones);

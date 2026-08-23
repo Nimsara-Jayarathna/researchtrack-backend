@@ -8,5 +8,7 @@ public sealed record ProjectSummaryResponse(
     string Batch,
     string Semester,
     DateOnly? MilestoneDate,
+    DateTime? LastActivityAt,
     int ProgressPercent,
-    int MemberCount);
+    int MemberCount,
+    string? SupervisorName);
