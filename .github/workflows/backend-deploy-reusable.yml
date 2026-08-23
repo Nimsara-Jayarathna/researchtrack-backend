@@ -343,8 +343,27 @@ jobs:
           docker network inspect "$EDGE_NETWORK" >/dev/null 2>&1 \
             || docker network create "$EDGE_NETWORK" >/dev/null
 
+          expected_mysql_network="researchtrack-${DEPLOY_ENV}_database"
+          mysql_up_args=(up -d)
+          existing_mysql_id="$("${compose[@]}" ps -a -q mysql || true)"
+
+          if [[ -n "$existing_mysql_id" ]]; then
+            mysql_networks="$(docker inspect \
+              --format='{{range $name, $conf := .NetworkSettings.Networks}}{{println $name}}{{end}}' \
+              "$existing_mysql_id")"
+
+            if [[ "$mysql_networks" != "$expected_mysql_network" ]]; then
+              echo "Existing MySQL container networks are stale; recreating the container without deleting mysql-data."
+              echo "Current MySQL networks:"
+              printf '%s\n' "$mysql_networks"
+              echo "Expected MySQL networks:"
+              printf '%s\n' "$expected_mysql_network"
+              mysql_up_args+=(--force-recreate)
+            fi
+          fi
+
           echo "Starting MySQL..."
-          "${compose[@]}" up -d mysql
+          "${compose[@]}" "${mysql_up_args[@]}" mysql
 
           mysql_id="$("${compose[@]}" ps -q mysql)"
           [[ -n "$mysql_id" ]] || { echo "MySQL container was not created." >&2; exit 1; }
