@@ -36,6 +36,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ResearchTrack.SubmissionSer
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ResearchTrack.DevSeeder", "tools\ResearchTrack.DevSeeder\ResearchTrack.DevSeeder.csproj", "{B0E91DFE-78F0-4D6D-81C4-8CD57D02D56C}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ResearchTrack.DbCheck", "tools\ResearchTrack.DbCheck\ResearchTrack.DbCheck.csproj", "{66DF9388-AB9A-465D-AC59-699532D5ED62}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -110,6 +112,10 @@ Global
 		{B0E91DFE-78F0-4D6D-81C4-8CD57D02D56C}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{B0E91DFE-78F0-4D6D-81C4-8CD57D02D56C}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{B0E91DFE-78F0-4D6D-81C4-8CD57D02D56C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{66DF9388-AB9A-465D-AC59-699532D5ED62}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{66DF9388-AB9A-465D-AC59-699532D5ED62}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{66DF9388-AB9A-465D-AC59-699532D5ED62}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{66DF9388-AB9A-465D-AC59-699532D5ED62}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

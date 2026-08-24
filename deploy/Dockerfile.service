@@ -1,0 +1,59 @@
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+
+ARG PROJECT_PATH
+ARG APP_DLL
+ARG DB_CONTEXT=""
+
+WORKDIR /src
+COPY . .
+
+RUN dotnet restore "$PROJECT_PATH"
+RUN dotnet publish "$PROJECT_PATH" \
+    -c Release \
+    -o /app/publish \
+    --no-restore \
+    /p:UseAppHost=false
+RUN dotnet publish tools/ResearchTrack.DbCheck/ResearchTrack.DbCheck.csproj \
+    -c Release \
+    -o /app/dbcheck-publish
+
+# Build an EF Core migration bundle for services that own a database.
+# Gateway passes an empty DB_CONTEXT, so this block is skipped.
+RUN if [ -n "$DB_CONTEXT" ]; then \
+      dotnet tool install --tool-path /tools dotnet-ef --version 10.0.9 && \
+      /tools/dotnet-ef migrations bundle \
+        --project "$PROJECT_PATH" \
+        --startup-project "$PROJECT_PATH" \
+        --context "$DB_CONTEXT" \
+        --configuration Release \
+        --output /app/efbundle && \
+      chmod +x /app/efbundle; \
+    else \
+      printf '#!/bin/sh\nexit 0\n' > /app/efbundle && chmod +x /app/efbundle; \
+    fi
+
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
+
+ARG APP_DLL
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY --from=build /app/publish .
+COPY --from=build /app/dbcheck-publish /app/dbcheck-publish
+COPY --from=build /app/efbundle /app/efbundle
+COPY deploy/image/dbcheck.sh /app/dbcheck
+COPY deploy/image/migrate.sh /app/migrate
+RUN chmod +x /app/dbcheck /app/migrate /app/efbundle
+
+ENV ASPNETCORE_URLS=http://+:8080
+ENV APP_DLL=$APP_DLL
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=15s --timeout=4s --start-period=20s --retries=4 \
+  CMD curl -fsS http://127.0.0.1:8080/health/live >/dev/null || exit 1
+
+ENTRYPOINT ["sh", "-c", "exec dotnet \"$APP_DLL\""]

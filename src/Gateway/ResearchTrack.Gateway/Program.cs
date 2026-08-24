@@ -6,6 +6,23 @@ using ResearchTrack.BuildingBlocks.Api.Infrastructure;
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.ConfigureKestrel(options => options.AddServerHeader = false);
 
+// Keep config/env/gateway/.env.example as the single gateway configuration contract.
+// Local scripts already map these friendly variables to ASP.NET configuration keys;
+// container deployments inject the same variables directly, so map them here as well.
+var gatewayEnvironmentOverrides = new Dictionary<string, string?>
+{
+    ["Frontend:AllowedOrigins:0"] = Environment.GetEnvironmentVariable("FRONTEND_ORIGIN"),
+    ["ReverseProxy:Clusters:auth:Destinations:primary:Address"] = Environment.GetEnvironmentVariable("AUTH_SERVICE_URL"),
+    ["ReverseProxy:Clusters:project:Destinations:primary:Address"] = Environment.GetEnvironmentVariable("PROJECT_SERVICE_URL"),
+    ["ReverseProxy:Clusters:github:Destinations:primary:Address"] = Environment.GetEnvironmentVariable("GITHUB_SERVICE_URL"),
+    ["ReverseProxy:Clusters:jira:Destinations:primary:Address"] = Environment.GetEnvironmentVariable("JIRA_SERVICE_URL"),
+    ["ReverseProxy:Clusters:meeting:Destinations:primary:Address"] = Environment.GetEnvironmentVariable("MEETING_SERVICE_URL"),
+    ["ReverseProxy:Clusters:submission:Destinations:primary:Address"] = Environment.GetEnvironmentVariable("SUBMISSION_SERVICE_URL")
+};
+
+builder.Configuration.AddInMemoryCollection(
+    gatewayEnvironmentOverrides.Where(pair => !string.IsNullOrWhiteSpace(pair.Value)));
+
 builder.Services.AddResearchTrackApi("ResearchTrack API Gateway");
 builder.Services.AddReverseProxy().LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"));
 
