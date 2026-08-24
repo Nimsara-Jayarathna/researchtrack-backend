@@ -17,6 +17,7 @@
     </PackageReference>
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="../../src/Gateway/ResearchTrack.Gateway/ResearchTrack.Gateway.csproj" />
     <ProjectReference Include="../ResearchTrack.Testing/ResearchTrack.Testing.csproj" />
   </ItemGroup>
 </Project>

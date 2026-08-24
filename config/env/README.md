@@ -50,7 +50,7 @@ The same committed contracts are used to prepare GitHub Environment multiline se
 | `gateway/.env.example` | `GATEWAY_ENV_FILE` | `gateway.env` |
 | `auth/.env.example` | `AUTH_ENV_FILE` | `auth.env` |
 | `project/.env.example` | `PROJECT_ENV_FILE` | `project.env` |
-| `github/.env.example` | `GITHUB_ENV_FILE` | `github.env` |
+| `github/.env.example` | `RT_GITHUB_SERVICE_ENV` | `github.env` |
 | `jira/.env.example` | `JIRA_ENV_FILE` | `jira.env` |
 | `meeting/.env.example` | `MEETING_ENV_FILE` | `meeting.env` |
 | `submission/.env.example` | `SUBMISSION_ENV_FILE` | `submission.env` |
@@ -61,7 +61,7 @@ Remote application files must use:
 
 - Test: `ASPNETCORE_ENVIRONMENT=Test`, `DOTNET_ENVIRONMENT=Test`, `ASPNETCORE_URLS=http://+:8080`
 - Production: `ASPNETCORE_ENVIRONMENT=Production`, `DOTNET_ENVIRONMENT=Production`, `ASPNETCORE_URLS=http://+:8080`
-- DB services: `Database__Host=mysql`, `Database__Port=3306`
+- DB services: `ConnectionStrings__DefaultConnection` with `Server=mysql`, `Port=3306`, and `SslMode=Disabled`
 - Project: `Services__Auth__BaseUrl=http://auth:8080`
 - Gateway internal URLs: `http://<compose-service>:8080`
 

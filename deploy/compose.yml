@@ -121,10 +121,10 @@ services:
           "CMD-SHELL",
           "mysqladmin ping -h 127.0.0.1 -uroot -p\"$$MYSQL_ROOT_PASSWORD\" --silent",
         ]
-      interval: 10s
+      interval: 5s
       timeout: 5s
-      retries: 12
-      start_period: 25s
+      retries: 20
+      start_period: 20s
     mem_limit: ${MYSQL_MEMORY_LIMIT:-896m}
     cpus: ${MYSQL_CPU_LIMIT:-0.75}
 

@@ -191,7 +191,7 @@ jobs:
           validate_deploy_env "$RUNNER_TEMP/deploy.env"
 
           tar -C deploy -czf "$RUNNER_TEMP/researchtrack-deploy.tgz" \
-            compose.yml mysql
+            compose.yml mysql scripts
           tar -C "$secret_dir" -czf "$RUNNER_TEMP/researchtrack-env.tgz" .
 
           ssh \
@@ -225,6 +225,9 @@ jobs:
           chmod 700 "$REMOTE"
           chmod 700 "$REMOTE/mysql"
           chmod 700 "$REMOTE/mysql/reconcile-databases.sh"
+          chmod 700 "$REMOTE/scripts"
+          chmod 700 "$REMOTE/scripts/deploy-stack.sh"
+          chmod 700 "$REMOTE/scripts/verify-health.sh"
           chmod 640 "$REMOTE/deploy.env"
 
           validate_deploy_env() {
@@ -322,147 +325,7 @@ jobs:
             -o StrictHostKeyChecking=yes \
             -p "$SSH_PORT" \
             "$SSH_USER@$SSH_HOST" \
-            "REMOTE='$remote' \
-             DOCKER_CONFIG='$REMOTE_DOCKER_CONFIG' \
-             bash -s" <<'REMOTE_SCRIPT'
-          set -euo pipefail
-          export DOCKER_CONFIG
-
-          cd "$REMOTE"
-          set -a
-          . ./deploy.env
-          set +a
-          case "${DEPLOY_ENV:-}" in
-            test|production) ;;
-            *) echo "deploy.env DEPLOY_ENV must be 'test' or 'production'." >&2; exit 1 ;;
-          esac
-          [[ -n "${IMAGE_PREFIX:-}" ]] || { echo "deploy.env IMAGE_PREFIX is required." >&2; exit 1; }
-          [[ -n "${EDGE_NETWORK:-}" ]] || { echo "deploy.env EDGE_NETWORK is required." >&2; exit 1; }
-          compose=(docker compose --env-file deploy.env -f compose.yml)
-
-          docker network inspect "$EDGE_NETWORK" >/dev/null 2>&1 \
-            || docker network create "$EDGE_NETWORK" >/dev/null
-
-          expected_mysql_network="researchtrack-${DEPLOY_ENV}_database"
-          mysql_up_args=(up -d)
-          existing_mysql_id="$("${compose[@]}" ps -a -q mysql || true)"
-
-          if [[ -n "$existing_mysql_id" ]]; then
-            mysql_networks="$(docker inspect \
-              --format='{{range $name, $conf := .NetworkSettings.Networks}}{{println $name}}{{end}}' \
-              "$existing_mysql_id")"
-
-            if [[ "$mysql_networks" != "$expected_mysql_network" ]]; then
-              echo "Existing MySQL container networks are stale; recreating the container without deleting mysql-data."
-              echo "Current MySQL networks:"
-              printf '%s\n' "$mysql_networks"
-              echo "Expected MySQL networks:"
-              printf '%s\n' "$expected_mysql_network"
-              mysql_up_args+=(--force-recreate)
-            fi
-          fi
-
-          echo "Starting MySQL..."
-          "${compose[@]}" "${mysql_up_args[@]}" mysql
-
-          mysql_id="$("${compose[@]}" ps -q mysql)"
-          [[ -n "$mysql_id" ]] || { echo "MySQL container was not created." >&2; exit 1; }
-
-          echo "Waiting for MySQL health..."
-          mysql_ready=false
-          for attempt in $(seq 1 30); do
-            status="$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$mysql_id")"
-            if [[ "$status" == "healthy" ]]; then
-              mysql_ready=true
-              break
-            fi
-            if [[ "$status" == "unhealthy" ]]; then
-              docker logs --tail 100 "$mysql_id" || true
-              exit 1
-            fi
-            sleep 2
-          done
-          [[ "$mysql_ready" == "true" ]] || { echo "Timed out waiting for MySQL." >&2; docker logs --tail 100 "$mysql_id" || true; exit 1; }
-
-          echo "Reconciling service databases and database users..."
-          "${compose[@]}" exec -T mysql /opt/researchtrack/reconcile-databases.sh </dev/null
-
-          echo "Pulling current environment image tags..."
-          if ! "${compose[@]}" pull \
-            gateway \
-            auth \
-            project \
-            github \
-            jira \
-            meeting \
-            submission; then
-            echo "Backend image pull failed." >&2
-            exit 1
-          fi
-
-          echo "Pulled backend images:"
-          docker images --format '{{.Repository}}:{{.Tag}}' \
-            | grep 'ghcr.io/nimsara-jayarathna/researchtrack' || true
-
-          for service in gateway auth project github jira meeting submission; do
-            image="${IMAGE_PREFIX}/researchtrack-${service}:${DEPLOY_ENV}"
-
-            if ! docker image inspect "$image" >/dev/null 2>&1; then
-              echo "Required backend image is missing after pull: $image" >&2
-              exit 1
-            fi
-
-            echo "Image available: $image"
-          done
-
-          echo "Applying EF Core migrations..."
-          for service in auth project github jira meeting submission; do
-            echo "Migrating $service..."
-            "${compose[@]}" run --rm --no-deps -T --entrypoint /app/migrate "$service" </dev/null
-          done
-
-          echo "Creating application containers..."
-          "${compose[@]}" up -d --remove-orphans \
-            gateway \
-            auth \
-            project \
-            github \
-            jira \
-            meeting \
-            submission
-
-          echo
-          echo "========== COMPOSE STATE AFTER UP =========="
-          "${compose[@]}" ps -a
-          echo "============================================"
-          echo
-
-          for service in gateway auth project github jira meeting submission; do
-            container_id="$("${compose[@]}" ps -a -q "$service")"
-
-            if [[ -z "$container_id" ]]; then
-              echo "ERROR: docker compose up returned successfully but '$service' was not created." >&2
-
-              echo
-              echo "Resolved Compose services:"
-              "${compose[@]}" config --services || true
-
-              echo
-              echo "Resolved Compose images:"
-              "${compose[@]}" config --images || true
-
-              echo
-              echo "Current Compose containers:"
-              "${compose[@]}" ps -a || true
-
-              exit 1
-            fi
-
-            echo "$service created: $container_id"
-          done
-
-          echo "All application containers were created."
-          REMOTE_SCRIPT
+            "cd '$remote' && DOCKER_CONFIG='$REMOTE_DOCKER_CONFIG' ./scripts/deploy-stack.sh"
 
       - name: Verify service health
         shell: bash
@@ -478,75 +341,7 @@ jobs:
             -o StrictHostKeyChecking=yes \
             -p "$SSH_PORT" \
             "$SSH_USER@$SSH_HOST" \
-            "REMOTE='$remote' bash -s" <<'REMOTE_SCRIPT'
-          set -euo pipefail
-
-          cd "$REMOTE"
-          compose=(docker compose --env-file deploy.env -f compose.yml)
-
-          for service in gateway auth project github jira meeting submission; do
-            echo "Checking $service..."
-
-            container_id="$("${compose[@]}" ps -a -q "$service")"
-
-            if [[ -z "$container_id" ]]; then
-              echo "Container was never created: $service" >&2
-              echo
-              echo "Current Compose state:"
-              "${compose[@]}" ps -a
-              exit 1
-            fi
-
-            healthy=false
-            for attempt in $(seq 1 35); do
-              running="$(docker inspect --format='{{.State.Running}}' "$container_id" 2>/dev/null || true)"
-              health="$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$container_id" 2>/dev/null || true)"
-
-              if [[ "$running" != "true" ]]; then
-                echo "$service container exists but has stopped." >&2
-                echo
-                echo "Container status:"
-                docker inspect \
-                  --format='Status={{.State.Status}} ExitCode={{.State.ExitCode}} Error={{.State.Error}}' \
-                  "$container_id" || true
-
-                echo
-                echo "Last 200 log lines:"
-                docker logs --tail 200 "$container_id" || true
-                exit 1
-              fi
-
-              if [[ "$health" == "healthy" ]]; then
-                healthy=true
-                break
-              fi
-
-              if [[ "$health" == "unhealthy" ]]; then
-                echo "$service reported unhealthy." >&2
-                docker logs --tail 200 "$container_id" || true
-                exit 1
-              fi
-
-              sleep 2
-            done
-
-            [[ "$healthy" == "true" ]] || {
-              echo "Timed out waiting for $service to become healthy." >&2
-              docker logs --tail 200 "$container_id" || true
-              exit 1
-            }
-
-            if ! docker exec "$container_id" curl -fsS http://127.0.0.1:8080/health/ready >/dev/null; then
-              echo "$service is live but not ready." >&2
-              docker logs --tail 200 "$container_id" || true
-              exit 1
-            fi
-
-            echo "$service is healthy and ready."
-          done
-
-          echo "All ResearchTrack backend services are healthy."
-          REMOTE_SCRIPT
+            "cd '$remote' && ./scripts/verify-health.sh"
 
       - name: Finalize successful deployment
         shell: bash

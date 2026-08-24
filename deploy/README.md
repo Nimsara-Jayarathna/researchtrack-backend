@@ -12,6 +12,8 @@ Deployment-only contents here are limited to orchestration/runtime infrastructur
 
 - `compose.yml`
 - `Dockerfile.service`
+- `image/*.sh`
+- `scripts/*.sh`
 - `validate-env-files.sh`
 - `mysql/reconcile-databases.sh`
 

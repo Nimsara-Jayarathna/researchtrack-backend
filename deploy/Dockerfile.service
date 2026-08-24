@@ -13,6 +13,9 @@ RUN dotnet publish "$PROJECT_PATH" \
     -o /app/publish \
     --no-restore \
     /p:UseAppHost=false
+RUN dotnet publish tools/ResearchTrack.DbCheck/ResearchTrack.DbCheck.csproj \
+    -c Release \
+    -o /app/dbcheck-publish
 
 # Build an EF Core migration bundle for services that own a database.
 # Gateway passes an empty DB_CONTEXT, so this block is skipped.
@@ -23,10 +26,10 @@ RUN if [ -n "$DB_CONTEXT" ]; then \
         --startup-project "$PROJECT_PATH" \
         --context "$DB_CONTEXT" \
         --configuration Release \
-        --output /app/migrate && \
-      chmod +x /app/migrate; \
+        --output /app/efbundle && \
+      chmod +x /app/efbundle; \
     else \
-      printf '#!/bin/sh\nexit 0\n' > /app/migrate && chmod +x /app/migrate; \
+      printf '#!/bin/sh\nexit 0\n' > /app/efbundle && chmod +x /app/efbundle; \
     fi
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
@@ -39,7 +42,11 @@ RUN apt-get update \
 
 WORKDIR /app
 COPY --from=build /app/publish .
-COPY --from=build /app/migrate /app/migrate
+COPY --from=build /app/dbcheck-publish /app/dbcheck-publish
+COPY --from=build /app/efbundle /app/efbundle
+COPY deploy/image/dbcheck.sh /app/dbcheck
+COPY deploy/image/migrate.sh /app/migrate
+RUN chmod +x /app/dbcheck /app/migrate /app/efbundle
 
 ENV ASPNETCORE_URLS=http://+:8080
 ENV APP_DLL=$APP_DLL

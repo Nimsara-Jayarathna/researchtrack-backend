@@ -71,7 +71,7 @@ jobs:
           }
 
           # Shared compilation/deployment-image inputs can affect every executable.
-          if grep -Eq '^(src/BuildingBlocks/|Directory\.Build\.props$|Directory\.Packages\.props$|global\.json$|ResearchTrack\.sln$|dotnet-tools\.json$|deploy/Dockerfile\.service$)' <<<"$changed"; then
+          if grep -Eq '^(src/BuildingBlocks/|tools/ResearchTrack\.DbCheck/|Directory\.Build\.props$|Directory\.Packages\.props$|global\.json$|ResearchTrack\.sln$|dotnet-tools\.json$|deploy/Dockerfile\.service$)' <<<"$changed"; then
             services=(gateway auth project github jira meeting submission)
           else
             grep -q '^src/Gateway/ResearchTrack.Gateway/' <<<"$changed" && add_service gateway || true

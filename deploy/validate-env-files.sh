@@ -125,6 +125,49 @@ require_value() {
   printf '%s' "$value"
 }
 
+connection_value() {
+  local connection_string="$1" requested_key="$2" part key value normalized requested_normalized
+  requested_normalized="${requested_key,,}"
+  requested_normalized="${requested_normalized// /}"
+  requested_normalized="${requested_normalized//_/}"
+
+  IFS=';' read -ra parts <<< "$connection_string"
+  for part in "${parts[@]}"; do
+    [[ "$part" == *=* ]] || continue
+    key="${part%%=*}"
+    value="${part#*=}"
+    key="${key#"${key%%[![:space:]]*}"}"
+    key="${key%"${key##*[![:space:]]}"}"
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+    normalized="${key,,}"
+    normalized="${normalized// /}"
+    normalized="${normalized//_/}"
+    if [[ "$normalized" == "$requested_normalized" ]]; then
+      printf '%s' "$value"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+require_connection_value() {
+  local service="$1" connection_string="$2" key="$3" value
+  value="$(connection_value "$connection_string" "$key" || true)"
+  if [[ -z "$value" ]]; then
+    echo "$service.env ConnectionStrings__DefaultConnection is missing '$key'." >&2
+    exit 1
+  fi
+  case "$value" in
+    CHANGE_ME*|__SET_ME__|__GENERATE__|YOUR_*|"<"*)
+      echo "$service.env ConnectionStrings__DefaultConnection '$key' still contains a placeholder." >&2
+      exit 1
+      ;;
+  esac
+  printf '%s' "$value"
+}
+
 mysql="$ENV_DIR/mysql.env"
 shared="$ENV_DIR/shared-auth.env"
 gateway="$ENV_DIR/gateway.env"
@@ -190,20 +233,26 @@ for service in auth project github jira meeting submission; do
   mysql_user="$(require_value "$mysql" "${service_db_users[$service]}")"
   mysql_password="$(require_value "$mysql" "${service_db_passwords[$service]}")"
 
-  service_host="$(require_value "$file" Database__Host)"
-  service_port="$(require_value "$file" Database__Port)"
-  service_name="$(require_value "$file" Database__Name)"
-  require_value "$file" Database__TestName >/dev/null
-  service_user="$(require_value "$file" Database__Username)"
-  service_password="$(require_value "$file" Database__Password)"
-  require_value "$file" Database__SslMode >/dev/null
-  require_value "$file" Database__AllowPublicKeyRetrieval >/dev/null
+  connection_string="$(require_value "$file" ConnectionStrings__DefaultConnection)"
+  service_host="$(require_connection_value "$service" "$connection_string" Server)"
+  service_port="$(require_connection_value "$service" "$connection_string" Port)"
+  service_name="$(require_connection_value "$service" "$connection_string" Database)"
+  service_user="$(connection_value "$connection_string" User || true)"
+  [[ -n "$service_user" ]] || service_user="$(connection_value "$connection_string" "User ID" || true)"
+  [[ -n "$service_user" ]] || service_user="$(connection_value "$connection_string" Uid || true)"
+  [[ -n "$service_user" ]] || service_user="$(connection_value "$connection_string" Username || true)"
+  [[ -n "$service_user" ]] || { echo "$service.env ConnectionStrings__DefaultConnection is missing 'User'." >&2; exit 1; }
+  service_password="$(connection_value "$connection_string" Password || true)"
+  [[ -n "$service_password" ]] || service_password="$(connection_value "$connection_string" Pwd || true)"
+  [[ -n "$service_password" ]] || { echo "$service.env ConnectionStrings__DefaultConnection is missing 'Password'." >&2; exit 1; }
+  service_ssl_mode="$(require_connection_value "$service" "$connection_string" SslMode)"
 
-  [[ "$service_host" == "mysql" ]] || { echo "$service.env must use Database__Host=mysql inside Compose." >&2; exit 1; }
-  [[ "$service_port" == "3306" ]] || { echo "$service.env must use Database__Port=3306 inside Compose." >&2; exit 1; }
-  [[ "$service_name" == "$mysql_name" ]] || { echo "$service.env Database__Name does not match mysql.env." >&2; exit 1; }
-  [[ "$service_user" == "$mysql_user" ]] || { echo "$service.env Database__Username does not match mysql.env." >&2; exit 1; }
-  [[ "$service_password" == "$mysql_password" ]] || { echo "$service.env Database__Password does not match mysql.env." >&2; exit 1; }
+  [[ "$service_host" == "mysql" ]] || { echo "$service.env ConnectionStrings__DefaultConnection Server must be 'mysql' for Docker deployment." >&2; exit 1; }
+  [[ "$service_port" == "3306" ]] || { echo "$service.env ConnectionStrings__DefaultConnection Port must be '3306' for Docker deployment." >&2; exit 1; }
+  [[ "$service_name" == "$mysql_name" ]] || { echo "$service.env ConnectionStrings__DefaultConnection Database does not match mysql.env." >&2; exit 1; }
+  [[ "$service_user" == "$mysql_user" ]] || { echo "$service.env ConnectionStrings__DefaultConnection User does not match mysql.env." >&2; exit 1; }
+  [[ "$service_password" == "$mysql_password" ]] || { echo "$service.env ConnectionStrings__DefaultConnection Password does not match mysql.env." >&2; exit 1; }
+  [[ "$service_ssl_mode" == "Disabled" ]] || { echo "$service.env ConnectionStrings__DefaultConnection SslMode must be 'Disabled'." >&2; exit 1; }
 done
 
 require_value "$ENV_DIR/auth.env" Jwt__AccessTokenMinutes >/dev/null
