@@ -17,13 +17,14 @@ printf '%-12s %-10s %-10s\n' "SERVICE" "LIVE" "READY"
 printf '%-12s %-10s %-10s\n' "------------" "----------" "----------"
 failed=0
 for service in "${services[@]}"; do
-  port="$(rt_service_port "$service")"
+  rt_load_dev_env "$service"
+  base_url="${ASPNETCORE_URLS%%;*}"
+  base_url="${base_url%/}"
   live="FAIL"; ready="FAIL"
-  curl -fsS --max-time 2 "http://localhost:$port/health/live" >/dev/null 2>&1 && live="OK"
-  curl -fsS --max-time 2 "http://localhost:$port/health/ready" >/dev/null 2>&1 && ready="OK"
+  curl -fsS --max-time 2 "$base_url/health/live" >/dev/null 2>&1 && live="OK"
+  curl -fsS --max-time 2 "$base_url/health/ready" >/dev/null 2>&1 && ready="OK"
   printf '%-12s %-10s %-10s\n' "$service" "$live" "$ready"
   [[ "$live" == "OK" ]] || failed=1
-  # Gateway has no DB; business services should be ready once DB is configured.
   [[ "$ready" == "OK" ]] || failed=1
 done
 exit "$failed"

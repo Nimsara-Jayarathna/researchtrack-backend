@@ -1,28 +1,21 @@
 # Troubleshooting
 
-## `dotnet` SDK mismatch
+## Service configuration is missing
 
-Run `dotnet --list-sdks`. The repository baseline is .NET SDK 10.0.300 and `global.json` permits compatible later .NET 10 feature bands.
+Run `./scripts/setup.sh`, then edit `config/env/<service>/.env.local`. Any value still set to `CHANGE_ME` must be replaced before that setting is used.
 
-## MySQL connection fails
+## Database connection fails
 
-1. Confirm the MySQL server is running.
-2. Check `MYSQL_HOST`/`MYSQL_PORT` in `.env.local`.
-3. Run `./scripts/db-init.sh` if databases/users have not been created.
-4. Run `./scripts/db-status.sh`.
+Check the selected service file for `Database__Host`, `Database__Port`, `Database__Name`, `Database__Username`, `Database__Password`, `Database__SslMode`, and `Database__AllowPublicKeyRetrieval`. Then run `./scripts/db-status.sh`.
 
-## Service starts but `/health/ready` fails
+## EF Core cannot create a DbContext
 
-The process can be live while its DB is unavailable. Check the relevant service DB entry in `./scripts/db-status.sh` and ensure migrations/configuration are correct.
+Run migration commands through the repository scripts so the owning service environment is loaded first, for example `./scripts/migrate.sh auth` or `./scripts/migration-add.sh auth AddSomething`.
 
-## Port already in use
+## Service is LIVE but not READY
 
-Ports are fixed in the development baseline. Stop the conflicting process or run `./scripts/stop.sh all` if it was started by `dev.sh`.
+The process is running but a readiness dependency such as MySQL is unavailable. Inspect the service log and its own `config/env/<service>/.env.local`.
 
-## Background service fails
+## Gateway fails at startup
 
-Inspect `.run/logs/<service>.log`.
-
-## Database integration tests fail immediately
-
-Run `./scripts/db-init.sh` and `./scripts/db-status.sh`, then invoke integration tests only through `./scripts/test.sh integration`. The test helper rejects connection strings not targeting `researchtrack_test_*` databases.
+Verify `config/env/gateway/.env.local` contains a valid frontend origin and all downstream service URLs. Gateway destinations are intentionally not hard-coded in `appsettings.json`.

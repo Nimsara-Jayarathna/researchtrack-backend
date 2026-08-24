@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
+using ResearchTrack.BuildingBlocks.Api.Configuration;
 
 namespace ResearchTrack.ProjectService.Persistence;
 
@@ -7,15 +8,10 @@ public sealed class ProjectDbContextFactory : IDesignTimeDbContextFactory<Projec
 {
     public ProjectDbContext CreateDbContext(string[] args)
     {
-        var connectionString = Environment.GetEnvironmentVariable("ConnectionStrings__DefaultConnection");
-        if (string.IsNullOrWhiteSpace(connectionString))
-        {
-            throw new InvalidOperationException(
-                "ConnectionStrings__DefaultConnection must be exported before running EF Core design-time commands. Use the repository migration scripts.");
-        }
-
         var optionsBuilder = new DbContextOptionsBuilder<ProjectDbContext>();
-        optionsBuilder.UseMySQL(connectionString);
+        optionsBuilder.UseMySQL(
+            DesignTimeDatabase.CreateConnectionString("researchtrack_project_design"));
+
         return new ProjectDbContext(optionsBuilder.Options);
     }
 }

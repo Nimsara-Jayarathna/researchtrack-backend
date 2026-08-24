@@ -1,0 +1,142 @@
+name: researchtrack-${DEPLOY_ENV}
+
+services:
+  gateway:
+    image: ${IMAGE_PREFIX}/researchtrack-gateway:${DEPLOY_ENV}
+    restart: unless-stopped
+    env_file:
+      - ./env/gateway.env
+    networks:
+      edge:
+        aliases:
+          - researchtrack-gateway-${DEPLOY_ENV}
+      backend: {}
+    mem_limit: ${GATEWAY_MEMORY_LIMIT:-384m}
+    cpus: ${GATEWAY_CPU_LIMIT:-0.50}
+
+  auth:
+    image: ${IMAGE_PREFIX}/researchtrack-auth:${DEPLOY_ENV}
+    restart: unless-stopped
+    env_file:
+      - ./env/shared-auth.env
+      - ./env/auth.env
+    networks:
+      backend: {}
+      database: {}
+    depends_on:
+      mysql:
+        condition: service_healthy
+    mem_limit: ${AUTH_MEMORY_LIMIT:-384m}
+    cpus: ${AUTH_CPU_LIMIT:-0.50}
+
+  project:
+    image: ${IMAGE_PREFIX}/researchtrack-project:${DEPLOY_ENV}
+    restart: unless-stopped
+    env_file:
+      - ./env/shared-auth.env
+      - ./env/project.env
+    networks:
+      backend: {}
+      database: {}
+    depends_on:
+      mysql:
+        condition: service_healthy
+    mem_limit: ${PROJECT_MEMORY_LIMIT:-384m}
+    cpus: ${PROJECT_CPU_LIMIT:-0.50}
+
+  github:
+    image: ${IMAGE_PREFIX}/researchtrack-github:${DEPLOY_ENV}
+    restart: unless-stopped
+    env_file:
+      - ./env/github.env
+    networks:
+      backend: {}
+      database: {}
+    depends_on:
+      mysql:
+        condition: service_healthy
+    mem_limit: ${GITHUB_MEMORY_LIMIT:-320m}
+    cpus: ${GITHUB_CPU_LIMIT:-0.40}
+
+  jira:
+    image: ${IMAGE_PREFIX}/researchtrack-jira:${DEPLOY_ENV}
+    restart: unless-stopped
+    env_file:
+      - ./env/jira.env
+    networks:
+      backend: {}
+      database: {}
+    depends_on:
+      mysql:
+        condition: service_healthy
+    mem_limit: ${JIRA_MEMORY_LIMIT:-320m}
+    cpus: ${JIRA_CPU_LIMIT:-0.40}
+
+  meeting:
+    image: ${IMAGE_PREFIX}/researchtrack-meeting:${DEPLOY_ENV}
+    restart: unless-stopped
+    env_file:
+      - ./env/meeting.env
+    networks:
+      backend: {}
+      database: {}
+    depends_on:
+      mysql:
+        condition: service_healthy
+    mem_limit: ${MEETING_MEMORY_LIMIT:-320m}
+    cpus: ${MEETING_CPU_LIMIT:-0.40}
+
+  submission:
+    image: ${IMAGE_PREFIX}/researchtrack-submission:${DEPLOY_ENV}
+    restart: unless-stopped
+    env_file:
+      - ./env/submission.env
+    networks:
+      backend: {}
+      database: {}
+    depends_on:
+      mysql:
+        condition: service_healthy
+    mem_limit: ${SUBMISSION_MEMORY_LIMIT:-320m}
+    cpus: ${SUBMISSION_CPU_LIMIT:-0.40}
+
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    env_file:
+      - ./env/mysql.env
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --max-connections=100
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./mysql/reconcile-databases.sh:/docker-entrypoint-initdb.d/01-reconcile-databases.sh:ro
+      - ./mysql/reconcile-databases.sh:/opt/researchtrack/reconcile-databases.sh:ro
+    networks:
+      database: {}
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "mysqladmin ping -h 127.0.0.1 -uroot -p\"$$MYSQL_ROOT_PASSWORD\" --silent",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    mem_limit: ${MYSQL_MEMORY_LIMIT:-896m}
+    cpus: ${MYSQL_CPU_LIMIT:-0.75}
+
+volumes:
+  mysql-data:
+
+networks:
+  edge:
+    external: true
+    name: ${EDGE_NETWORK:-npm_default}
+  backend:
+    driver: bridge
+  database:
+    driver: bridge
+    internal: true

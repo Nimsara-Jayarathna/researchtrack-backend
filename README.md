@@ -310,7 +310,7 @@ A typical local naming scheme is:
 | Meeting | `researchtrack_meeting` | `researchtrack_test_meeting` | `rt_meeting` |
 | Submission | `researchtrack_submission` | `researchtrack_test_submission` | `rt_submission` |
 
-The actual values are intentionally not committed into the `.env.example` files; each team's local/test deployment supplies them externally.
+The `.env.example` files commit the configuration shape and safe development defaults/placeholders only. Real passwords, tokens, private keys, environment-specific endpoints, and other sensitive runtime values are supplied through gitignored local files or the deployment environment.
 
 ## Service-specific configuration
 
@@ -322,7 +322,7 @@ In addition to database values, services own their integration/policy configurat
 config/env/auth/.env.local
 ```
 
-Contains Story 1 registration policy, password policy, password hashing values, and reserved JWT keys for the later login/authentication story.
+Contains registration policy, password policy/hashing values, transactional-email settings, and the JWT/cookie configuration used by secure login and session management.
 
 ### Project
 
@@ -736,7 +736,7 @@ Canonical ResearchTrack fields:
 }
 ```
 
-For frontend compatibility during migration from SuperviseSuite, legacy `fname`, `lname`, and `name` aliases are accepted by the request contract.
+The request contract also accepts the current ResearchTrack registration UI aliases `fname`, `lname`, and `name`; canonical profile fields take precedence when both are supplied.
 
 A client-supplied `role` may also arrive from a legacy payload, but it is **never trusted as authorization input**. The backend owns role assignment.
 
@@ -869,11 +869,53 @@ for the endpoint contract, acceptance-criteria mapping, security notes, and veri
 
 ### Story boundary
 
-Story 1 does **not** require email OTP/ownership verification, MFA, JWT login, or refresh tokens. JWT environment keys are reserved for the later secure-login story and should not be interpreted as implemented authentication functionality yet.
+Story 1 owns registration and email verification. US-102 adds login, JWT access cookies, refresh-token rotation, logout, current-session recovery, and shared Student/Supervisor authorization policies. MFA is outside the current story scope.
 
 ---
 
-# 12. API response conventions
+
+# 12. Sprint 1 Story 2 — Secure Login & Role-Based Access
+
+US-102 is implemented by `ResearchTrack.AuthService` plus shared authorization infrastructure in `ResearchTrack.BuildingBlocks.Api`.
+
+## Auth endpoints
+
+Through the gateway:
+
+```text
+POST /api/v1/auth/login
+POST /api/v1/auth/refresh
+POST /api/v1/auth/logout
+GET  /api/v1/auth/me
+```
+
+Login and refresh issue `ss_access_token` and `ss_refresh_token` as `HttpOnly` cookies. The refresh token stored in MySQL is SHA-256 hashed and rotates on every successful refresh. Reusing a revoked/rotated token is rejected.
+
+Invalid email and invalid password use the same non-sensitive `401` response. Unknown-email login also performs a dummy PBKDF2 verification to reduce obvious timing differences.
+
+## Authorization
+
+Shared policies are:
+
+```text
+ResearchTrack.Authenticated
+ResearchTrack.StudentOnly
+ResearchTrack.SupervisorOnly
+```
+
+AuthService and ProjectService validate issuer, audience, signature, algorithm, and lifetime for access JWTs. A Student token receives `403 FORBIDDEN` on a Supervisor-only policy; missing/expired authentication receives `401 UNAUTHORIZED`.
+
+Project-specific ownership/membership rules must be added as resource authorization when Project business endpoints are implemented; a role alone must not imply access to every project.
+
+## Database
+
+US-102 requires no additional migration. The existing Story-1 registration migration already owns `refresh_tokens` with a unique token-hash index, user foreign key, expiration, and revocation timestamp.
+
+See `docs/development/us-102-secure-login-rbac.md` for acceptance-criteria mapping and verification notes.
+
+---
+
+# 13. API response conventions
 
 ResearchTrack uses the shared API/error response infrastructure from `ResearchTrack.BuildingBlocks.Api`.
 
@@ -896,7 +938,7 @@ The shared building blocks centralize technical conventions such as response env
 
 ---
 
-# 13. Testing
+# 14. Testing
 
 ## Normal tests
 
@@ -967,7 +1009,7 @@ The Auth tests cover the registration/configuration behavior including:
 
 ---
 
-# 14. Pre-PR quality check
+# 15. Pre-PR quality check
 
 Before opening a pull request:
 
@@ -1004,7 +1046,7 @@ Other useful quality commands:
 
 ---
 
-# 15. Environment file format
+# 16. Environment file format
 
 The env loader deliberately treats env files as **data rather than executable shell scripts**.
 
@@ -1046,7 +1088,7 @@ inside `IConfiguration` / `IOptions<T>`.
 
 ---
 
-# 16. Secret and configuration handling rules
+# 17. Secret and configuration handling rules
 
 Never commit or share publicly:
 
@@ -1090,7 +1132,7 @@ Local values are kept in gitignored service `.env.local` files; deployment value
 
 ---
 
-# 17. Common command reference
+# 18. Common command reference
 
 ```bash
 # First setup
@@ -1136,7 +1178,7 @@ cp config/env/admin/.env.example config/env/admin/.env.local
 
 ---
 
-# 18. Troubleshooting
+# 19. Troubleshooting
 
 ## Missing `config/env/<service>/.env.local`
 
@@ -1271,7 +1313,7 @@ Story 1 is intentionally designed to fail fast when required policy is missing i
 
 ---
 
-# 19. Repository configuration principles
+# 20. Repository configuration principles
 
 The ResearchTrack configuration model is intentionally infrastructure-agnostic and service-owned.
 
@@ -1361,3 +1403,7 @@ Production
 The application configuration keys remain the same; only the values and delivery mechanism change.
 
 This keeps ResearchTrack flexible without putting environment-specific or configurable business values into the committed codebase.
+
+## Backend deployment
+
+The Docker/GHCR/Test/Production backend deployment baseline is documented in [`docs/devops/backend-deployment.md`](docs/devops/backend-deployment.md). The deployment source lives under `deploy/` and `.github/workflows/`.

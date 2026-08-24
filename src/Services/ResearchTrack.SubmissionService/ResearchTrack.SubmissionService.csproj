@@ -1,7 +1,4 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
-  <PropertyGroup>
-    <UserSecretsId>researchtrack-8fb51af1-ba4c-5644-b884-43e5159b47be</UserSecretsId>
-  </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../BuildingBlocks/ResearchTrack.BuildingBlocks.Api/ResearchTrack.BuildingBlocks.Api.csproj" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design">

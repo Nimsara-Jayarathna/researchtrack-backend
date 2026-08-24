@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
+using ResearchTrack.BuildingBlocks.Api.Configuration;
 
 namespace ResearchTrack.AuthService.Persistence;
 
@@ -7,15 +8,10 @@ public sealed class AuthDbContextFactory : IDesignTimeDbContextFactory<AuthDbCon
 {
     public AuthDbContext CreateDbContext(string[] args)
     {
-        var connectionString = Environment.GetEnvironmentVariable("ConnectionStrings__DefaultConnection");
-        if (string.IsNullOrWhiteSpace(connectionString))
-        {
-            throw new InvalidOperationException(
-                "ConnectionStrings__DefaultConnection must be exported before running EF Core design-time commands. Use the repository migration scripts.");
-        }
-
         var optionsBuilder = new DbContextOptionsBuilder<AuthDbContext>();
-        optionsBuilder.UseMySQL(connectionString);
+        optionsBuilder.UseMySQL(
+            DesignTimeDatabase.CreateConnectionString("researchtrack_auth_design"));
+
         return new AuthDbContext(optionsBuilder.Options);
     }
 }

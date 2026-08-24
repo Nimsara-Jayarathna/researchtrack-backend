@@ -3,8 +3,6 @@ set -euo pipefail
 source "$(dirname "$0")/lib/env.sh"
 rt_cd_root
 rt_require_command dotnet
-rt_load_dev_env
-rt_validate_db_environment
 
 service="${1:-}"
 if [[ -z "$service" ]]; then
@@ -13,9 +11,11 @@ if [[ -z "$service" ]]; then
 fi
 
 output="${2:-artifacts/migrations/${service}.sql}"
+rt_load_dev_env "$service"
+rt_validate_db_environment
+
 project="$(rt_service_project "$service")"
 context="$(rt_service_context "$service")"
-export ConnectionStrings__DefaultConnection="$(rt_db_connection "$service" dev)"
 
 mkdir -p "$(dirname "$output")"
 dotnet ef migrations script --idempotent \

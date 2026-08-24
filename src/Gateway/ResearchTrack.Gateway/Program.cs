@@ -6,6 +6,23 @@ using ResearchTrack.BuildingBlocks.Api.Infrastructure;
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.ConfigureKestrel(options => options.AddServerHeader = false);
 
+// Keep config/env/gateway/.env.example as the single gateway configuration contract.
+// Local scripts already map these friendly variables to ASP.NET configuration keys;
+// container deployments inject the same variables directly, so map them here as well.
+var gatewayEnvironmentOverrides = new Dictionary<string, string?>
+{
+    ["Frontend:AllowedOrigins:0"] = Environment.GetEnvironmentVariable("FRONTEND_ORIGIN"),
+    ["ReverseProxy:Clusters:auth:Destinations:primary:Address"] = Environment.GetEnvironmentVariable("AUTH_SERVICE_URL"),
+    ["ReverseProxy:Clusters:project:Destinations:primary:Address"] = Environment.GetEnvironmentVariable("PROJECT_SERVICE_URL"),
+    ["ReverseProxy:Clusters:github:Destinations:primary:Address"] = Environment.GetEnvironmentVariable("GITHUB_SERVICE_URL"),
+    ["ReverseProxy:Clusters:jira:Destinations:primary:Address"] = Environment.GetEnvironmentVariable("JIRA_SERVICE_URL"),
+    ["ReverseProxy:Clusters:meeting:Destinations:primary:Address"] = Environment.GetEnvironmentVariable("MEETING_SERVICE_URL"),
+    ["ReverseProxy:Clusters:submission:Destinations:primary:Address"] = Environment.GetEnvironmentVariable("SUBMISSION_SERVICE_URL")
+};
+
+builder.Configuration.AddInMemoryCollection(
+    gatewayEnvironmentOverrides.Where(pair => !string.IsNullOrWhiteSpace(pair.Value)));
+
 builder.Services.AddResearchTrackApi("ResearchTrack API Gateway");
 builder.Services.AddReverseProxy().LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"));
 
@@ -31,14 +48,25 @@ builder.Services.AddRateLimiter(options =>
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
     options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
     {
-        var key = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-        return RateLimitPartition.GetFixedWindowLimiter(key, _ => new FixedWindowRateLimiterOptions
+        var remoteIp = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        var path = context.Request.Path.Value ?? string.Empty;
+
+        var (bucket, permitLimit) = path switch
         {
-            PermitLimit = 120,
-            Window = TimeSpan.FromMinutes(1),
-            QueueLimit = 0,
-            AutoReplenishment = true
-        });
+            "/api/v1/auth/login" => ("auth-login", 10),
+            "/api/v1/auth/refresh" => ("auth-refresh", 30),
+            _ => ("general", 120)
+        };
+
+        return RateLimitPartition.GetFixedWindowLimiter(
+            $"{bucket}:{remoteIp}",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = permitLimit,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                AutoReplenishment = true
+            });
     });
     options.OnRejected = async (context, _) =>
     {
