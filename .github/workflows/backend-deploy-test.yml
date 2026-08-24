@@ -2,7 +2,7 @@ name: Backend Deploy - Test
 
 on:
   push:
-    branches: ["devops/infrastructure-setup"]
+    branches: ["develop"]
   workflow_dispatch:
     inputs:
       force_full_build:
