@@ -18,7 +18,7 @@ public static class DatabaseConnectionStringResolver
         var name = Require(configuration, "Database:Name");
         var username = Require(configuration, "Database:Username");
         var password = Require(configuration, "Database:Password");
-        var sslMode = Require(configuration, "Database:SslMode");
+        var sslMode = NormalizeSslMode(Require(configuration, "Database:SslMode"));
         var allowPublicKeyRetrieval = RequireBool(configuration, "Database:AllowPublicKeyRetrieval");
 
         var builder = new DbConnectionStringBuilder
@@ -76,6 +76,11 @@ public static class DatabaseConnectionStringResolver
 
         return value;
     }
+
+    private static string NormalizeSslMode(string value) =>
+        value.Equals("None", StringComparison.OrdinalIgnoreCase)
+            ? "Disabled"
+            : value;
 
     private static bool IsPlaceholder(string value) =>
         value.Equals("CHANGE_ME", StringComparison.OrdinalIgnoreCase)
