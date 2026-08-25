@@ -9,14 +9,34 @@ public interface IProjectService
         CreateProjectRequest request,
         CancellationToken cancellationToken);
 
-    Task<IReadOnlyList<ProjectSummaryResponse>> GetAccessibleProjectsAsync(
-        Guid userId,
-        string role,
-        CancellationToken cancellationToken);
+    Task<IReadOnlyList<ProjectSummaryResponse>>
+        GetAccessibleProjectsAsync(
+            Guid userId,
+            string role,
+            CancellationToken cancellationToken);
 
     Task<ProjectResponse?> GetAccessibleProjectAsync(
         Guid userId,
         string role,
         Guid projectId,
+        CancellationToken cancellationToken);
+
+    Task<ProjectResponse> UpdateAsync(
+        Guid supervisorUserId,
+        Guid projectId,
+        UpdateProjectRequest request,
+        CancellationToken cancellationToken);
+
+    Task<ProjectMilestoneResponse> AddMilestoneAsync(
+        Guid supervisorUserId,
+        Guid projectId,
+        CreateProjectMilestoneRequest request,
+        CancellationToken cancellationToken);
+
+    Task<ProjectMilestoneResponse> UpdateMilestoneAsync(
+        Guid supervisorUserId,
+        Guid projectId,
+        Guid milestoneId,
+        UpdateProjectMilestoneRequest request,
         CancellationToken cancellationToken);
 }
