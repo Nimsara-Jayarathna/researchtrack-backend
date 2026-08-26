@@ -37,15 +37,16 @@ public sealed class ProjectService : IProjectService
         var now = _timeProvider.GetUtcNow().UtcDateTime;
         var today = DateOnly.FromDateTime(now);
 
-        var normalized =
-            ProjectRequestValidator.Validate(request, today);
+        var normalized = ProjectRequestValidator.Validate(
+            request,
+            today);
 
         var supervisor =
             await _userDirectoryClient.GetCurrentUserAsync(
                 cancellationToken);
 
-        if (supervisor.Id != supervisorUserId
-            || !string.Equals(
+        if (supervisor.Id != supervisorUserId ||
+            !string.Equals(
                 supervisor.Role,
                 AuthSecurityConstants.Roles.Supervisor,
                 StringComparison.OrdinalIgnoreCase))
@@ -65,19 +66,18 @@ public sealed class ProjectService : IProjectService
             normalized.StudentIds,
             students.Select(student => student.Id).ToArray());
 
-        var studentsById =
-            students.ToDictionary(student => student.Id);
+        var studentsById = students.ToDictionary(
+            student => student.Id);
 
-        var orderedStudents =
-            normalized.StudentIds
-                .Select(id => studentsById[id])
-                .ToArray();
+        var orderedStudents = normalized.StudentIds
+            .Select(id => studentsById[id])
+            .ToArray();
 
         var projectId = Guid.NewGuid();
 
         var earliestMilestoneDate =
-            normalized.Milestones
-                .Min(milestone => milestone.DueDate);
+            normalized.Milestones.Min(
+                milestone => milestone.DueDate);
 
         var project = new Project
         {
@@ -92,23 +92,21 @@ public sealed class ProjectService : IProjectService
             SupervisorUserId = supervisorUserId,
             LeaderStudentUserId =
                 normalized.LeaderStudentId,
-            MilestoneDate =
-                earliestMilestoneDate,
+            MilestoneDate = earliestMilestoneDate,
             LastActivityAt = now,
             CreatedAt = now,
             UpdatedAt = now
         };
 
-        var members =
-            new List<ProjectMember>(
-                orderedStudents.Length + 1)
-            {
-                CreateMember(
-                    projectId,
-                    supervisor,
-                    ProjectMemberRoles.Supervisor,
-                    now)
-            };
+        var members = new List<ProjectMember>(
+            orderedStudents.Length + 1);
+
+        members.Add(
+            CreateMember(
+                projectId,
+                supervisor,
+                ProjectMemberRoles.Supervisor,
+                now));
 
         members.AddRange(
             orderedStudents.Select(student =>
@@ -118,27 +116,23 @@ public sealed class ProjectService : IProjectService
                     ProjectMemberRoles.Student,
                     now)));
 
-        var milestones =
-            normalized.Milestones
-                .Select((milestone, index) =>
-                    new ProjectMilestone
-                    {
-                        Id = Guid.NewGuid(),
-                        ProjectId = projectId,
-                        Title = milestone.Title,
-                        Description =
-                            milestone.Description,
-                        DueDate =
-                            milestone.DueDate,
-                        Status =
-                            ProjectMilestoneStatuses.Planned,
-                        SequenceNo = index + 1,
-                        CreatedByUserId =
-                            supervisorUserId,
-                        CreatedAt = now,
-                        UpdatedAt = now
-                    })
-                .ToArray();
+        var milestones = normalized.Milestones
+            .Select((milestone, index) =>
+                new ProjectMilestone
+                {
+                    Id = Guid.NewGuid(),
+                    ProjectId = projectId,
+                    Title = milestone.Title,
+                    Description = milestone.Description,
+                    DueDate = milestone.DueDate,
+                    Status =
+                        ProjectMilestoneStatuses.Planned,
+                    SequenceNo = index + 1,
+                    CreatedByUserId = supervisorUserId,
+                    CreatedAt = now,
+                    UpdatedAt = now
+                })
+            .ToArray();
 
         await using var dbContext =
             await _dbContextFactory.CreateDbContextAsync(
@@ -158,11 +152,10 @@ public sealed class ProjectService : IProjectService
         await transaction.CommitAsync(
             cancellationToken);
 
-        var leader =
-            normalized.LeaderStudentId is Guid leaderId
-                ? orderedStudents.First(
-                    student => student.Id == leaderId)
-                : null;
+        var leader = normalized.LeaderStudentId is Guid leaderId
+            ? orderedStudents.FirstOrDefault(
+                student => student.Id == leaderId)
+            : null;
 
         return new CreateProjectResponse(
             project.Id,
@@ -172,7 +165,7 @@ public sealed class ProjectService : IProjectService
             project.Semester,
             project.LifecycleStatus,
             project.ProgressPercent,
-            earliestMilestoneDate,
+            project.MilestoneDate ?? earliestMilestoneDate,
             orderedStudents
                 .Select(MapUser)
                 .ToArray(),
@@ -217,10 +210,10 @@ public sealed class ProjectService : IProjectService
         {
             projects = projects.Where(project =>
                 dbContext.ProjectMembers.Any(member =>
-                    member.ProjectId == project.Id
-                    && member.UserId == userId
-                    && member.MemberRole ==
-                       ProjectMemberRoles.Student));
+                    member.ProjectId == project.Id &&
+                    member.UserId == userId &&
+                    member.MemberRole ==
+                        ProjectMemberRoles.Student));
         }
         else
         {
@@ -243,18 +236,15 @@ public sealed class ProjectService : IProjectService
                     project.ProgressPercent,
                     dbContext.ProjectMembers.Count(
                         member =>
-                            member.ProjectId ==
-                            project.Id),
+                            member.ProjectId == project.Id),
                     dbContext.ProjectMembers
                         .Where(member =>
-                            member.ProjectId ==
-                            project.Id
-                            && member.MemberRole ==
-                               ProjectMemberRoles.Supervisor)
+                            member.ProjectId == project.Id &&
+                            member.MemberRole ==
+                                ProjectMemberRoles.Supervisor)
                         .Select(member =>
-                            member.FirstName
-                            + " "
-                            + member.LastName)
+                            member.FirstName + " " +
+                            member.LastName)
                         .FirstOrDefault()))
             .ToListAsync(cancellationToken);
     }
@@ -306,11 +296,9 @@ public sealed class ProjectService : IProjectService
                     .AsNoTracking()
                     .AnyAsync(
                         member =>
-                            member.ProjectId ==
-                                projectId
-                            && member.UserId ==
-                                userId
-                            && member.MemberRole ==
+                            member.ProjectId == projectId &&
+                            member.UserId == userId &&
+                            member.MemberRole ==
                                 ProjectMemberRoles.Student,
                         cancellationToken);
         }
@@ -412,17 +400,12 @@ public sealed class ProjectService : IProjectService
                 "Project semester is required.");
         }
 
-        if (!string.IsNullOrWhiteSpace(lifecycleStatus)
-            && lifecycleStatus !=
-               ProjectLifecycleStatuses.Planning
-            && lifecycleStatus !=
-               ProjectLifecycleStatuses.Active
-            && lifecycleStatus !=
-               ProjectLifecycleStatuses.AtRisk
-            && lifecycleStatus !=
-               ProjectLifecycleStatuses.Behind
-            && lifecycleStatus !=
-               ProjectLifecycleStatuses.Completed)
+        if (!string.IsNullOrWhiteSpace(lifecycleStatus) &&
+            lifecycleStatus != ProjectLifecycleStatuses.Planning &&
+            lifecycleStatus != ProjectLifecycleStatuses.Active &&
+            lifecycleStatus != ProjectLifecycleStatuses.AtRisk &&
+            lifecycleStatus != ProjectLifecycleStatuses.Behind &&
+            lifecycleStatus != ProjectLifecycleStatuses.Completed)
         {
             throw new ApiException(
                 StatusCodes.Status400BadRequest,
@@ -448,8 +431,7 @@ public sealed class ProjectService : IProjectService
                 "The requested project was not found.");
         }
 
-        if (project.SupervisorUserId !=
-            supervisorUserId)
+        if (project.SupervisorUserId != supervisorUserId)
         {
             throw new ApiException(
                 StatusCodes.Status403Forbidden,
@@ -465,11 +447,9 @@ public sealed class ProjectService : IProjectService
         project.Batch = batch;
         project.Semester = semester;
 
-        if (!string.IsNullOrWhiteSpace(
-                lifecycleStatus))
+        if (!string.IsNullOrWhiteSpace(lifecycleStatus))
         {
-            project.LifecycleStatus =
-                lifecycleStatus;
+            project.LifecycleStatus = lifecycleStatus;
         }
 
         project.UpdatedAt = now;
@@ -506,11 +486,15 @@ public sealed class ProjectService : IProjectService
                 "Milestone title is required.");
         }
 
-        var dueDate = request.DueDate
-     ?? throw new ApiException(
-        StatusCodes.Status400BadRequest,
-        ErrorCodes.ValidationError,
-        "Milestone due date is required.");
+        if (request.DueDate is null)
+        {
+            throw new ApiException(
+                StatusCodes.Status400BadRequest,
+                ErrorCodes.ValidationError,
+                "Milestone due date is required.");
+        }
+
+        var dueDate = request.DueDate.Value;
 
         await using var dbContext =
             await _dbContextFactory.CreateDbContextAsync(
@@ -530,8 +514,7 @@ public sealed class ProjectService : IProjectService
                 "The requested project was not found.");
         }
 
-        if (project.SupervisorUserId !=
-            supervisorUserId)
+        if (project.SupervisorUserId != supervisorUserId)
         {
             throw new ApiException(
                 StatusCodes.Status403Forbidden,
@@ -545,8 +528,7 @@ public sealed class ProjectService : IProjectService
                     milestone.ProjectId == projectId)
                 .Select(milestone =>
                     (int?)milestone.SequenceNo)
-                .MaxAsync(cancellationToken)
-                ?? 0;
+                .MaxAsync(cancellationToken) ?? 0;
 
         var now =
             _timeProvider.GetUtcNow().UtcDateTime;
@@ -561,16 +543,13 @@ public sealed class ProjectService : IProjectService
             Status =
                 ProjectMilestoneStatuses.Planned,
             SequenceNo = maxSequence + 1,
-            CreatedByUserId =
-                supervisorUserId,
+            CreatedByUserId = supervisorUserId,
             CreatedAt = now,
             UpdatedAt = now
         };
 
         dbContext.ProjectMilestones.Add(milestone);
 
-        // Project.MilestoneDate is DateOnly.
-        // Keep the earliest milestone date.
         if (dueDate < project.MilestoneDate)
         {
             project.MilestoneDate = dueDate;
@@ -608,6 +587,8 @@ public sealed class ProjectService : IProjectService
             "Milestone title is required.");
     }
 
+    var dueDate = request.DueDate;
+
     await using var dbContext =
         await _dbContextFactory.CreateDbContextAsync(
             cancellationToken);
@@ -638,8 +619,8 @@ public sealed class ProjectService : IProjectService
         await dbContext.ProjectMilestones
             .SingleOrDefaultAsync(
                 item =>
-                    item.Id == milestoneId
-                    && item.ProjectId == projectId,
+                    item.Id == milestoneId &&
+                    item.ProjectId == projectId,
                 cancellationToken);
 
     if (milestone is null)
@@ -653,16 +634,12 @@ public sealed class ProjectService : IProjectService
     var now =
         _timeProvider.GetUtcNow().UtcDateTime;
 
-    // Update milestone
     milestone.Title = title;
     milestone.Description = description;
-    milestone.DueDate = request.DueDate;
+    milestone.DueDate = dueDate;
     milestone.UpdatedAt = now;
 
-    // ========================================================
-    // RECALCULATE EARLIEST MILESTONE DATE
-    // ========================================================
-
+    // Recalculate earliest milestone date
     var milestoneDates =
         await dbContext.ProjectMilestones
             .Where(item =>
@@ -755,7 +732,9 @@ public sealed class ProjectService : IProjectService
             project.LeaderStudentUserId is Guid leaderId
                 ? members.FirstOrDefault(
                     member =>
-                        member.Id == leaderId)
+                        member.Id == leaderId &&
+                        member.MemberRole ==
+                            ProjectMemberRoles.Student)
                 : null;
 
         return new ProjectResponse(
@@ -786,8 +765,9 @@ public sealed class ProjectService : IProjectService
         Guid projectId,
         AuthDirectoryUser user,
         string memberRole,
-        DateTime now) =>
-        new()
+        DateTime now)
+    {
+        return new ProjectMember
         {
             Id = Guid.NewGuid(),
             ProjectId = projectId,
@@ -801,42 +781,47 @@ public sealed class ProjectService : IProjectService
             CreatedAt = now,
             UpdatedAt = now
         };
+    }
 
     // ============================================================
     // MAP USER
     // ============================================================
 
     private static ProjectUserResponse MapUser(
-        AuthDirectoryUser user) =>
-        new(
+        AuthDirectoryUser user)
+    {
+        return new ProjectUserResponse(
             user.Id,
             user.FirstName,
             user.LastName,
             user.Email,
             user.RegistrationNumber);
+    }
 
     private static ProjectUserResponse MapUser(
-        ProjectMemberResponse user) =>
-        new(
+        ProjectMemberResponse user)
+    {
+        return new ProjectUserResponse(
             user.Id,
             user.FirstName,
             user.LastName,
             user.Email,
             user.RegistrationNumber);
+    }
 
     // ============================================================
     // MAP MILESTONE
     // ============================================================
 
     private static ProjectMilestoneResponse MapMilestone(
-        ProjectMilestone milestone) =>
-        new(
+        ProjectMilestone milestone)
+    {
+        return new ProjectMilestoneResponse(
             milestone.Id,
             milestone.Title,
             milestone.Description,
             milestone.DueDate,
             milestone.Status,
             milestone.SequenceNo);
+    }
 }
-
-
