@@ -139,6 +139,65 @@ public sealed class ProjectsController : ApiControllerBase
     }
 
     // ============================================================
+    // ADD PROJECT MEMBERS
+    // POST: /api/v1/projects/{projectId}/members
+    //
+    // Only the Supervisor who owns the project can add Students.
+    // ============================================================
+
+    [Authorize(Policy = AuthSecurityConstants.Policies.SupervisorOnly)]
+    [HttpPost("{projectId:guid}/members")]
+    [ProducesResponseType<ApiResponse<ProjectResponse>>(
+        StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public async Task<ActionResult<ApiResponse<ProjectResponse>>> AddMembers(
+        Guid projectId,
+        [FromBody] AddProjectMembersRequest request,
+        CancellationToken cancellationToken)
+    {
+        var updated = await _projectService.AddMembersAsync(
+            GetRequiredUserId(),
+            projectId,
+            request,
+            cancellationToken);
+
+        return ApiOk(updated);
+    }
+
+    // ============================================================
+    // REMOVE PROJECT STUDENT
+    // DELETE: /api/v1/projects/{projectId}/members/{studentId}
+    //
+    // Only the Supervisor who owns the project can remove Students.
+    // ============================================================
+
+    [Authorize(Policy = AuthSecurityConstants.Policies.SupervisorOnly)]
+    [HttpDelete("{projectId:guid}/members/{studentId:guid}")]
+    [ProducesResponseType<ApiResponse<ProjectResponse>>(
+        StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ApiResponse<ProjectResponse>>> RemoveStudent(
+        Guid projectId,
+        Guid studentId,
+        CancellationToken cancellationToken)
+    {
+        var updated = await _projectService.RemoveStudentAsync(
+            GetRequiredUserId(),
+            projectId,
+            studentId,
+            cancellationToken);
+
+        return ApiOk(updated);
+    }
+
+    // ============================================================
     // ADD MILESTONE
     // POST: /api/v1/projects/{projectId}/milestones
     //
