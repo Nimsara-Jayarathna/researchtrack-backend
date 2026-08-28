@@ -59,7 +59,7 @@ public sealed class UserDirectoryService : IUserDirectoryService
             return [];
         }
 
-        var uniqueIds = studentIds.Distinct().ToArray();
+        var uniqueIds = studentIds.Distinct().ToList();
 
         await using var dbContext =
             await _dbContextFactory.CreateDbContextAsync(cancellationToken);

@@ -465,6 +465,245 @@ public sealed class ProjectService : IProjectService
     }
 
     // ============================================================
+    // UPDATE PROJECT LEADER
+    // ============================================================
+
+    public async Task<ProjectResponse> UpdateLeaderAsync(
+        Guid supervisorUserId,
+        Guid projectId,
+        UpdateProjectLeaderRequest request,
+        CancellationToken cancellationToken)
+    {
+        await using var dbContext =
+            await _dbContextFactory.CreateDbContextAsync(
+                cancellationToken);
+
+        var project =
+            await dbContext.Projects
+                .SingleOrDefaultAsync(
+                    project => project.Id == projectId,
+                    cancellationToken);
+
+        if (project is null)
+        {
+            throw new ApiException(
+                StatusCodes.Status404NotFound,
+                ErrorCodes.NotFound,
+                "The requested project was not found.");
+        }
+
+        if (project.SupervisorUserId != supervisorUserId)
+        {
+            throw new ApiException(
+                StatusCodes.Status403Forbidden,
+                ErrorCodes.Forbidden,
+                "Only the owning Supervisor can update the project leader.");
+        }
+
+        if (request.LeaderStudentId is Guid leaderStudentId)
+        {
+            var isProjectStudent =
+                await dbContext.ProjectMembers
+                    .AsNoTracking()
+                    .AnyAsync(
+                        member =>
+                            member.ProjectId == projectId &&
+                            member.UserId == leaderStudentId &&
+                            member.MemberRole == ProjectMemberRoles.Student,
+                        cancellationToken);
+
+            if (!isProjectStudent)
+            {
+                throw new ApiException(
+                    StatusCodes.Status400BadRequest,
+                    ErrorCodes.ValidationError,
+                    "The project leader must be an active Student member of this project.");
+            }
+        }
+
+        var now =
+            _timeProvider.GetUtcNow().UtcDateTime;
+
+        project.LeaderStudentUserId = request.LeaderStudentId;
+        project.UpdatedAt = now;
+        project.LastActivityAt = now;
+
+        await dbContext.SaveChangesAsync(
+            cancellationToken);
+
+        return await BuildProjectResponseAsync(
+            dbContext,
+            project,
+            cancellationToken);
+    }
+
+    // ============================================================
+    // ADD PROJECT MEMBERS
+    // ============================================================
+
+    public async Task<ProjectResponse> AddMembersAsync(
+        Guid supervisorUserId,
+        Guid projectId,
+        AddProjectMembersRequest request,
+        CancellationToken cancellationToken)
+    {
+        var studentIds =
+            ProjectRequestValidator.ValidateMemberStudentIds(request);
+
+        await using var dbContext =
+            await _dbContextFactory.CreateDbContextAsync(
+                cancellationToken);
+
+        var project =
+            await dbContext.Projects
+                .SingleOrDefaultAsync(
+                    project => project.Id == projectId,
+                    cancellationToken);
+
+        if (project is null)
+        {
+            throw new ApiException(
+                StatusCodes.Status404NotFound,
+                ErrorCodes.NotFound,
+                "The requested project was not found.");
+        }
+
+        if (project.SupervisorUserId != supervisorUserId)
+        {
+            throw new ApiException(
+                StatusCodes.Status403Forbidden,
+                ErrorCodes.Forbidden,
+                "Only the owning Supervisor can manage project members.");
+        }
+
+        var students =
+            await _userDirectoryClient.ResolveStudentsAsync(
+                studentIds,
+                cancellationToken);
+
+        ProjectRequestValidator.ValidateResolvedStudents(
+            studentIds,
+            students.Select(student => student.Id).ToArray());
+
+        var existingStudentIds =
+            await dbContext.ProjectMembers
+                .AsNoTracking()
+                .Where(member =>
+                    member.ProjectId == projectId &&
+                    studentIds.Contains(member.UserId))
+                .Select(member => member.UserId)
+                .ToListAsync(cancellationToken);
+
+        if (existingStudentIds.Count > 0)
+        {
+            throw new ApiException(
+                StatusCodes.Status409Conflict,
+                ErrorCodes.Conflict,
+                "One or more selected students are already members of this project.");
+        }
+
+        var studentsById = students.ToDictionary(
+            student => student.Id);
+
+        var now =
+            _timeProvider.GetUtcNow().UtcDateTime;
+
+        dbContext.ProjectMembers.AddRange(
+            studentIds.Select(studentId =>
+                CreateMember(
+                    projectId,
+                    studentsById[studentId],
+                    ProjectMemberRoles.Student,
+                    now)));
+
+        project.UpdatedAt = now;
+        project.LastActivityAt = now;
+
+        await dbContext.SaveChangesAsync(
+            cancellationToken);
+
+        return await BuildProjectResponseAsync(
+            dbContext,
+            project,
+            cancellationToken);
+    }
+
+    // ============================================================
+    // REMOVE PROJECT STUDENT
+    // ============================================================
+
+    public async Task<ProjectResponse> RemoveStudentAsync(
+        Guid supervisorUserId,
+        Guid projectId,
+        Guid studentId,
+        CancellationToken cancellationToken)
+    {
+        await using var dbContext =
+            await _dbContextFactory.CreateDbContextAsync(
+                cancellationToken);
+
+        var project =
+            await dbContext.Projects
+                .SingleOrDefaultAsync(
+                    project => project.Id == projectId,
+                    cancellationToken);
+
+        if (project is null)
+        {
+            throw new ApiException(
+                StatusCodes.Status404NotFound,
+                ErrorCodes.NotFound,
+                "The requested project was not found.");
+        }
+
+        if (project.SupervisorUserId != supervisorUserId)
+        {
+            throw new ApiException(
+                StatusCodes.Status403Forbidden,
+                ErrorCodes.Forbidden,
+                "Only the owning Supervisor can manage project members.");
+        }
+
+        var member =
+            await dbContext.ProjectMembers
+                .SingleOrDefaultAsync(
+                    item =>
+                        item.ProjectId == projectId &&
+                        item.UserId == studentId &&
+                        item.MemberRole == ProjectMemberRoles.Student,
+                    cancellationToken);
+
+        if (member is null)
+        {
+            throw new ApiException(
+                StatusCodes.Status404NotFound,
+                ErrorCodes.NotFound,
+                "The requested student membership was not found.");
+        }
+
+        dbContext.ProjectMembers.Remove(member);
+
+        if (project.LeaderStudentUserId == studentId)
+        {
+            project.LeaderStudentUserId = null;
+        }
+
+        var now =
+            _timeProvider.GetUtcNow().UtcDateTime;
+
+        project.UpdatedAt = now;
+        project.LastActivityAt = now;
+
+        await dbContext.SaveChangesAsync(
+            cancellationToken);
+
+        return await BuildProjectResponseAsync(
+            dbContext,
+            project,
+            cancellationToken);
+    }
+
+    // ============================================================
     // ADD MILESTONE
     // ============================================================
 

@@ -148,6 +148,21 @@ public sealed class ProjectIntegrationTests : IAsyncLifetime
         var studentPayload = await studentResponse.Content.ReadFromJsonAsync<ApiResponse<ProjectResponse>>(
             TestContext.Current.CancellationToken);
         Assert.Equal(3, studentPayload?.Data?.Members.Count);
+        Assert.Contains(
+            studentPayload?.Data?.Members ?? [],
+            member =>
+                member.Id == SupervisorA &&
+                member.MemberRole == AuthSecurityConstants.Roles.Supervisor);
+        Assert.Contains(
+            studentPayload?.Data?.Members ?? [],
+            member =>
+                member.Id == StudentA &&
+                member.MemberRole == AuthSecurityConstants.Roles.Student);
+        Assert.Contains(
+            studentPayload?.Data?.Members ?? [],
+            member =>
+                member.Id == StudentB &&
+                member.MemberRole == AuthSecurityConstants.Roles.Student);
         Assert.Equal(2, studentPayload?.Data?.Milestones.Count);
         Assert.Equal(StudentA, studentPayload?.Data?.Leader?.Id);
 
@@ -248,6 +263,334 @@ public sealed class ProjectIntegrationTests : IAsyncLifetime
             payload?.Error?.FieldErrors ?? [],
             error => error.Field == "milestones[1].dueDate");
         await AssertDatabaseEmptyAsync();
+    }
+
+    [Fact]
+    [Trait("Category", "DatabaseIntegration")]
+    public async Task Owning_supervisor_adds_registered_student_and_student_gains_access()
+    {
+        var projectId = await CreateProjectAsync();
+
+        using var addRequest = CreateJsonRequest(
+            HttpMethod.Post,
+            $"/api/v1/projects/{projectId}/members",
+            SupervisorA,
+            AuthSecurityConstants.Roles.Supervisor,
+            new { studentIds = new[] { StudentC } });
+
+        using var addResponse = await Client.SendAsync(
+            addRequest,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, addResponse.StatusCode);
+
+        var addPayload =
+            await addResponse.Content.ReadFromJsonAsync<ApiResponse<ProjectResponse>>(
+                TestContext.Current.CancellationToken);
+        Assert.Contains(
+            addPayload?.Data?.Members ?? [],
+            member =>
+                member.Id == StudentC &&
+                member.MemberRole == AuthSecurityConstants.Roles.Student);
+
+        using var studentRequest = CreateRequest(
+            HttpMethod.Get,
+            $"/api/v1/projects/{projectId}",
+            StudentC,
+            AuthSecurityConstants.Roles.Student);
+        using var studentResponse = await Client.SendAsync(
+            studentRequest,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, studentResponse.StatusCode);
+    }
+
+    [Fact]
+    [Trait("Category", "DatabaseIntegration")]
+    public async Task Duplicate_project_membership_is_rejected_and_only_one_relationship_remains()
+    {
+        var projectId = await CreateProjectAsync();
+
+        using var request = CreateJsonRequest(
+            HttpMethod.Post,
+            $"/api/v1/projects/{projectId}/members",
+            SupervisorA,
+            AuthSecurityConstants.Roles.Supervisor,
+            new { studentIds = new[] { StudentA } });
+
+        using var response = await Client.SendAsync(
+            request,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+
+        await using var dbContext = await CreateDbContextAsync();
+        var membershipCount = await dbContext.ProjectMembers.CountAsync(
+            member =>
+                member.ProjectId == projectId &&
+                member.UserId == StudentA,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(1, membershipCount);
+    }
+
+    [Fact]
+    [Trait("Category", "DatabaseIntegration")]
+    public async Task Removing_student_revokes_project_access()
+    {
+        var projectId = await CreateProjectAsync();
+
+        using var removeRequest = CreateRequest(
+            HttpMethod.Delete,
+            $"/api/v1/projects/{projectId}/members/{StudentB}",
+            SupervisorA,
+            AuthSecurityConstants.Roles.Supervisor);
+        using var removeResponse = await Client.SendAsync(
+            removeRequest,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, removeResponse.StatusCode);
+
+        var removePayload =
+            await removeResponse.Content.ReadFromJsonAsync<ApiResponse<ProjectResponse>>(
+                TestContext.Current.CancellationToken);
+        Assert.DoesNotContain(
+            removePayload?.Data?.Members ?? [],
+            member => member.Id == StudentB);
+
+        using var studentRequest = CreateRequest(
+            HttpMethod.Get,
+            $"/api/v1/projects/{projectId}",
+            StudentB,
+            AuthSecurityConstants.Roles.Student);
+        using var studentResponse = await Client.SendAsync(
+            studentRequest,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.NotFound, studentResponse.StatusCode);
+    }
+
+    [Fact]
+    [Trait("Category", "DatabaseIntegration")]
+    public async Task Student_cannot_add_or_remove_project_members()
+    {
+        var projectId = await CreateProjectAsync();
+
+        using var addRequest = CreateJsonRequest(
+            HttpMethod.Post,
+            $"/api/v1/projects/{projectId}/members",
+            StudentA,
+            AuthSecurityConstants.Roles.Student,
+            new { studentIds = new[] { StudentC } });
+        using var addResponse = await Client.SendAsync(
+            addRequest,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Forbidden, addResponse.StatusCode);
+
+        using var removeRequest = CreateRequest(
+            HttpMethod.Delete,
+            $"/api/v1/projects/{projectId}/members/{StudentB}",
+            StudentA,
+            AuthSecurityConstants.Roles.Student);
+        using var removeResponse = await Client.SendAsync(
+            removeRequest,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Forbidden, removeResponse.StatusCode);
+    }
+
+    [Fact]
+    [Trait("Category", "DatabaseIntegration")]
+    public async Task Supervisor_cannot_manage_members_of_another_supervisors_project()
+    {
+        var projectId = await CreateProjectAsync();
+
+        using var addRequest = CreateJsonRequest(
+            HttpMethod.Post,
+            $"/api/v1/projects/{projectId}/members",
+            SupervisorB,
+            AuthSecurityConstants.Roles.Supervisor,
+            new { studentIds = new[] { StudentC } });
+        using var addResponse = await Client.SendAsync(
+            addRequest,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Forbidden, addResponse.StatusCode);
+
+        using var removeRequest = CreateRequest(
+            HttpMethod.Delete,
+            $"/api/v1/projects/{projectId}/members/{StudentB}",
+            SupervisorB,
+            AuthSecurityConstants.Roles.Supervisor);
+        using var removeResponse = await Client.SendAsync(
+            removeRequest,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Forbidden, removeResponse.StatusCode);
+    }
+
+    [Fact]
+    [Trait("Category", "DatabaseIntegration")]
+    public async Task Owning_supervisor_can_assign_an_active_project_student_as_leader()
+    {
+        var projectId = await CreateProjectAsync();
+
+        using var request = CreateJsonRequest(
+            HttpMethod.Put,
+            $"/api/v1/projects/{projectId}/leader",
+            SupervisorA,
+            AuthSecurityConstants.Roles.Supervisor,
+            new { leaderStudentId = StudentB });
+        using var response = await Client.SendAsync(
+            request,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var payload =
+            await response.Content.ReadFromJsonAsync<ApiResponse<ProjectResponse>>(
+                TestContext.Current.CancellationToken);
+        Assert.Equal(StudentB, payload?.Data?.Leader?.Id);
+
+        await using var dbContext = await CreateDbContextAsync();
+        var project = await dbContext.Projects.SingleAsync(
+            item => item.Id == projectId,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(StudentB, project.LeaderStudentUserId);
+    }
+
+    [Fact]
+    [Trait("Category", "DatabaseIntegration")]
+    public async Task Project_leader_must_be_an_active_student_member_of_that_project()
+    {
+        var projectId = await CreateProjectAsync();
+
+        using var request = CreateJsonRequest(
+            HttpMethod.Put,
+            $"/api/v1/projects/{projectId}/leader",
+            SupervisorA,
+            AuthSecurityConstants.Roles.Supervisor,
+            new { leaderStudentId = StudentC });
+        using var response = await Client.SendAsync(
+            request,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        await using var dbContext = await CreateDbContextAsync();
+        var project = await dbContext.Projects.SingleAsync(
+            item => item.Id == projectId,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(StudentA, project.LeaderStudentUserId);
+    }
+
+    [Fact]
+    [Trait("Category", "DatabaseIntegration")]
+    public async Task Student_cannot_update_project_leader()
+    {
+        var projectId = await CreateProjectAsync();
+
+        using var request = CreateJsonRequest(
+            HttpMethod.Put,
+            $"/api/v1/projects/{projectId}/leader",
+            StudentA,
+            AuthSecurityConstants.Roles.Student,
+            new { leaderStudentId = StudentB });
+        using var response = await Client.SendAsync(
+            request,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    [Trait("Category", "DatabaseIntegration")]
+    public async Task Supervisor_cannot_update_leader_of_another_supervisors_project()
+    {
+        var projectId = await CreateProjectAsync();
+
+        using var request = CreateJsonRequest(
+            HttpMethod.Put,
+            $"/api/v1/projects/{projectId}/leader",
+            SupervisorB,
+            AuthSecurityConstants.Roles.Supervisor,
+            new { leaderStudentId = StudentB });
+        using var response = await Client.SendAsync(
+            request,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    [Trait("Category", "DatabaseIntegration")]
+    public async Task Owning_supervisor_can_clear_project_leader()
+    {
+        var projectId = await CreateProjectAsync();
+
+        using var request = CreateJsonRequest(
+            HttpMethod.Put,
+            $"/api/v1/projects/{projectId}/leader",
+            SupervisorA,
+            AuthSecurityConstants.Roles.Supervisor,
+            new { leaderStudentId = (Guid?)null });
+        using var response = await Client.SendAsync(
+            request,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var payload =
+            await response.Content.ReadFromJsonAsync<ApiResponse<ProjectResponse>>(
+                TestContext.Current.CancellationToken);
+        Assert.Null(payload?.Data?.Leader);
+
+        await using var dbContext = await CreateDbContextAsync();
+        var project = await dbContext.Projects.SingleAsync(
+            item => item.Id == projectId,
+            TestContext.Current.CancellationToken);
+        Assert.Null(project.LeaderStudentUserId);
+    }
+
+    [Fact]
+    [Trait("Category", "DatabaseIntegration")]
+    public async Task Removing_current_leader_clears_leader_reference()
+    {
+        var projectId = await CreateProjectAsync();
+
+        using var request = CreateRequest(
+            HttpMethod.Delete,
+            $"/api/v1/projects/{projectId}/members/{StudentA}",
+            SupervisorA,
+            AuthSecurityConstants.Roles.Supervisor);
+        using var response = await Client.SendAsync(
+            request,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var payload =
+            await response.Content.ReadFromJsonAsync<ApiResponse<ProjectResponse>>(
+                TestContext.Current.CancellationToken);
+        Assert.Null(payload?.Data?.Leader);
+
+        await using var dbContext = await CreateDbContextAsync();
+        var project = await dbContext.Projects.SingleAsync(
+            item => item.Id == projectId,
+            TestContext.Current.CancellationToken);
+        Assert.Null(project.LeaderStudentUserId);
+    }
+
+    [Fact]
+    [Trait("Category", "DatabaseIntegration")]
+    public async Task Invalid_student_in_member_batch_rejects_entire_add_operation()
+    {
+        var projectId = await CreateProjectAsync();
+        var invalidStudentId =
+            Guid.Parse("dddddddd-dddd-dddd-dddd-dddddddddddd");
+
+        using var request = CreateJsonRequest(
+            HttpMethod.Post,
+            $"/api/v1/projects/{projectId}/members",
+            SupervisorA,
+            AuthSecurityConstants.Roles.Supervisor,
+            new { studentIds = new[] { StudentC, invalidStudentId } });
+        using var response = await Client.SendAsync(
+            request,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        await using var dbContext = await CreateDbContextAsync();
+        Assert.False(await dbContext.ProjectMembers.AnyAsync(
+            member =>
+                member.ProjectId == projectId &&
+                member.UserId == StudentC,
+            TestContext.Current.CancellationToken));
     }
 
     public async ValueTask DisposeAsync()
@@ -380,7 +723,8 @@ public sealed class ProjectIntegrationTests : IAsyncLifetime
             new Dictionary<Guid, AuthDirectoryUser>
             {
                 [StudentA] = new(StudentA, "Alice", "Student", "alice@students.example.edu", "ST00000001", "STUDENT"),
-                [StudentB] = new(StudentB, "Bob", "Student", "bob@students.example.edu", "ST00000002", "STUDENT")
+                [StudentB] = new(StudentB, "Bob", "Student", "bob@students.example.edu", "ST00000002", "STUDENT"),
+                [StudentC] = new(StudentC, "Cara", "Student", "cara@students.example.edu", "ST00000003", "STUDENT")
             };
 
         public Task<AuthDirectoryUser> GetCurrentUserAsync(CancellationToken cancellationToken) =>

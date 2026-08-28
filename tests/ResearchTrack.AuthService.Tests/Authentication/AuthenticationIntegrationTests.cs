@@ -32,6 +32,12 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime
 
         dbContext.Users.AddRange(
             CreateUser(hasher, "student@students.example.edu", UserRole.Student),
+            CreateUser(
+                hasher,
+                "learner@example.edu",
+                UserRole.Student,
+                firstName: "Learner",
+                registrationNumber: "ST87654321"),
             CreateUser(hasher, "supervisor@staff.example.edu", UserRole.Supervisor));
         await dbContext.SaveChangesAsync(TestContext.Current.CancellationToken);
     }
@@ -136,7 +142,7 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime
 
         using var searchRequest = new HttpRequestMessage(
             HttpMethod.Get,
-            "/api/v1/users/students?query=student");
+            "/api/v1/users/students?query=student@");
         searchRequest.Headers.Add(
             "Cookie",
             $"{AuthSecurityConstants.AccessCookieName}={supervisorAccessToken}");
@@ -151,6 +157,18 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime
         var student = Assert.Single(searchPayload?.Data ?? []);
         Assert.Equal(AuthSecurityConstants.Roles.Student, student.Role);
 
+        await using var scope = Factory.Services.CreateAsyncScope();
+        var dbFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AuthDbContext>>();
+        await using var dbContext = await dbFactory.CreateDbContextAsync(TestContext.Current.CancellationToken);
+        var allStudentIds = await dbContext.Users
+            .AsNoTracking()
+            .Where(user => user.Role == UserRole.Student)
+            .OrderBy(user => user.Email)
+            .Select(user => user.Id)
+            .ToArrayAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, allStudentIds.Length);
+
         using var resolveRequest = new HttpRequestMessage(
             HttpMethod.Post,
             "/api/v1/users/students/resolve");
@@ -159,7 +177,7 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime
             $"{AuthSecurityConstants.AccessCookieName}={supervisorAccessToken}");
         resolveRequest.Content = JsonContent.Create(new
         {
-            studentIds = new[] { student.Id, Guid.NewGuid() }
+            studentIds = allStudentIds.Append(Guid.NewGuid()).ToArray()
         });
         var resolveResponse = await Client.SendAsync(
             resolveRequest,
@@ -168,7 +186,7 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime
         var resolvedPayload = await resolveResponse.Content.ReadFromJsonAsync<
             ApiResponse<IReadOnlyList<UserDirectoryResponse>>>(
             TestContext.Current.CancellationToken);
-        Assert.Single(resolvedPayload?.Data ?? []);
+        Assert.Equal(2, resolvedPayload?.Data?.Count);
 
         var studentLogin = await LoginAsync("student@students.example.edu");
         var studentAccessToken = ExtractCookie(studentLogin, AuthSecurityConstants.AccessCookieName);
@@ -234,15 +252,20 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime
         return firstPart[(name.Length + 1)..];
     }
 
-    private static User CreateUser(IPasswordHasher hasher, string email, UserRole role) => new()
+    private static User CreateUser(
+        IPasswordHasher hasher,
+        string email,
+        UserRole role,
+        string? firstName = null,
+        string? registrationNumber = null) => new()
     {
         Id = Guid.NewGuid(),
         Email = email,
-        FirstName = role == UserRole.Student ? "Student" : "Supervisor",
+        FirstName = firstName ?? (role == UserRole.Student ? "Student" : "Supervisor"),
         LastName = "User",
         PasswordHash = hasher.Hash("StrongPassword!1"),
         Role = role,
-        RegistrationNumber = role == UserRole.Student ? "ST12345678" : null,
+        RegistrationNumber = role == UserRole.Student ? registrationNumber ?? "ST12345678" : null,
         CreatedAt = DateTime.UtcNow
     };
 
