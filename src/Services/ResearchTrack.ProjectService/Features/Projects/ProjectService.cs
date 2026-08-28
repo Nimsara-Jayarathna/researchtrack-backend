@@ -465,6 +465,79 @@ public sealed class ProjectService : IProjectService
     }
 
     // ============================================================
+    // UPDATE PROJECT LEADER
+    // ============================================================
+
+    public async Task<ProjectResponse> UpdateLeaderAsync(
+        Guid supervisorUserId,
+        Guid projectId,
+        UpdateProjectLeaderRequest request,
+        CancellationToken cancellationToken)
+    {
+        await using var dbContext =
+            await _dbContextFactory.CreateDbContextAsync(
+                cancellationToken);
+
+        var project =
+            await dbContext.Projects
+                .SingleOrDefaultAsync(
+                    project => project.Id == projectId,
+                    cancellationToken);
+
+        if (project is null)
+        {
+            throw new ApiException(
+                StatusCodes.Status404NotFound,
+                ErrorCodes.NotFound,
+                "The requested project was not found.");
+        }
+
+        if (project.SupervisorUserId != supervisorUserId)
+        {
+            throw new ApiException(
+                StatusCodes.Status403Forbidden,
+                ErrorCodes.Forbidden,
+                "Only the owning Supervisor can update the project leader.");
+        }
+
+        if (request.LeaderStudentId is Guid leaderStudentId)
+        {
+            var isProjectStudent =
+                await dbContext.ProjectMembers
+                    .AsNoTracking()
+                    .AnyAsync(
+                        member =>
+                            member.ProjectId == projectId &&
+                            member.UserId == leaderStudentId &&
+                            member.MemberRole == ProjectMemberRoles.Student,
+                        cancellationToken);
+
+            if (!isProjectStudent)
+            {
+                throw new ApiException(
+                    StatusCodes.Status400BadRequest,
+                    ErrorCodes.ValidationError,
+                    "The project leader must be an active Student member of this project.");
+            }
+        }
+
+        var now =
+            _timeProvider.GetUtcNow().UtcDateTime;
+
+        project.LeaderStudentUserId = request.LeaderStudentId;
+        project.UpdatedAt = now;
+        project.LastActivityAt = now;
+
+        await dbContext.SaveChangesAsync(
+            cancellationToken);
+
+        return await BuildProjectResponseAsync(
+            dbContext,
+            project,
+            cancellationToken);
+    }
+
+    // ============================================================
     // ADD PROJECT MEMBERS
     // ============================================================
 

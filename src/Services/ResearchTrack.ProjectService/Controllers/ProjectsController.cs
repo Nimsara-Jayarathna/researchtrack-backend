@@ -139,6 +139,37 @@ public sealed class ProjectsController : ApiControllerBase
     }
 
     // ============================================================
+    // UPDATE PROJECT LEADER
+    // PUT: /api/v1/projects/{projectId}/leader
+    //
+    // Only the Supervisor who owns the project can assign or clear
+    // the leader. The selected leader must be an active Student
+    // member of this project.
+    // ============================================================
+
+    [Authorize(Policy = AuthSecurityConstants.Policies.SupervisorOnly)]
+    [HttpPut("{projectId:guid}/leader")]
+    [ProducesResponseType<ApiResponse<ProjectResponse>>(
+        StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ApiResponse<ProjectResponse>>> UpdateLeader(
+        Guid projectId,
+        [FromBody] UpdateProjectLeaderRequest request,
+        CancellationToken cancellationToken)
+    {
+        var updated = await _projectService.UpdateLeaderAsync(
+            GetRequiredUserId(),
+            projectId,
+            request,
+            cancellationToken);
+
+        return ApiOk(updated);
+    }
+
+    // ============================================================
     // ADD PROJECT MEMBERS
     // POST: /api/v1/projects/{projectId}/members
     //

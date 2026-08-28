@@ -422,6 +422,124 @@ public sealed class ProjectIntegrationTests : IAsyncLifetime
 
     [Fact]
     [Trait("Category", "DatabaseIntegration")]
+    public async Task Owning_supervisor_can_assign_an_active_project_student_as_leader()
+    {
+        var projectId = await CreateProjectAsync();
+
+        using var request = CreateJsonRequest(
+            HttpMethod.Put,
+            $"/api/v1/projects/{projectId}/leader",
+            SupervisorA,
+            AuthSecurityConstants.Roles.Supervisor,
+            new { leaderStudentId = StudentB });
+        using var response = await Client.SendAsync(
+            request,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var payload =
+            await response.Content.ReadFromJsonAsync<ApiResponse<ProjectResponse>>(
+                TestContext.Current.CancellationToken);
+        Assert.Equal(StudentB, payload?.Data?.Leader?.Id);
+
+        await using var dbContext = await CreateDbContextAsync();
+        var project = await dbContext.Projects.SingleAsync(
+            item => item.Id == projectId,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(StudentB, project.LeaderStudentUserId);
+    }
+
+    [Fact]
+    [Trait("Category", "DatabaseIntegration")]
+    public async Task Project_leader_must_be_an_active_student_member_of_that_project()
+    {
+        var projectId = await CreateProjectAsync();
+
+        using var request = CreateJsonRequest(
+            HttpMethod.Put,
+            $"/api/v1/projects/{projectId}/leader",
+            SupervisorA,
+            AuthSecurityConstants.Roles.Supervisor,
+            new { leaderStudentId = StudentC });
+        using var response = await Client.SendAsync(
+            request,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        await using var dbContext = await CreateDbContextAsync();
+        var project = await dbContext.Projects.SingleAsync(
+            item => item.Id == projectId,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(StudentA, project.LeaderStudentUserId);
+    }
+
+    [Fact]
+    [Trait("Category", "DatabaseIntegration")]
+    public async Task Student_cannot_update_project_leader()
+    {
+        var projectId = await CreateProjectAsync();
+
+        using var request = CreateJsonRequest(
+            HttpMethod.Put,
+            $"/api/v1/projects/{projectId}/leader",
+            StudentA,
+            AuthSecurityConstants.Roles.Student,
+            new { leaderStudentId = StudentB });
+        using var response = await Client.SendAsync(
+            request,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    [Trait("Category", "DatabaseIntegration")]
+    public async Task Supervisor_cannot_update_leader_of_another_supervisors_project()
+    {
+        var projectId = await CreateProjectAsync();
+
+        using var request = CreateJsonRequest(
+            HttpMethod.Put,
+            $"/api/v1/projects/{projectId}/leader",
+            SupervisorB,
+            AuthSecurityConstants.Roles.Supervisor,
+            new { leaderStudentId = StudentB });
+        using var response = await Client.SendAsync(
+            request,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    [Trait("Category", "DatabaseIntegration")]
+    public async Task Owning_supervisor_can_clear_project_leader()
+    {
+        var projectId = await CreateProjectAsync();
+
+        using var request = CreateJsonRequest(
+            HttpMethod.Put,
+            $"/api/v1/projects/{projectId}/leader",
+            SupervisorA,
+            AuthSecurityConstants.Roles.Supervisor,
+            new { leaderStudentId = (Guid?)null });
+        using var response = await Client.SendAsync(
+            request,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var payload =
+            await response.Content.ReadFromJsonAsync<ApiResponse<ProjectResponse>>(
+                TestContext.Current.CancellationToken);
+        Assert.Null(payload?.Data?.Leader);
+
+        await using var dbContext = await CreateDbContextAsync();
+        var project = await dbContext.Projects.SingleAsync(
+            item => item.Id == projectId,
+            TestContext.Current.CancellationToken);
+        Assert.Null(project.LeaderStudentUserId);
+    }
+
+    [Fact]
+    [Trait("Category", "DatabaseIntegration")]
     public async Task Removing_current_leader_clears_leader_reference()
     {
         var projectId = await CreateProjectAsync();

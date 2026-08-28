@@ -27,6 +27,12 @@ public interface IProjectService
         UpdateProjectRequest request,
         CancellationToken cancellationToken);
 
+    Task<ProjectResponse> UpdateLeaderAsync(
+        Guid supervisorUserId,
+        Guid projectId,
+        UpdateProjectLeaderRequest request,
+        CancellationToken cancellationToken);
+
     Task<ProjectResponse> AddMembersAsync(
         Guid supervisorUserId,
         Guid projectId,
