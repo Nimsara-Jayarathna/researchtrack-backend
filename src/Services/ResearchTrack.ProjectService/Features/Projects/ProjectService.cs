@@ -814,93 +814,93 @@ public sealed class ProjectService : IProjectService
         Guid milestoneId,
         UpdateProjectMilestoneRequest request,
         CancellationToken cancellationToken)
-{
-    var title = request.Title?.Trim();
-    var description = request.Description?.Trim();
-
-    if (string.IsNullOrWhiteSpace(title))
     {
-        throw new ApiException(
-            StatusCodes.Status400BadRequest,
-            ErrorCodes.ValidationError,
-            "Milestone title is required.");
-    }
+        var title = request.Title?.Trim();
+        var description = request.Description?.Trim();
 
-    var dueDate = request.DueDate;
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            throw new ApiException(
+                StatusCodes.Status400BadRequest,
+                ErrorCodes.ValidationError,
+                "Milestone title is required.");
+        }
 
-    await using var dbContext =
-        await _dbContextFactory.CreateDbContextAsync(
+        var dueDate = request.DueDate;
+
+        await using var dbContext =
+            await _dbContextFactory.CreateDbContextAsync(
+                cancellationToken);
+
+        var project =
+            await dbContext.Projects
+                .SingleOrDefaultAsync(
+                    project => project.Id == projectId,
+                    cancellationToken);
+
+        if (project is null)
+        {
+            throw new ApiException(
+                StatusCodes.Status404NotFound,
+                ErrorCodes.NotFound,
+                "The requested project was not found.");
+        }
+
+        if (project.SupervisorUserId != supervisorUserId)
+        {
+            throw new ApiException(
+                StatusCodes.Status403Forbidden,
+                ErrorCodes.Forbidden,
+                "Only the owning Supervisor can update milestones.");
+        }
+
+        var milestone =
+            await dbContext.ProjectMilestones
+                .SingleOrDefaultAsync(
+                    item =>
+                        item.Id == milestoneId &&
+                        item.ProjectId == projectId,
+                    cancellationToken);
+
+        if (milestone is null)
+        {
+            throw new ApiException(
+                StatusCodes.Status404NotFound,
+                ErrorCodes.NotFound,
+                "The requested milestone was not found.");
+        }
+
+        var now =
+            _timeProvider.GetUtcNow().UtcDateTime;
+
+        milestone.Title = title;
+        milestone.Description = description;
+        milestone.DueDate = dueDate;
+        milestone.UpdatedAt = now;
+
+        // Recalculate earliest milestone date
+        var milestoneDates =
+            await dbContext.ProjectMilestones
+                .Where(item =>
+                    item.ProjectId == projectId)
+                .Select(item =>
+                    item.DueDate)
+                .ToListAsync(cancellationToken);
+
+        if (milestoneDates.Count > 0)
+        {
+            project.MilestoneDate =
+                milestoneDates.Min();
+        }
+
+        project.UpdatedAt = now;
+        project.LastActivityAt = now;
+
+        await dbContext.SaveChangesAsync(
             cancellationToken);
 
-    var project =
-        await dbContext.Projects
-            .SingleOrDefaultAsync(
-                project => project.Id == projectId,
-                cancellationToken);
-
-    if (project is null)
-    {
-        throw new ApiException(
-            StatusCodes.Status404NotFound,
-            ErrorCodes.NotFound,
-            "The requested project was not found.");
+        return MapMilestone(milestone);
     }
-
-    if (project.SupervisorUserId != supervisorUserId)
-    {
-        throw new ApiException(
-            StatusCodes.Status403Forbidden,
-            ErrorCodes.Forbidden,
-            "Only the owning Supervisor can update milestones.");
-    }
-
-    var milestone =
-        await dbContext.ProjectMilestones
-            .SingleOrDefaultAsync(
-                item =>
-                    item.Id == milestoneId &&
-                    item.ProjectId == projectId,
-                cancellationToken);
-
-    if (milestone is null)
-    {
-        throw new ApiException(
-            StatusCodes.Status404NotFound,
-            ErrorCodes.NotFound,
-            "The requested milestone was not found.");
-    }
-
-    var now =
-        _timeProvider.GetUtcNow().UtcDateTime;
-
-    milestone.Title = title;
-    milestone.Description = description;
-    milestone.DueDate = dueDate;
-    milestone.UpdatedAt = now;
-
-    // Recalculate earliest milestone date
-    var milestoneDates =
-        await dbContext.ProjectMilestones
-            .Where(item =>
-                item.ProjectId == projectId)
-            .Select(item =>
-                item.DueDate)
-            .ToListAsync(cancellationToken);
-
-    if (milestoneDates.Count > 0)
-    {
-        project.MilestoneDate =
-            milestoneDates.Min();
-    }
-
-    project.UpdatedAt = now;
-    project.LastActivityAt = now;
-
-    await dbContext.SaveChangesAsync(
-        cancellationToken);
-
-    return MapMilestone(milestone);
-}
 
     // ============================================================
     // BUILD PROJECT RESPONSE

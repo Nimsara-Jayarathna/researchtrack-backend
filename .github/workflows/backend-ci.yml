@@ -32,4 +32,4 @@ jobs:
         run: dotnet build ResearchTrack.sln -c Release --no-restore
 
       - name: Test
-        run: dotnet test ResearchTrack.sln -c Release --no-build --verbosity normal
+        run: ./scripts/test.sh all
