@@ -77,6 +77,11 @@ public static class DatabaseConnectionStringResolver
         return value;
     }
 
+    private static string NormalizeSslMode(string value) =>
+        value.Equals("None", StringComparison.OrdinalIgnoreCase)
+            ? "Disabled"
+            : value;
+
     private static bool IsPlaceholder(string value) =>
         value.Equals("CHANGE_ME", StringComparison.OrdinalIgnoreCase)
         || value.Equals("__SET_ME__", StringComparison.OrdinalIgnoreCase)
