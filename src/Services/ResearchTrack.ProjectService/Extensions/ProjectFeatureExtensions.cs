@@ -1,3 +1,4 @@
+using ResearchTrack.ProjectService.Features.Dashboard;
 using ResearchTrack.ProjectService.Features.Projects;
 using ResearchTrack.ProjectService.Infrastructure;
 
@@ -14,6 +15,10 @@ public static class ProjectFeatureExtensions
         services.AddScoped<
             IProjectService,
             ResearchTrack.ProjectService.Features.Projects.ProjectService>();
+
+        services.AddScoped<
+            ISupervisorDashboardService,
+            SupervisorDashboardService>();
 
         services.AddHttpContextAccessor();
 

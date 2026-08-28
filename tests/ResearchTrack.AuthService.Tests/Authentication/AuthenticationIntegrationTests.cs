@@ -258,16 +258,16 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime
         UserRole role,
         string? firstName = null,
         string? registrationNumber = null) => new()
-    {
-        Id = Guid.NewGuid(),
-        Email = email,
-        FirstName = firstName ?? (role == UserRole.Student ? "Student" : "Supervisor"),
-        LastName = "User",
-        PasswordHash = hasher.Hash("StrongPassword!1"),
-        Role = role,
-        RegistrationNumber = role == UserRole.Student ? registrationNumber ?? "ST12345678" : null,
-        CreatedAt = DateTime.UtcNow
-    };
+        {
+            Id = Guid.NewGuid(),
+            Email = email,
+            FirstName = firstName ?? (role == UserRole.Student ? "Student" : "Supervisor"),
+            LastName = "User",
+            PasswordHash = hasher.Hash("StrongPassword!1"),
+            Role = role,
+            RegistrationNumber = role == UserRole.Student ? registrationNumber ?? "ST12345678" : null,
+            CreatedAt = DateTime.UtcNow
+        };
 
     private ResearchTrackWebApplicationFactory<Program> Factory =>
         _factory ?? throw new InvalidOperationException("Test factory is not initialized.");
