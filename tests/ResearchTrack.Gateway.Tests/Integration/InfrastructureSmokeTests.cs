@@ -1,6 +1,8 @@
 using System.Net;
 using System.Net.Http.Json;
+using Microsoft.Extensions.DependencyInjection;
 using ResearchTrack.Testing;
+using Yarp.ReverseProxy.Configuration;
 
 namespace ResearchTrack.Gateway.Tests.Integration;
 
@@ -42,6 +44,20 @@ public sealed class InfrastructureSmokeTests : IAsyncLifetime
         Assert.False(string.IsNullOrWhiteSpace(payload.Meta?.TraceId));
     }
 
+    [Fact]
+    public void Supervisor_dashboard_route_targets_project_service()
+    {
+        var proxyConfigProvider = Factory.Services
+            .GetRequiredService<IProxyConfigProvider>();
+        var proxyConfig = proxyConfigProvider.GetConfig();
+        var route = Assert.Single(
+            proxyConfig.Routes,
+            item => item.RouteId == "supervisor-dashboard-route");
+
+        Assert.Equal("project", route.ClusterId);
+        Assert.Equal("/api/v1/supervisor/dashboard", route.Match.Path);
+    }
+
     public async ValueTask DisposeAsync()
     {
         _client?.Dispose();
@@ -52,6 +68,7 @@ public sealed class InfrastructureSmokeTests : IAsyncLifetime
     }
 
     private HttpClient Client => _client ?? throw new InvalidOperationException("Test client is not initialized.");
+    private ResearchTrackWebApplicationFactory<Program> Factory => _factory ?? throw new InvalidOperationException("Test factory is not initialized.");
 
     public sealed record ErrorEnvelope(bool Success, ErrorBody? Error, MetaBody? Meta);
     public sealed record ErrorBody(string Code, string Message);
