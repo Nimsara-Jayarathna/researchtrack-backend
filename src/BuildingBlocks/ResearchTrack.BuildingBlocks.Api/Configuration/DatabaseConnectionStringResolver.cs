@@ -87,6 +87,4 @@ public static class DatabaseConnectionStringResolver
         || value.Equals("__SET_ME__", StringComparison.OrdinalIgnoreCase)
         || value.Equals("__GENERATE__", StringComparison.OrdinalIgnoreCase);
 
-    private static string NormalizeSslMode(string value) =>
-        value.Equals("None", StringComparison.OrdinalIgnoreCase) ? "Disabled" : value;
 }
