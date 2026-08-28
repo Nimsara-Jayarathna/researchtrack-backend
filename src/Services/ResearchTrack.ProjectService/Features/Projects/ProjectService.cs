@@ -15,6 +15,9 @@ public sealed class ProjectService : IProjectService
     private readonly IAuthUserDirectoryClient _userDirectoryClient;
     private readonly TimeProvider _timeProvider;
 
+    private const int UpcomingMilestoneWindowDays = 14;
+    private const int RecentProjectsCount = 5;
+
     public ProjectService(
         IDbContextFactory<ProjectDbContext> dbContextFactory,
         IAuthUserDirectoryClient userDirectoryClient,
@@ -260,6 +263,67 @@ public sealed class ProjectService : IProjectService
             leaderMember is null ? null : MapUser(leaderMember),
             members,
             milestones);
+    }
+
+    // ============================================================
+    // SUPERVISOR DASHBOARD
+    // ============================================================
+
+    public async Task<SupervisorDashboardResponse> GetSupervisorDashboardAsync(
+        Guid supervisorUserId,
+        CancellationToken cancellationToken)
+    {
+        await using var dbContext =
+            await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+
+        var projects = await dbContext.Projects
+            .AsNoTracking()
+            .Where(project => project.SupervisorUserId == supervisorUserId)
+            .OrderByDescending(project => project.LastActivityAt)
+            .ToListAsync(cancellationToken);
+
+        var projectIds = projects.Select(project => project.Id).ToArray();
+
+        var today = DateOnly.FromDateTime(_timeProvider.GetUtcNow().UtcDateTime);
+        var windowEnd = today.AddDays(UpcomingMilestoneWindowDays);
+
+        var upcomingMilestonesCount = await dbContext.ProjectMilestones
+            .AsNoTracking()
+            .Where(milestone =>
+                projectIds.Contains(milestone.ProjectId)
+                && milestone.DueDate >= today
+                && milestone.DueDate <= windowEnd)
+            .CountAsync(cancellationToken);
+
+        var items = projects
+            .Select(project => new SupervisorDashboardProjectItem(
+                project.Id,
+                project.Title,
+                project.Summary,
+                project.LifecycleStatus,
+                project.MilestoneDate,
+                project.LastActivityAt,
+                project.ProgressPercent,
+                null))
+            .ToList();
+
+        var recentProjects = items
+            .OrderByDescending(item => item.LastActivityAt)
+            .Take(RecentProjectsCount)
+            .ToList();
+
+        return new SupervisorDashboardResponse(
+            TotalProjects: projects.Count,
+            PlanningProjects: projects.Count(project => project.LifecycleStatus == "PLANNING"),
+            ActiveProjects: projects.Count(project => project.LifecycleStatus == "ACTIVE"),
+            AtRiskProjects: projects.Count(project => project.LifecycleStatus == "AT_RISK"),
+            BehindProjects: projects.Count(project => project.LifecycleStatus == "BEHIND"),
+            CompletedProjects: projects.Count(project => project.LifecycleStatus == "COMPLETED"),
+            UpcomingMilestonesCount: upcomingMilestonesCount,
+            JiraAtRiskCount: 0,
+            JiraBehindCount: 0,
+            Projects: items,
+            RecentProjects: recentProjects);
     }
 
     private static ProjectMember CreateMember(

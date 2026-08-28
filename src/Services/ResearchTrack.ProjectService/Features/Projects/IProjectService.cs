@@ -19,4 +19,8 @@ public interface IProjectService
         string role,
         Guid projectId,
         CancellationToken cancellationToken);
+
+    Task<SupervisorDashboardResponse> GetSupervisorDashboardAsync(
+        Guid supervisorUserId,
+        CancellationToken cancellationToken);
 }
