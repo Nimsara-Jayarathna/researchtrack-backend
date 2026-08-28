@@ -86,4 +86,5 @@ public static class DatabaseConnectionStringResolver
         value.Equals("CHANGE_ME", StringComparison.OrdinalIgnoreCase)
         || value.Equals("__SET_ME__", StringComparison.OrdinalIgnoreCase)
         || value.Equals("__GENERATE__", StringComparison.OrdinalIgnoreCase);
+
 }
