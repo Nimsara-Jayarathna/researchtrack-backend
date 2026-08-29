@@ -126,6 +126,19 @@ public sealed class ProjectIntegrationTests : IAsyncLifetime
 
     [Fact]
     [Trait("Category", "DatabaseIntegration")]
+    public async Task Student_with_no_project_memberships_receives_empty_project_collection()
+    {
+        await CreateProjectAsync();
+
+        var projects = await GetProjectsAsync(
+            StudentC,
+            AuthSecurityConstants.Roles.Student);
+
+        Assert.Empty(projects);
+    }
+
+    [Fact]
+    [Trait("Category", "DatabaseIntegration")]
     public async Task Project_detail_is_available_to_owner_and_assigned_student_only()
     {
         var projectId = await CreateProjectAsync();
@@ -148,6 +161,9 @@ public sealed class ProjectIntegrationTests : IAsyncLifetime
         var studentPayload = await studentResponse.Content.ReadFromJsonAsync<ApiResponse<ProjectResponse>>(
             TestContext.Current.CancellationToken);
         Assert.Equal(3, studentPayload?.Data?.Members.Count);
+        Assert.Equal(
+            AuthSecurityConstants.Roles.Supervisor,
+            studentPayload?.Data?.Members[0].MemberRole);
         Assert.Contains(
             studentPayload?.Data?.Members ?? [],
             member =>
@@ -336,6 +352,11 @@ public sealed class ProjectIntegrationTests : IAsyncLifetime
     {
         var projectId = await CreateProjectAsync();
 
+        var projectsBeforeRemoval = await GetProjectsAsync(
+            StudentB,
+            AuthSecurityConstants.Roles.Student);
+        Assert.Contains(projectsBeforeRemoval, project => project.Id == projectId);
+
         using var removeRequest = CreateRequest(
             HttpMethod.Delete,
             $"/api/v1/projects/{projectId}/members/{StudentB}",
@@ -362,6 +383,11 @@ public sealed class ProjectIntegrationTests : IAsyncLifetime
             studentRequest,
             TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.NotFound, studentResponse.StatusCode);
+
+        var projectsAfterRemoval = await GetProjectsAsync(
+            StudentB,
+            AuthSecurityConstants.Roles.Student);
+        Assert.DoesNotContain(projectsAfterRemoval, project => project.Id == projectId);
     }
 
     [Fact]
