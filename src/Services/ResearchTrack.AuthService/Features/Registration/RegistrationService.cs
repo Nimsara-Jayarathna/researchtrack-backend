@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using ResearchTrack.AuthService.Configuration;
 using ResearchTrack.AuthService.Contracts;
 using ResearchTrack.AuthService.Domain;
+using ResearchTrack.AuthService.Features.Passwords;
 using ResearchTrack.AuthService.Infrastructure.Email;
 using ResearchTrack.AuthService.Infrastructure.Security;
 using ResearchTrack.AuthService.Infrastructure.Tokens;
@@ -22,7 +23,7 @@ public sealed class RegistrationService : IRegistrationService
 
     private readonly IDbContextFactory<AuthDbContext> _dbContextFactory;
     private readonly RegistrationOptions _registration;
-    private readonly PasswordPolicyOptions _passwordPolicy;
+    private readonly IPasswordPolicyValidator _passwordPolicyValidator;
     private readonly JwtOptions _jwtOptions;
     private readonly IPasswordHasher _passwordHasher;
     private readonly IAccessTokenService _accessTokenService;
@@ -33,7 +34,7 @@ public sealed class RegistrationService : IRegistrationService
     public RegistrationService(
         IDbContextFactory<AuthDbContext> dbContextFactory,
         RegistrationOptions registration,
-        PasswordPolicyOptions passwordPolicy,
+        IPasswordPolicyValidator passwordPolicyValidator,
         JwtOptions jwtOptions,
         IPasswordHasher passwordHasher,
         IAccessTokenService accessTokenService,
@@ -42,7 +43,7 @@ public sealed class RegistrationService : IRegistrationService
     {
         _dbContextFactory = dbContextFactory;
         _registration = registration;
-        _passwordPolicy = passwordPolicy;
+        _passwordPolicyValidator = passwordPolicyValidator;
         _jwtOptions = jwtOptions;
         _passwordHasher = passwordHasher;
         _accessTokenService = accessTokenService;
@@ -524,12 +525,10 @@ public sealed class RegistrationService : IRegistrationService
 
     private void ValidatePassword(string password, ICollection<ApiFieldError> errors)
     {
-        if (password.Length < _passwordPolicy.MinimumLength) AddError(errors, "password", $"Password must be at least {_passwordPolicy.MinimumLength} characters.");
-        if (password.Length > _passwordPolicy.MaximumLength) AddError(errors, "password", $"Password must not exceed {_passwordPolicy.MaximumLength} characters.");
-        if (_passwordPolicy.RequireUppercase && !password.Any(char.IsUpper)) AddError(errors, "password", "Password must contain an uppercase letter.");
-        if (_passwordPolicy.RequireLowercase && !password.Any(char.IsLower)) AddError(errors, "password", "Password must contain a lowercase letter.");
-        if (_passwordPolicy.RequireDigit && !password.Any(char.IsDigit)) AddError(errors, "password", "Password must contain a digit.");
-        if (_passwordPolicy.RequireSpecialCharacter && !password.Any(character => !char.IsLetterOrDigit(character))) AddError(errors, "password", "Password must contain a special character.");
+        foreach (var error in _passwordPolicyValidator.Validate(password, "password"))
+        {
+            errors.Add(error);
+        }
     }
 
     private static async Task EnsureNoDuplicateUserAsync(AuthDbContext dbContext, string email, UserRole role, string? registrationNumber, CancellationToken cancellationToken)

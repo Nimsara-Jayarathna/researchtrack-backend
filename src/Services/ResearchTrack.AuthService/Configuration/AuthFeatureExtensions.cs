@@ -1,4 +1,5 @@
 using ResearchTrack.AuthService.Features.Authentication;
+using ResearchTrack.AuthService.Features.Passwords;
 using ResearchTrack.AuthService.Features.Registration;
 using ResearchTrack.AuthService.Features.Users;
 using ResearchTrack.AuthService.Infrastructure.Cookies;
@@ -31,6 +32,7 @@ public static class AuthFeatureExtensions
         services.AddSingleton(jwtOptions);
         services.AddSingleton(cookieOptions);
         services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();
+        services.AddSingleton<IPasswordPolicyValidator, PasswordPolicyValidator>();
         services.AddSingleton<InvalidPasswordTimingGuard>();
         services.AddSingleton<IAuthCookieService, AuthCookieService>();
         services.AddSingleton<IAccessTokenService, JwtAccessTokenService>();
@@ -43,6 +45,7 @@ public static class AuthFeatureExtensions
         services.AddScoped<IRegistrationService, RegistrationService>();
         services.AddScoped<IUserAuthenticationService, UserAuthenticationService>();
         services.AddScoped<IUserDirectoryService, UserDirectoryService>();
+        services.AddScoped<IUserAccountService, UserAccountService>();
         return services;
     }
 }

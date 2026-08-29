@@ -918,6 +918,10 @@ public sealed class ProjectService : IProjectService
                 .Where(member =>
                     member.ProjectId == project.Id)
                 .OrderBy(member =>
+                    member.MemberRole == ProjectMemberRoles.Supervisor
+                        ? 0
+                        : 1)
+                .ThenBy(member =>
                     member.CreatedAt)
                 .Select(member =>
                     new ProjectMemberResponse(
