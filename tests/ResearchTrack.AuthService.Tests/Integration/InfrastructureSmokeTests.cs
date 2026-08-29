@@ -31,6 +31,17 @@ public sealed class InfrastructureSmokeTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Change_password_endpoint_requires_authentication_without_database_access()
+    {
+        var response = await Client.PatchAsJsonAsync(
+            "/api/v1/users/me/password",
+            new { currentPassword = "CurrentPassword!1", newPassword = "NewPassword!2" },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
     public async Task Unknown_route_uses_standard_error_envelope_with_trace_id()
     {
         var response = await Client.GetAsync("/does-not-exist", TestContext.Current.CancellationToken);
