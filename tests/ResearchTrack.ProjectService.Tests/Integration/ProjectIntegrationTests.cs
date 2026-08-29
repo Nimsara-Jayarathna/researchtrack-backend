@@ -205,6 +205,111 @@ public sealed class ProjectIntegrationTests : IAsyncLifetime
 
     [Fact]
     [Trait("Category", "DatabaseIntegration")]
+    public async Task Supervisor_updates_project_lifecycle_and_assigned_student_sees_new_status()
+    {
+        var projectId = await CreateProjectAsync();
+
+        using var updateRequest = CreateJsonRequest(
+            HttpMethod.Put,
+            $"/api/v1/projects/{projectId}",
+            SupervisorA,
+            AuthSecurityConstants.Roles.Supervisor,
+            ValidUpdateRequest("ACTIVE"));
+        using var updateResponse = await Client.SendAsync(
+            updateRequest,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, updateResponse.StatusCode);
+        var updatePayload = await updateResponse.Content.ReadFromJsonAsync<ApiResponse<ProjectResponse>>(
+            TestContext.Current.CancellationToken);
+        Assert.Equal("ACTIVE", updatePayload?.Data?.LifecycleStatus);
+
+        var studentProjects = await GetProjectsAsync(
+            StudentA,
+            AuthSecurityConstants.Roles.Student);
+        var studentProject = Assert.Single(
+            studentProjects,
+            project => project.Id == projectId);
+        Assert.Equal("ACTIVE", studentProject.LifecycleStatus);
+    }
+
+    [Fact]
+    [Trait("Category", "DatabaseIntegration")]
+    public async Task Student_cannot_update_project_lifecycle()
+    {
+        var projectId = await CreateProjectAsync();
+
+        using var request = CreateJsonRequest(
+            HttpMethod.Put,
+            $"/api/v1/projects/{projectId}",
+            StudentA,
+            AuthSecurityConstants.Roles.Student,
+            ValidUpdateRequest("ACTIVE"));
+        using var response = await Client.SendAsync(
+            request,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+
+        await using var dbContext = await CreateDbContextAsync();
+        var project = await dbContext.Projects.SingleAsync(
+            item => item.Id == projectId,
+            TestContext.Current.CancellationToken);
+        Assert.Equal("PLANNING", project.LifecycleStatus);
+    }
+
+    [Fact]
+    [Trait("Category", "DatabaseIntegration")]
+    public async Task Supervisor_cannot_update_lifecycle_of_another_supervisors_project()
+    {
+        var projectId = await CreateProjectAsync();
+
+        using var request = CreateJsonRequest(
+            HttpMethod.Put,
+            $"/api/v1/projects/{projectId}",
+            SupervisorB,
+            AuthSecurityConstants.Roles.Supervisor,
+            ValidUpdateRequest("ACTIVE"));
+        using var response = await Client.SendAsync(
+            request,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+
+        await using var dbContext = await CreateDbContextAsync();
+        var project = await dbContext.Projects.SingleAsync(
+            item => item.Id == projectId,
+            TestContext.Current.CancellationToken);
+        Assert.Equal("PLANNING", project.LifecycleStatus);
+    }
+
+    [Fact]
+    [Trait("Category", "DatabaseIntegration")]
+    public async Task Invalid_project_lifecycle_is_rejected()
+    {
+        var projectId = await CreateProjectAsync();
+
+        using var request = CreateJsonRequest(
+            HttpMethod.Put,
+            $"/api/v1/projects/{projectId}",
+            SupervisorA,
+            AuthSecurityConstants.Roles.Supervisor,
+            ValidUpdateRequest("UNKNOWN"));
+        using var response = await Client.SendAsync(
+            request,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        await using var dbContext = await CreateDbContextAsync();
+        var project = await dbContext.Projects.SingleAsync(
+            item => item.Id == projectId,
+            TestContext.Current.CancellationToken);
+        Assert.Equal("PLANNING", project.LifecycleStatus);
+    }
+
+    [Fact]
+    [Trait("Category", "DatabaseIntegration")]
     public async Task Invalid_leader_is_rejected_before_persistence()
     {
         var body = new
@@ -657,6 +762,15 @@ public sealed class ProjectIntegrationTests : IAsyncLifetime
             body);
         return await Client.SendAsync(request, TestContext.Current.CancellationToken);
     }
+
+    private static object ValidUpdateRequest(string lifecycleStatus) => new
+    {
+        title = "AI Research Assistant",
+        summary = "Research into reliable AI-assisted academic workflows.",
+        batch = "2026",
+        semester = "Semester 1",
+        lifecycleStatus
+    };
 
     private static object ValidCreateRequest() => new
     {
