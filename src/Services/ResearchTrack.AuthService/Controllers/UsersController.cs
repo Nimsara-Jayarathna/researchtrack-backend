@@ -63,7 +63,7 @@ public sealed class UsersController : ApiControllerBase
             cancellationToken);
         if (user is null)
         {
-            throw Unauthorized();
+            throw CreateUnauthorizedException();
         }
 
         return ApiOk(user);
@@ -90,10 +90,10 @@ public sealed class UsersController : ApiControllerBase
         var subject = User.FindFirstValue(AuthSecurityConstants.SubjectClaim);
         return Guid.TryParse(subject, out var userId)
             ? userId
-            : throw Unauthorized();
+            : throw CreateUnauthorizedException();
     }
 
-    private static ApiException Unauthorized() => new(
+    private static ApiException CreateUnauthorizedException() => new(
         StatusCodes.Status401Unauthorized,
         ErrorCodes.Unauthorized,
         "Authentication is required.");
