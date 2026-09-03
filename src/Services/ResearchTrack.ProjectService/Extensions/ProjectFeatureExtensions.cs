@@ -1,3 +1,4 @@
+using ResearchTrack.ProjectService.Features.Dashboard;
 using ResearchTrack.ProjectService.Features.Projects;
 using ResearchTrack.ProjectService.Infrastructure;
 
@@ -10,22 +11,51 @@ public static class ProjectFeatureExtensions
         IConfiguration configuration)
     {
         services.AddSingleton(TimeProvider.System);
-        services.AddScoped<IProjectService, ResearchTrack.ProjectService.Features.Projects.ProjectService>();
+
+        services.AddScoped<
+            IProjectService,
+            ResearchTrack.ProjectService.Features.Projects.ProjectService>();
+
+        services.AddScoped<
+            ISupervisorDashboardService,
+            SupervisorDashboardService>();
+
         services.AddHttpContextAccessor();
 
-        var authBaseUrl = configuration["Services:Auth:BaseUrl"];
-        if (string.IsNullOrWhiteSpace(authBaseUrl)
-            || authBaseUrl.Equals("CHANGE_ME", StringComparison.OrdinalIgnoreCase))
+        var authBaseUrl =
+            configuration["Services:Auth:BaseUrl"];
+
+        if (string.IsNullOrWhiteSpace(authBaseUrl) ||
+            authBaseUrl.Equals(
+                "CHANGE_ME",
+                StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException(
                 "Required configuration 'Services:Auth:BaseUrl' is missing or still contains a placeholder value.");
         }
 
-        services.AddHttpClient<IAuthUserDirectoryClient, AuthUserDirectoryClient>(client =>
+        if (!Uri.TryCreate(
+                authBaseUrl.Trim(),
+                UriKind.Absolute,
+                out var authUri))
         {
-            client.BaseAddress = new Uri(authBaseUrl.Trim(), UriKind.Absolute);
-            client.Timeout = TimeSpan.FromSeconds(10);
-        });
+            throw new InvalidOperationException(
+                "Configuration 'Services:Auth:BaseUrl' is not a valid absolute URI.");
+        }
+
+        services.AddHttpClient<
+            IAuthUserDirectoryClient,
+            AuthUserDirectoryClient>(
+            client =>
+            {
+                client.BaseAddress =
+                    new Uri(
+                        authUri.ToString().TrimEnd('/') + "/",
+                        UriKind.Absolute);
+
+                client.Timeout =
+                    TimeSpan.FromSeconds(10);
+            });
 
         return services;
     }

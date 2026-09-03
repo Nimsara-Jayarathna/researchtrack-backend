@@ -10,6 +10,7 @@ US-102 adds secure authentication/session lifecycle and reusable role authorizat
 - `POST /api/v1/auth/refresh`
 - `POST /api/v1/auth/logout`
 - `GET /api/v1/auth/me`
+- `PATCH /api/v1/users/me/password`
 
 Registration remains under `/api/v1/auth/register/*`.
 
@@ -26,6 +27,10 @@ Registration remains under `/api/v1/auth/register/*`.
 ## Credential security
 
 Login normalizes email, verifies the PBKDF2 password hash, and always returns the same `Invalid email or password.` message for unknown users and bad passwords. The unknown-user path performs a dummy PBKDF2 verification to reduce the obvious timing difference used for account enumeration.
+
+Authenticated Students and Supervisors change their own password through `PATCH /api/v1/users/me/password`. The user id is taken from the authenticated JWT subject, never from the request body. The operation verifies the current password, rejects reusing the existing password, applies the same configured `PasswordPolicyOptions` used by registration, hashes the replacement with the existing PBKDF2 hasher, and revokes every active refresh token for that user in the same database transaction. The current access token remains valid until its normal expiry; subsequent refresh with a revoked session fails and the frontend returns the user to sign-in.
+
+An incorrect current password returns `400 CURRENT_PASSWORD_INCORRECT` rather than `401`, because the caller is authenticated and only the submitted form value is invalid.
 
 ## Authorization
 

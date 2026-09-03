@@ -117,6 +117,33 @@ internal static class ProjectRequestValidator
             milestones);
     }
 
+    public static IReadOnlyList<Guid> ValidateMemberStudentIds(
+        AddProjectMembersRequest request)
+    {
+        var errors = new List<ApiFieldError>();
+        var studentIds = (request.StudentIds ?? []).ToArray();
+
+        if (studentIds.Length == 0)
+        {
+            errors.Add(new ApiFieldError(
+                "studentIds",
+                ["At least one student must be selected."]));
+        }
+        else if (studentIds.Distinct().Count() != studentIds.Length)
+        {
+            errors.Add(new ApiFieldError(
+                "studentIds",
+                ["Duplicate students are not allowed."]));
+        }
+
+        if (errors.Count > 0)
+        {
+            throw new ApiValidationException(errors);
+        }
+
+        return studentIds;
+    }
+
     public static void ValidateResolvedStudents(
         IReadOnlyCollection<Guid> requestedStudentIds,
         IReadOnlyCollection<Guid> resolvedStudentIds)

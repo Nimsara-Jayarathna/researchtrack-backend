@@ -15,10 +15,14 @@ namespace ResearchTrack.AuthService.Controllers;
 public sealed class UsersController : ApiControllerBase
 {
     private readonly IUserDirectoryService _userDirectoryService;
+    private readonly IUserAccountService _userAccountService;
 
-    public UsersController(IUserDirectoryService userDirectoryService)
+    public UsersController(
+        IUserDirectoryService userDirectoryService,
+        IUserAccountService userAccountService)
     {
         _userDirectoryService = userDirectoryService;
+        _userAccountService = userAccountService;
     }
 
     [Authorize(Policy = AuthSecurityConstants.Policies.SupervisorOnly)]
@@ -54,24 +58,43 @@ public sealed class UsersController : ApiControllerBase
     public async Task<ActionResult<ApiResponse<UserDirectoryResponse>>> Me(
         CancellationToken cancellationToken)
     {
-        var subject = User.FindFirstValue(AuthSecurityConstants.SubjectClaim);
-        if (!Guid.TryParse(subject, out var userId))
-        {
-            throw new ApiException(
-                StatusCodes.Status401Unauthorized,
-                ErrorCodes.Unauthorized,
-                "Authentication is required.");
-        }
-
-        var user = await _userDirectoryService.GetUserAsync(userId, cancellationToken);
+        var user = await _userDirectoryService.GetUserAsync(
+            GetRequiredUserId(),
+            cancellationToken);
         if (user is null)
         {
-            throw new ApiException(
-                StatusCodes.Status401Unauthorized,
-                ErrorCodes.Unauthorized,
-                "Authentication is required.");
+            throw CreateUnauthorizedException();
         }
 
         return ApiOk(user);
     }
+
+    [Authorize(Policy = AuthSecurityConstants.Policies.Authenticated)]
+    [HttpPatch("me/password")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> ChangePassword(
+        [FromBody] ChangePasswordRequest request,
+        CancellationToken cancellationToken)
+    {
+        await _userAccountService.ChangePasswordAsync(
+            GetRequiredUserId(),
+            request,
+            cancellationToken);
+        return NoContent();
+    }
+
+    private Guid GetRequiredUserId()
+    {
+        var subject = User.FindFirstValue(AuthSecurityConstants.SubjectClaim);
+        return Guid.TryParse(subject, out var userId)
+            ? userId
+            : throw CreateUnauthorizedException();
+    }
+
+    private static ApiException CreateUnauthorizedException() => new(
+        StatusCodes.Status401Unauthorized,
+        ErrorCodes.Unauthorized,
+        "Authentication is required.");
 }

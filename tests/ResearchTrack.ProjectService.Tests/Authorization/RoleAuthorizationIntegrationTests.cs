@@ -67,6 +67,29 @@ public sealed class RoleAuthorizationIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Unauthenticated_supervisor_dashboard_request_returns_401()
+    {
+        var response = await Client.GetAsync(
+            "/api/v1/supervisor/dashboard",
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Student_token_is_denied_supervisor_dashboard_with_403()
+    {
+        using var request = CreateRequest(
+            AuthSecurityConstants.Roles.Student,
+            path: "/api/v1/supervisor/dashboard");
+        var response = await Client.SendAsync(
+            request,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
     public async Task Expired_token_is_rejected_with_401()
     {
         using var request = CreateRequest(
@@ -86,11 +109,14 @@ public sealed class RoleAuthorizationIntegrationTests : IAsyncLifetime
         }
     }
 
-    private static HttpRequestMessage CreateRequest(string role, DateTimeOffset? expiresAt = null)
+    private static HttpRequestMessage CreateRequest(
+        string role,
+        DateTimeOffset? expiresAt = null,
+        string path = "/api/v1/projects/test-authorization/supervisor")
     {
         var request = new HttpRequestMessage(
             HttpMethod.Get,
-            "/api/v1/projects/test-authorization/supervisor");
+            path);
         request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
             "Bearer",
             CreateJwt(role, expiresAt ?? DateTimeOffset.UtcNow.AddMinutes(15)));
