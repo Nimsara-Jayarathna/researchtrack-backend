@@ -30,9 +30,16 @@ if [[ ! -f "$users_file" ]]; then
   exit 2
 fi
 
+target_base_url="$protocol://$host:$port"
+if ! curl --fail --silent --show-error --max-time 5 "$target_base_url/health/live" >/dev/null; then
+  echo "Target health check failed: $target_base_url/health/live" >&2
+  echo "Start the ResearchTrack gateway and confirm that endpoint returns HTTP 200 before load testing." >&2
+  exit 3
+fi
+
 mkdir -p "$results_dir" "$reports_dir"
 
-echo "Target: $protocol://$host:$port | users: $threads | ramp-up: ${rampup}s | duration cap: ${duration}s | loops: $loops"
+echo "Target: $target_base_url | users: $threads | ramp-up: ${rampup}s | duration cap: ${duration}s | loops: $loops"
 exec "$jmeter_bin" -n \
   -t "$script_dir/test-plan.jmx" \
   -l "$result_file" \

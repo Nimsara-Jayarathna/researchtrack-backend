@@ -20,6 +20,13 @@ if not exist "%USERS_FILE%" (
   exit /b 2
 )
 
+powershell -NoProfile -Command "$response = Invoke-WebRequest -UseBasicParsing -Uri '%PROTOCOL%://%HOST%:%PORT%/health/live' -TimeoutSec 5; if ($response.StatusCode -ne 200) { exit 1 }" >nul 2>&1
+if errorlevel 1 (
+  echo Target health check failed: %PROTOCOL%://%HOST%:%PORT%/health/live
+  echo Start the ResearchTrack gateway and confirm that endpoint returns HTTP 200 before load testing.
+  exit /b 3
+)
+
 for /f %%i in ('powershell -NoProfile -Command "Get-Date -Format yyyyMMdd-HHmmss"') do set "TIMESTAMP=%%i"
 set "RESULTS_DIR=%SCRIPT_DIR%results"
 set "REPORTS_DIR=%SCRIPT_DIR%reports"

@@ -46,6 +46,8 @@ The plan deliberately has no memory-heavy GUI listeners such as View Results Tre
    ./scripts/health.sh core
    ```
 
+   The runner checks `http://localhost:5000/health/live` before it starts. It must return HTTP 200; a 401/403 means port 5000 is not the expected running gateway or its configuration is incomplete.
+
 3. Create a local CSV from the example. Do not commit it:
 
    ```bash

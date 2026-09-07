@@ -1,0 +1,3 @@
+# Generated JMeter output. Keep the directories via their .gitkeep files.
+results/*.jtl
+reports/*/
