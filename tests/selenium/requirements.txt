@@ -1,0 +1,4 @@
+selenium>=4.35,<5
+pytest>=8.4,<9
+pytest-html>=4.1,<5
+python-dotenv>=1.1,<2
