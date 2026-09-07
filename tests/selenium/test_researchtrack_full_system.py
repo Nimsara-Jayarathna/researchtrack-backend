@@ -53,7 +53,7 @@ class Settings:
     base_url: str = os.getenv("BASE_URL", "https://test.researchtrack.blipzo.xyz").rstrip("/")
     browser: str = os.getenv("BROWSER", "chrome").strip().lower()
     headless: bool = _truthy(os.getenv("HEADLESS", "true"))
-    timeout: int = int(os.getenv("SELENIUM_TIMEOUT", "20"))
+    timeout: int = int(os.getenv("SELENIUM_TIMEOUT", "60"))
     student_email: str = os.getenv("STUDENT_EMAIL", "").strip()
     student_password: str = os.getenv("STUDENT_PASSWORD", "").strip()
     supervisor_email: str = os.getenv("SUPERVISOR_EMAIL", "").strip()
@@ -154,10 +154,27 @@ def click_link_text(driver, text: str, timeout: int | None = None):
     return click_text(driver, text, tag="a", timeout=timeout)
 
 
-def find_button(driver, text: str):
-    return driver.find_element(
-        By.XPATH, f"//button[contains(normalize-space(.), {xpath_literal(text)})]"
-    )
+def find_button(driver, text: str, timeout: int | None = None):
+    """
+    Return the visible button whose text contains ``text``.
+
+    ResearchTrack renders separate desktop/mobile headers at the same time.
+    A plain ``find_element`` can therefore return the hidden desktop copy on
+    mobile viewports. Waiting for a displayed match also removes React
+    hydration / route-transition races on direct routes such as /login.
+    """
+    xpath = f"//button[contains(normalize-space(.), {xpath_literal(text)})]"
+
+    def _visible_button(d):
+        for element in d.find_elements(By.XPATH, xpath):
+            try:
+                if element.is_displayed():
+                    return element
+            except StaleElementReferenceException:
+                continue
+        return False
+
+    return wait(driver, timeout).until(_visible_button)
 
 
 def input_by_id(driver, element_id: str):
@@ -201,7 +218,20 @@ def close_request_modal_if_present(driver) -> None:
 
 def route(driver, path: str) -> None:
     driver.get(url(path))
-    wait(driver).until(lambda d: d.execute_script("return document.readyState") == "complete")
+    wait(driver).until(
+        lambda d: d.execute_script("return document.readyState") == "complete"
+    )
+    # document.readyState can become "complete" before React finishes auth
+    # bootstrap and mounts the route UI. Wait until the application root has
+    # rendered meaningful content before tests start querying controls.
+    wait(driver).until(
+        lambda d: d.execute_script(
+            """
+            const root = document.getElementById('root');
+            return Boolean(root && root.children.length > 0 && root.innerText.trim().length > 0);
+            """
+        )
+    )
 
 
 def require_credentials(role: str) -> tuple[str, str]:
@@ -467,15 +497,25 @@ class TestAuthenticationFlows:
     def test_tc_auth_006_forgot_password_rejects_bad_email(self, driver):
         route(driver, "/forgot-password")
         field = input_by_id(driver, "forgot-password-email")
-        fill(field, "bad")
+        # ForgotPasswordForm only renders the visible format warning once the
+        # user has typed an @, so use an actually malformed email containing @.
+        fill(field, "bad@")
         field.send_keys(Keys.TAB)
         wait_body_contains(driver, "Enter a valid email address.")
 
     def test_tc_auth_007_forgot_password_accepts_valid_syntax(self, driver):
         route(driver, "/forgot-password")
-        fill(input_by_id(driver, "forgot-password-email"), SETTINGS.invalid_login_email)
+        # example.com can be rejected when domain restrictions are enabled.
+        # Prefer the configured student test account; otherwise construct a
+        # syntactically valid ResearchTrack student address.
+        candidate = SETTINGS.student_email or f"IT99999999{SETTINGS.student_domain}"
+        fill(input_by_id(driver, "forgot-password-email"), candidate)
         button = find_button(driver, "Send reset link")
-        assert button.is_enabled()
+        assert button.is_enabled(), (
+            f"Expected forgot-password form to accept {candidate!r}. "
+            "If this deployment uses a different student domain/prefix policy, "
+            "set STUDENT_EMAIL/STUDENT_DOMAIN in .env.selenium."
+        )
 
     def test_tc_auth_008_reset_password_without_token_is_invalid(self, driver):
         route(driver, "/reset-password")
