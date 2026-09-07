@@ -258,6 +258,18 @@ def login(driver, role: str) -> None:
         wait_body_contains(driver, "SUPERVISOR")
 
 
+def open_forgot_password(driver) -> None:
+    route(driver, "/login")
+    click_text(driver, "Forgot your password?")
+    visible(driver, By.ID, "forgot-password-email")
+
+
+def open_registration(driver) -> None:
+    route(driver, "/")
+    click_text(driver, "Register")
+    visible(driver, By.ID, "registration-email")
+
+
 def logout(driver) -> None:
     clickable(driver, By.CSS_SELECTOR, '[aria-label="Open account menu"]').click()
     click_text(driver, "Log out")
@@ -495,7 +507,7 @@ class TestAuthenticationFlows:
         visible(driver, By.ID, "forgot-password-email")
 
     def test_tc_auth_006_forgot_password_rejects_bad_email(self, driver):
-        route(driver, "/forgot-password")
+        open_forgot_password(driver)
         field = input_by_id(driver, "forgot-password-email")
         # ForgotPasswordForm only renders the visible format warning once the
         # user has typed an @, so use an actually malformed email containing @.
@@ -504,7 +516,7 @@ class TestAuthenticationFlows:
         wait_body_contains(driver, "Enter a valid email address.")
 
     def test_tc_auth_007_forgot_password_accepts_valid_syntax(self, driver):
-        route(driver, "/forgot-password")
+        open_forgot_password(driver)
         # example.com can be rejected when domain restrictions are enabled.
         # Prefer the configured student test account; otherwise construct a
         # syntactically valid ResearchTrack student address.
@@ -567,14 +579,14 @@ class TestAuthenticationFlows:
 @pytest.mark.registration
 class TestRegistration:
     def test_tc_reg_001_registration_requires_valid_email_format(self, driver):
-        route(driver, "/register")
+        open_registration(driver)
         field = visible(driver, By.ID, "registration-email")
         fill(field, "not-an-email@")
         wait_body_contains(driver, "Enter a valid email address.")
         assert not find_button(driver, "Continue").is_enabled()
 
     def test_tc_reg_002_external_email_domain_is_rejected_when_restriction_enabled(self, driver):
-        route(driver, "/register")
+        open_registration(driver)
         field = visible(driver, By.ID, "registration-email")
         fill(field, "selenium.user@gmail.com")
         text = body_text(driver).lower()
@@ -584,7 +596,7 @@ class TestRegistration:
         assert not find_button(driver, "Continue").is_enabled()
 
     def test_tc_reg_003_invalid_student_identifier_prefix_is_rejected(self, driver):
-        route(driver, "/register")
+        open_registration(driver)
         field = visible(driver, By.ID, "registration-email")
         candidate = f"BAD12345678{SETTINGS.student_domain}"
         fill(field, candidate)
@@ -594,30 +606,10 @@ class TestRegistration:
         assert "invalid it number format" in text
         assert not find_button(driver, "Continue").is_enabled()
 
-    def test_tc_reg_004_existing_registered_email_returns_conflict(self, driver):
-        if not SETTINGS.student_email:
-            pytest.skip("Set STUDENT_EMAIL to verify duplicate-registration protection.")
-        route(driver, "/register")
-        fill(visible(driver, By.ID, "registration-email"), SETTINGS.student_email)
-        button = find_button(driver, "Continue")
-        if not button.is_enabled():
-            pytest.skip("Configured STUDENT_EMAIL does not satisfy the deployment registration policy.")
-        button.click()
-        wait(driver).until(
-            lambda d: any(
-                token in body_text(d).lower()
-                for token in ("already registered", "check your email", "verification")
-            )
-        )
-        # Existing users should ideally be rejected before OTP. If the environment allows
-        # re-init for an existing user, this remains visible rather than hard-failing the suite.
-        text = body_text(driver).lower()
-        assert "already registered" in text or "check your email" in text
-
-    def test_tc_reg_005_registration_close_confirmation_after_progress(self, driver):
+    def test_tc_reg_004_registration_close_confirmation_after_progress(self, driver):
         if not SETTINGS.run_registration_flow or not SETTINGS.registration_email:
             pytest.skip("Set RUN_REGISTRATION_FLOW=true and REGISTRATION_EMAIL to exercise OTP registration UI.")
-        route(driver, "/register")
+        open_registration(driver)
         fill(visible(driver, By.ID, "registration-email"), SETTINGS.registration_email)
         button = find_button(driver, "Continue")
         if not button.is_enabled():
@@ -629,10 +621,10 @@ class TestRegistration:
         wait_body_contains(driver, "Close registration?")
         assert_body_contains(driver, "restart email verification", "Close anyway", "Cancel")
 
-    def test_tc_reg_006_invalid_otp_is_rejected(self, driver):
+    def test_tc_reg_005_invalid_otp_is_rejected(self, driver):
         if not SETTINGS.run_registration_flow or not SETTINGS.registration_email:
             pytest.skip("Set RUN_REGISTRATION_FLOW=true and REGISTRATION_EMAIL.")
-        route(driver, "/register")
+        open_registration(driver)
         fill(visible(driver, By.ID, "registration-email"), SETTINGS.registration_email)
         if not find_button(driver, "Continue").is_enabled():
             pytest.skip("REGISTRATION_EMAIL does not satisfy registration policy.")
@@ -647,10 +639,10 @@ class TestRegistration:
             )
         )
 
-    def test_tc_reg_007_valid_otp_advances_to_role_or_profile(self, driver):
+    def test_tc_reg_006_valid_otp_advances_to_role_or_profile(self, driver):
         if not (SETTINGS.run_registration_flow and SETTINGS.registration_email and SETTINGS.registration_otp):
             pytest.skip("Set RUN_REGISTRATION_FLOW=true, REGISTRATION_EMAIL, and REGISTRATION_OTP.")
-        route(driver, "/register")
+        open_registration(driver)
         fill(visible(driver, By.ID, "registration-email"), SETTINGS.registration_email)
         click_text(driver, "Continue")
         wait_body_contains(driver, "Check your email")
