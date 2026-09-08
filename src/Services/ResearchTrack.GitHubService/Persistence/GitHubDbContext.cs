@@ -12,6 +12,7 @@ public sealed class GitHubDbContext : DbContext
 
     public DbSet<GitHubAccessSource> AccessSources => Set<GitHubAccessSource>();
     public DbSet<GitHubRepository> Repositories => Set<GitHubRepository>();
+    public DbSet<ProjectRepositoryLink> ProjectRepositoryLinks => Set<ProjectRepositoryLink>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

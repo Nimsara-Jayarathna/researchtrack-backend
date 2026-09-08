@@ -1,5 +1,7 @@
 using System.Net.Http.Headers;
+using ResearchTrack.GitHubService.Configuration;
 using ResearchTrack.GitHubService.Features;
+using ResearchTrack.GitHubService.Features.Synchronization;
 using ResearchTrack.GitHubService.Infrastructure;
 
 namespace ResearchTrack.GitHubService.Extensions;
@@ -11,11 +13,16 @@ public static class GitHubFeatureExtensions
         IConfiguration configuration)
     {
         var projectBaseUrl = RequireAbsoluteUri(configuration, "Services:Project:BaseUrl");
+        var linkOptions = GetRepositoryLinkOptions(configuration);
 
         services.AddSingleton(TimeProvider.System);
+        services.AddSingleton(linkOptions);
         services.AddHttpContextAccessor();
         services.AddScoped<IPublicAccessSourceService, PublicAccessSourceService>();
         services.AddScoped<IPublicAccessSourceStore, PublicAccessSourceStore>();
+        services.AddScoped<IRepositoryLinkService, RepositoryLinkService>();
+        services.AddScoped<IRepositoryLinkStore, RepositoryLinkStore>();
+        services.AddSingleton<IInitialRepositorySyncRequester, DeferredInitialRepositorySyncRequester>();
 
         services.AddHttpClient<IProjectAuthorizationClient, ProjectAuthorizationClient>(client =>
         {
@@ -58,4 +65,17 @@ public static class GitHubFeatureExtensions
     private static Uri EnsureTrailingSlash(Uri value) => new(
         value.ToString().TrimEnd('/') + "/",
         UriKind.Absolute);
+
+    private static GitHubRepositoryLinkOptions GetRepositoryLinkOptions(IConfiguration configuration)
+    {
+        var linked = configuration.GetValue<int>("GitHub:RepositoryLinks:MaxLinkedRepositories");
+        var enabled = configuration.GetValue<int>("GitHub:RepositoryLinks:MaxEnabledRepositories");
+        if (linked < 1 || enabled < 1 || enabled > linked)
+        {
+            throw new InvalidOperationException(
+                "GitHub repository limits must be positive and enabled repositories cannot exceed linked repositories.");
+        }
+
+        return new GitHubRepositoryLinkOptions(linked, enabled);
+    }
 }

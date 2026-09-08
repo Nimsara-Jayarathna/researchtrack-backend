@@ -27,16 +27,20 @@ public sealed class PublicAccessSourceAuthorizationTests : IAsyncLifetime
     private ResearchTrackWebApplicationFactory<Program>? _factory;
     private HttpClient? _client;
     private StubPublicAccessSourceService? _service;
+    private StubRepositoryLinkService? _linkService;
 
     public ValueTask InitializeAsync()
     {
         _service = new StubPublicAccessSourceService();
+        _linkService = new StubRepositoryLinkService();
         _factory = new ResearchTrackWebApplicationFactory<Program>(
             TestDatabaseConfiguration.NonConnectingPlaceholder,
             services =>
             {
                 services.RemoveAll<IPublicAccessSourceService>();
                 services.AddSingleton<IPublicAccessSourceService>(_service);
+                services.RemoveAll<IRepositoryLinkService>();
+                services.AddSingleton<IRepositoryLinkService>(_linkService);
             });
         _client = _factory.CreateClient();
         return ValueTask.CompletedTask;
@@ -87,6 +91,43 @@ public sealed class PublicAccessSourceAuthorizationTests : IAsyncLifetime
         Assert.Equal(UserId, Service.UserId);
     }
 
+    [Fact]
+    public async Task Unauthenticated_repository_link_is_rejected()
+    {
+        var response = await Client.PostAsJsonAsync(
+            "/api/github/repositories/link",
+            ValidLinkRequest(),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.False(LinkService.WasCalled);
+    }
+
+    [Fact]
+    public async Task Authorized_supervisor_receives_exact_repository_link_contract()
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/github/repositories/link")
+        {
+            Content = JsonContent.Create(ValidLinkRequest())
+        };
+        request.Headers.Authorization = new AuthenticationHeaderValue(
+            "Bearer",
+            CreateToken(AuthSecurityConstants.Roles.Supervisor));
+
+        var response = await Client.SendAsync(request, TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var json = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        using var document = JsonDocument.Parse(json);
+        var data = document.RootElement.GetProperty("data");
+        Assert.Equal(ProjectId.ToString(), data.GetProperty("projectId").GetString());
+        var repository = data.GetProperty("repositories")[0];
+        Assert.Equal(RepositoryId.ToString(), repository.GetProperty("githubRepositoryId").GetString());
+        Assert.Equal(1296269, repository.GetProperty("githubRepoId").GetInt64());
+        Assert.Equal("PENDING", repository.GetProperty("syncStatus").GetString());
+        Assert.Equal(UserId, LinkService.UserId);
+    }
+
     public async ValueTask DisposeAsync()
     {
         _client?.Dispose();
@@ -99,10 +140,17 @@ public sealed class PublicAccessSourceAuthorizationTests : IAsyncLifetime
     private HttpClient Client => _client ?? throw new InvalidOperationException("Client is unavailable.");
     private StubPublicAccessSourceService Service =>
         _service ?? throw new InvalidOperationException("Service is unavailable.");
+    private StubRepositoryLinkService LinkService =>
+        _linkService ?? throw new InvalidOperationException("Link service is unavailable.");
 
     private static CreatePublicAccessSourceRequest ValidRequest() => new(
         ProjectId,
         "https://github.com/openai/example");
+
+    private static LinkGitHubRepositoriesRequest ValidLinkRequest() => new(
+        ProjectId,
+        SourceId,
+        [new LinkGitHubRepositoryRequestItem(RepositoryId, "Research repository", true)]);
 
     private static HttpRequestMessage CreateRequest(string role)
     {
@@ -160,6 +208,43 @@ public sealed class PublicAccessSourceAuthorizationTests : IAsyncLifetime
                     "main",
                     "https://github.com/openai/example")],
                 1));
+        }
+    }
+
+    private sealed class StubRepositoryLinkService : IRepositoryLinkService
+    {
+        public bool WasCalled { get; private set; }
+        public Guid? UserId { get; private set; }
+
+        public Task<ProjectGitHubRepositoriesResponse> LinkAsync(
+            Guid userId,
+            LinkGitHubRepositoriesRequest request,
+            CancellationToken cancellationToken)
+        {
+            WasCalled = true;
+            UserId = userId;
+            return Task.FromResult(new ProjectGitHubRepositoriesResponse(
+                ProjectId,
+                5,
+                5,
+                [],
+                [new ProjectRepositoryLinkResponse(
+                    Guid.Parse("55555555-5555-5555-5555-555555555555"),
+                    SourceId,
+                    "PUBLIC_URL",
+                    RepositoryId,
+                    1296269,
+                    "openai/example",
+                    "example",
+                    "Research repository",
+                    "openai",
+                    "main",
+                    "https://github.com/openai/example",
+                    true,
+                    true,
+                    new DateTime(2026, 9, 8, 12, 0, 0, DateTimeKind.Utc),
+                    null,
+                    "PENDING")]));
         }
     }
 
