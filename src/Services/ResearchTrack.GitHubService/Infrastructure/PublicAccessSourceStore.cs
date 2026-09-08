@@ -86,6 +86,43 @@ public sealed class PublicAccessSourceStore : IPublicAccessSourceStore
             1);
     }
 
+    public async Task<AvailableRepositoriesPersistenceResult?> GetAvailableAsync(
+        Guid sourceId,
+        CancellationToken cancellationToken)
+    {
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+        var source = await dbContext.AccessSources
+            .AsNoTracking()
+            .SingleOrDefaultAsync(
+                item => item.Id == sourceId && item.Active,
+                cancellationToken);
+        if (source is null)
+        {
+            return null;
+        }
+
+        var repositories = await dbContext.Repositories
+            .AsNoTracking()
+            .Where(repository => repository.SourceId == sourceId)
+            .OrderBy(repository => repository.CreatedAt)
+            .Select(repository => new GitHubRepositoryOptionResponse(
+                repository.Id,
+                repository.GitHubRepositoryId,
+                repository.FullName,
+                repository.Name,
+                repository.OwnerLogin,
+                repository.DefaultBranch,
+                repository.Url))
+            .ToListAsync(cancellationToken);
+
+        return new AvailableRepositoriesPersistenceResult(
+            source.ProjectId,
+            new GitHubAvailableRepositoriesResponse(
+                source.Id,
+                repositories,
+                repositories.Count));
+    }
+
     private static ApiException DuplicateSource(Exception? inner = null) => new(
         StatusCodes.Status409Conflict,
         ErrorCodes.Conflict,

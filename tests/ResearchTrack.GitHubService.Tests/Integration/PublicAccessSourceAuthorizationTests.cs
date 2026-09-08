@@ -128,6 +128,53 @@ public sealed class PublicAccessSourceAuthorizationTests : IAsyncLifetime
         Assert.Equal(UserId, LinkService.UserId);
     }
 
+    [Fact]
+    public async Task Unauthenticated_available_repository_read_is_rejected()
+    {
+        var response = await Client.GetAsync(
+            $"/api/github/repositories/available?sourceId={SourceId}",
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.False(Service.AvailableWasCalled);
+    }
+
+    [Fact]
+    public async Task Authorized_supervisor_receives_persisted_available_repository_contract()
+    {
+        using var request = CreateAuthorizedGet(
+            $"/api/github/repositories/available?sourceId={SourceId}");
+
+        var response = await Client.SendAsync(request, TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var envelope = await response.Content.ReadFromJsonAsync<
+            ApiResponse<GitHubAvailableRepositoriesResponse>>(TestContext.Current.CancellationToken);
+        Assert.True(envelope?.Success);
+        Assert.Equal(SourceId, envelope!.Data?.SourceId);
+        Assert.Equal(RepositoryId, Assert.Single(envelope.Data!.Items).Id);
+        Assert.True(Service.AvailableWasCalled);
+        Assert.Equal(UserId, Service.UserId);
+    }
+
+    [Fact]
+    public async Task Authorized_supervisor_receives_persisted_project_repository_contract()
+    {
+        using var request = CreateAuthorizedGet(
+            $"/api/projects/{ProjectId}/github-repositories");
+
+        var response = await Client.SendAsync(request, TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var envelope = await response.Content.ReadFromJsonAsync<
+            ApiResponse<ProjectGitHubRepositoriesResponse>>(TestContext.Current.CancellationToken);
+        Assert.True(envelope?.Success);
+        Assert.Equal(ProjectId, envelope!.Data?.ProjectId);
+        Assert.Equal("PENDING", Assert.Single(envelope.Data!.Repositories).SyncStatus);
+        Assert.True(LinkService.GetWasCalled);
+        Assert.Equal(UserId, LinkService.UserId);
+    }
+
     public async ValueTask DisposeAsync()
     {
         _client?.Dispose();
@@ -162,6 +209,15 @@ public sealed class PublicAccessSourceAuthorizationTests : IAsyncLifetime
         return request;
     }
 
+    private static HttpRequestMessage CreateAuthorizedGet(string path)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, path);
+        request.Headers.Authorization = new AuthenticationHeaderValue(
+            "Bearer",
+            CreateToken(AuthSecurityConstants.Roles.Supervisor));
+        return request;
+    }
+
     private static string CreateToken(string role)
     {
         var now = DateTimeOffset.UtcNow;
@@ -188,6 +244,7 @@ public sealed class PublicAccessSourceAuthorizationTests : IAsyncLifetime
     private sealed class StubPublicAccessSourceService : IPublicAccessSourceService
     {
         public bool WasCalled { get; private set; }
+        public bool AvailableWasCalled { get; private set; }
         public Guid? UserId { get; private set; }
 
         public Task<GitHubAvailableRepositoriesResponse> CreateAsync(
@@ -209,11 +266,33 @@ public sealed class PublicAccessSourceAuthorizationTests : IAsyncLifetime
                     "https://github.com/openai/example")],
                 1));
         }
+
+        public Task<GitHubAvailableRepositoriesResponse> GetAvailableAsync(
+            Guid userId,
+            Guid sourceId,
+            CancellationToken cancellationToken)
+        {
+            AvailableWasCalled = true;
+            UserId = userId;
+            Assert.Equal(SourceId, sourceId);
+            return Task.FromResult(new GitHubAvailableRepositoriesResponse(
+                SourceId,
+                [new GitHubRepositoryOptionResponse(
+                    RepositoryId,
+                    1296269,
+                    "openai/example",
+                    "example",
+                    "openai",
+                    "main",
+                    "https://github.com/openai/example")],
+                1));
+        }
     }
 
     private sealed class StubRepositoryLinkService : IRepositoryLinkService
     {
         public bool WasCalled { get; private set; }
+        public bool GetWasCalled { get; private set; }
         public Guid? UserId { get; private set; }
 
         public Task<ProjectGitHubRepositoriesResponse> LinkAsync(
@@ -223,7 +302,21 @@ public sealed class PublicAccessSourceAuthorizationTests : IAsyncLifetime
         {
             WasCalled = true;
             UserId = userId;
-            return Task.FromResult(new ProjectGitHubRepositoriesResponse(
+            return Task.FromResult(Response());
+        }
+
+        public Task<ProjectGitHubRepositoriesResponse> GetProjectAsync(
+            Guid userId,
+            Guid projectId,
+            CancellationToken cancellationToken)
+        {
+            GetWasCalled = true;
+            UserId = userId;
+            Assert.Equal(ProjectId, projectId);
+            return Task.FromResult(Response());
+        }
+
+        private static ProjectGitHubRepositoriesResponse Response() => new(
                 ProjectId,
                 5,
                 5,
@@ -244,8 +337,7 @@ public sealed class PublicAccessSourceAuthorizationTests : IAsyncLifetime
                     true,
                     new DateTime(2026, 9, 8, 12, 0, 0, DateTimeKind.Utc),
                     null,
-                    "PENDING")]));
-        }
+                    "PENDING")]);
     }
 
 }

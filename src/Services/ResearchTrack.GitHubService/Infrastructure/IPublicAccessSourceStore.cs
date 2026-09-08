@@ -10,4 +10,8 @@ public interface IPublicAccessSourceStore
         GitHubPublicRepository repository,
         DateTime now,
         CancellationToken cancellationToken);
+
+    Task<AvailableRepositoriesPersistenceResult?> GetAvailableAsync(
+        Guid sourceId,
+        CancellationToken cancellationToken);
 }

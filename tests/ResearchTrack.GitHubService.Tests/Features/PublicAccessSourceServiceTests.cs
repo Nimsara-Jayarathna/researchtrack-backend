@@ -80,6 +80,43 @@ public sealed class PublicAccessSourceServiceTests
         Assert.Equal(StatusCodes.Status409Conflict, exception.StatusCode);
     }
 
+    [Fact]
+    public async Task Available_repository_read_authorizes_and_uses_persisted_metadata()
+    {
+        var authorization = new StubAuthorizationClient();
+        var gitHub = new StubGitHubClient();
+        var store = new StubStore();
+        var service = CreateService(authorization, gitHub, store);
+
+        var response = await service.GetAvailableAsync(
+            UserId,
+            SourceId,
+            TestContext.Current.CancellationToken);
+
+        Assert.True(authorization.WasCalled);
+        Assert.True(store.AvailableWasCalled);
+        Assert.Null(gitHub.Owner);
+        Assert.Equal(RepositoryId, Assert.Single(response.Items).Id);
+    }
+
+    [Fact]
+    public async Task Missing_available_source_returns_not_found_without_github_call()
+    {
+        var authorization = new StubAuthorizationClient();
+        var gitHub = new StubGitHubClient();
+        var store = new StubStore { Available = null };
+        var service = CreateService(authorization, gitHub, store);
+
+        var exception = await Assert.ThrowsAsync<ApiException>(() => service.GetAvailableAsync(
+            UserId,
+            SourceId,
+            TestContext.Current.CancellationToken));
+
+        Assert.Equal(StatusCodes.Status404NotFound, exception.StatusCode);
+        Assert.False(authorization.WasCalled);
+        Assert.Null(gitHub.Owner);
+    }
+
     private static PublicAccessSourceService CreateService(
         IProjectAuthorizationClient authorization,
         IGitHubPublicRepositoryClient gitHub,
@@ -133,6 +170,21 @@ public sealed class PublicAccessSourceServiceTests
     private sealed class StubStore : IPublicAccessSourceStore
     {
         public Exception? Failure { get; init; }
+        public bool AvailableWasCalled { get; private set; }
+        public AvailableRepositoriesPersistenceResult? Available { get; init; } =
+            new(
+                ProjectId,
+                new GitHubAvailableRepositoriesResponse(
+                    SourceId,
+                    [new GitHubRepositoryOptionResponse(
+                        RepositoryId,
+                        1296269,
+                        "openai/example",
+                        "example",
+                        "openai",
+                        "main",
+                        "https://github.com/openai/example")],
+                    1));
 
         public Task<GitHubAvailableRepositoriesResponse> CreateAsync(
             Guid projectId,
@@ -160,6 +212,15 @@ public sealed class PublicAccessSourceServiceTests
                     repository.DefaultBranch,
                     repository.HtmlUrl)],
                 1));
+        }
+
+        public Task<AvailableRepositoriesPersistenceResult?> GetAvailableAsync(
+            Guid sourceId,
+            CancellationToken cancellationToken)
+        {
+            AvailableWasCalled = true;
+            Assert.Equal(SourceId, sourceId);
+            return Task.FromResult(Available);
         }
     }
 

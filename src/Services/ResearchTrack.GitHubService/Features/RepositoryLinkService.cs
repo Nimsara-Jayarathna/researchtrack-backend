@@ -81,6 +81,22 @@ public sealed class RepositoryLinkService : IRepositoryLinkService
             : persisted.Response;
     }
 
+    public async Task<ProjectGitHubRepositoriesResponse> GetProjectAsync(
+        Guid userId,
+        Guid projectId,
+        CancellationToken cancellationToken)
+    {
+        if (projectId == Guid.Empty)
+        {
+            throw new ApiValidationException([
+                new ApiFieldError("projectId", ["Project id is required."])
+            ]);
+        }
+
+        await _projectAuthorization.EnsureCanManageAsync(projectId, cancellationToken);
+        return await _store.GetProjectAsync(projectId, cancellationToken);
+    }
+
     private static void Validate(LinkGitHubRepositoriesRequest request)
     {
         var errors = new List<ApiFieldError>();

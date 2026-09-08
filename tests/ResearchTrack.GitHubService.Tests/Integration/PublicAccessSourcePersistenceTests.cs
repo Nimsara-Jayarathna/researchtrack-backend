@@ -185,6 +185,36 @@ public sealed class PublicAccessSourcePersistenceTests : IAsyncLifetime
             TestContext.Current.CancellationToken));
     }
 
+    [Fact]
+    [Trait("Category", "DatabaseIntegration")]
+    public async Task Read_models_return_persisted_available_and_linked_repository_metadata()
+    {
+        var created = await CreatePublicSourceAsync();
+        var repositoryId = Assert.Single(created.Items).Id;
+        await CreateLinkStore().CreateLinksAsync(
+            ProjectId,
+            created.SourceId,
+            UserId,
+            [new LinkGitHubRepositoryRequestItem(repositoryId, null, true)],
+            Now,
+            TestContext.Current.CancellationToken);
+
+        var available = await new PublicAccessSourceStore(
+            GetRequiredService<IDbContextFactory<GitHubDbContext>>())
+            .GetAvailableAsync(created.SourceId, TestContext.Current.CancellationToken);
+        var project = await CreateLinkStore().GetProjectAsync(
+            ProjectId,
+            TestContext.Current.CancellationToken);
+
+        Assert.NotNull(available);
+        Assert.Equal(ProjectId, available!.ProjectId);
+        Assert.Equal(1296269, Assert.Single(available.Response.Items).GitHubRepoId);
+        var linked = Assert.Single(project.Repositories);
+        Assert.Equal("openai/example", linked.FullName);
+        Assert.Equal("PENDING", linked.SyncStatus);
+        Assert.Null(linked.LastSyncedAt);
+    }
+
     public async ValueTask DisposeAsync()
     {
         if (_factory is not null)

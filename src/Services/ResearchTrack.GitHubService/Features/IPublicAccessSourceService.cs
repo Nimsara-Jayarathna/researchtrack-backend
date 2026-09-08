@@ -8,4 +8,9 @@ public interface IPublicAccessSourceService
         Guid userId,
         CreatePublicAccessSourceRequest request,
         CancellationToken cancellationToken);
+
+    Task<GitHubAvailableRepositoriesResponse> GetAvailableAsync(
+        Guid userId,
+        Guid sourceId,
+        CancellationToken cancellationToken);
 }

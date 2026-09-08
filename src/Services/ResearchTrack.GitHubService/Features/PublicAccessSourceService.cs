@@ -1,6 +1,9 @@
 using ResearchTrack.GitHubService.Contracts;
 using ResearchTrack.GitHubService.Domain;
 using ResearchTrack.GitHubService.Infrastructure;
+using ResearchTrack.BuildingBlocks.Api.Constants;
+using ResearchTrack.BuildingBlocks.Api.Contracts;
+using ResearchTrack.BuildingBlocks.Api.Exceptions;
 
 namespace ResearchTrack.GitHubService.Features;
 
@@ -38,5 +41,30 @@ public sealed class PublicAccessSourceService : IPublicAccessSourceService
             repository,
             _timeProvider.GetUtcNow().UtcDateTime,
             cancellationToken);
+    }
+
+    public async Task<GitHubAvailableRepositoriesResponse> GetAvailableAsync(
+        Guid userId,
+        Guid sourceId,
+        CancellationToken cancellationToken)
+    {
+        if (sourceId == Guid.Empty)
+        {
+            throw new ApiValidationException([
+                new ApiFieldError("sourceId", ["Access source id is required."])
+            ]);
+        }
+
+        var available = await _store.GetAvailableAsync(sourceId, cancellationToken)
+            ?? throw new ApiException(
+                StatusCodes.Status404NotFound,
+                ErrorCodes.NotFound,
+                "The active GitHub access source was not found.");
+
+        await _projectAuthorization.EnsureCanManageAsync(
+            available.ProjectId,
+            cancellationToken);
+
+        return available.Response;
     }
 }

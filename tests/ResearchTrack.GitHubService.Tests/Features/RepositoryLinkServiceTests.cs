@@ -124,6 +124,25 @@ public sealed class RepositoryLinkServiceTests
         Assert.Equal(0, sync.CallCount);
     }
 
+    [Fact]
+    public async Task Project_read_authorizes_and_returns_persisted_state_without_sync()
+    {
+        var authorization = new StubAuthorizationClient();
+        var store = new StubStore([]);
+        var sync = new StubSyncRequester([]);
+        var service = CreateService(authorization, store, sync);
+
+        var response = await service.GetProjectAsync(
+            UserId,
+            ProjectId,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, authorization.CallCount);
+        Assert.Equal(1, store.GetProjectCallCount);
+        Assert.Equal(0, sync.CallCount);
+        Assert.Equal(ProjectId, response.ProjectId);
+    }
+
     private static RepositoryLinkService CreateService(
         IProjectAuthorizationClient authorization,
         IRepositoryLinkStore store,
@@ -179,6 +198,7 @@ public sealed class RepositoryLinkServiceTests
         public Exception? CreateFailure { get; init; }
         public int CreateCallCount { get; private set; }
         public int MarkFailedCallCount { get; private set; }
+        public int GetProjectCallCount { get; private set; }
 
         public Task<RepositoryLinkPersistenceResult> CreateLinksAsync(
             Guid projectId,
@@ -210,7 +230,11 @@ public sealed class RepositoryLinkServiceTests
 
         public Task<ProjectGitHubRepositoriesResponse> GetProjectAsync(
             Guid projectId,
-            CancellationToken cancellationToken) => Task.FromResult(Response("FAILED"));
+            CancellationToken cancellationToken)
+        {
+            GetProjectCallCount++;
+            return Task.FromResult(Response("FAILED"));
+        }
     }
 
     private sealed class StubSyncRequester(List<string> order) : IInitialRepositorySyncRequester
