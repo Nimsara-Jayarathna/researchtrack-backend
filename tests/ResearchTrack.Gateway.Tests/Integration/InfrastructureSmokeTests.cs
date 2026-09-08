@@ -58,6 +58,20 @@ public sealed class InfrastructureSmokeTests : IAsyncLifetime
         Assert.Equal("/api/v1/supervisor/dashboard", route.Match.Path);
     }
 
+    [Fact]
+    public void Frontend_github_contract_route_targets_github_service()
+    {
+        var proxyConfigProvider = Factory.Services
+            .GetRequiredService<IProxyConfigProvider>();
+        var proxyConfig = proxyConfigProvider.GetConfig();
+        var route = Assert.Single(
+            proxyConfig.Routes,
+            item => item.RouteId == "github-frontend-contract-route");
+
+        Assert.Equal("github", route.ClusterId);
+        Assert.Equal("/api/github/{**catch-all}", route.Match.Path);
+    }
+
     public async ValueTask DisposeAsync()
     {
         _client?.Dispose();

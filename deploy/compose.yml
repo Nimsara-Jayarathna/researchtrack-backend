@@ -48,6 +48,7 @@ services:
     image: ${IMAGE_PREFIX}/researchtrack-github:${DEPLOY_ENV}
     restart: unless-stopped
     env_file:
+      - ./env/shared-auth.env
       - ./env/github.env
     networks:
       backend: {}

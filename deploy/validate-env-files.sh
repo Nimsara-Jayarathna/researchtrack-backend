@@ -265,6 +265,12 @@ auth_url="$(require_value "$ENV_DIR/project.env" Services__Auth__BaseUrl)"
   exit 1
 }
 
+project_url="$(require_value "$ENV_DIR/github.env" Services__Project__BaseUrl)"
+[[ "$project_url" == "http://project:8080" ]] || {
+  echo "github.env Services__Project__BaseUrl must be 'http://project:8080' inside Compose." >&2
+  exit 1
+}
+
 case "$DEPLOY_ENVIRONMENT" in
   test) expected_runtime_environment="Test" ;;
   production) expected_runtime_environment="Production" ;;

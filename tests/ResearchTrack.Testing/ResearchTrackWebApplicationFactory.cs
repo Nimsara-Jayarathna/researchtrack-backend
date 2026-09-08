@@ -138,7 +138,8 @@ public sealed class ResearchTrackWebApplicationFactory<TProgram> : WebApplicatio
             ["Cookie:Secure"] = "false",
 
             // Services
-            ["Services:Auth:BaseUrl"] = "http://localhost:5101/"
+            ["Services:Auth:BaseUrl"] = "http://localhost:5101/",
+            ["Services:Project:BaseUrl"] = "http://localhost:5102/"
         };
 
         values["ConnectionStrings:DefaultConnection"] =
