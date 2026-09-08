@@ -49,6 +49,21 @@ public sealed class GitHubPublicRepositoryClientTests
         Assert.Equal(StatusCodes.Status503ServiceUnavailable, exception.StatusCode);
     }
 
+    [Theory]
+    [InlineData(HttpStatusCode.TooManyRequests)]
+    [InlineData(HttpStatusCode.BadGateway)]
+    public async Task Maps_rate_limit_and_upstream_errors_to_dependency_unavailable(
+        HttpStatusCode upstreamStatus)
+    {
+        var client = CreateClient(new StubHandler(upstreamStatus, "{}"));
+
+        var exception = await Assert.ThrowsAsync<ApiException>(
+            () => client.GetAsync("owner", "repository", TestContext.Current.CancellationToken));
+
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, exception.StatusCode);
+        Assert.Equal("DEPENDENCY_UNAVAILABLE", exception.Code);
+    }
+
     [Fact]
     public async Task Explicitly_rejects_private_repository_payload()
     {

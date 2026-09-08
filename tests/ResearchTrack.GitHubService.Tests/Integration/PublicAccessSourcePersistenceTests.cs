@@ -215,6 +215,51 @@ public sealed class PublicAccessSourcePersistenceTests : IAsyncLifetime
         Assert.Null(linked.LastSyncedAt);
     }
 
+    [Fact]
+    [Trait("Category", "DatabaseIntegration")]
+    public async Task Link_rejects_conflicting_active_repository_when_project_limit_is_reached()
+    {
+        var sourceStore = new PublicAccessSourceStore(
+            GetRequiredService<IDbContextFactory<GitHubDbContext>>());
+        var first = await CreatePublicSourceAsync();
+        var second = await sourceStore.CreateAsync(
+            ProjectId,
+            UserId,
+            new GitHubPublicRepository(
+                987654321,
+                "researchtrack",
+                "ORG",
+                "second",
+                "researchtrack/second",
+                "https://github.com/researchtrack/second",
+                "develop"),
+            Now,
+            TestContext.Current.CancellationToken);
+        var store = CreateLinkStore(maxLinked: 1, maxEnabled: 1);
+
+        await store.CreateLinksAsync(
+            ProjectId,
+            first.SourceId,
+            UserId,
+            [new LinkGitHubRepositoryRequestItem(Assert.Single(first.Items).Id, null, true)],
+            Now,
+            TestContext.Current.CancellationToken);
+
+        var exception = await Assert.ThrowsAsync<ApiException>(() => store.CreateLinksAsync(
+            ProjectId,
+            second.SourceId,
+            UserId,
+            [new LinkGitHubRepositoryRequestItem(Assert.Single(second.Items).Id, null, false)],
+            Now,
+            TestContext.Current.CancellationToken));
+
+        Assert.Equal(StatusCodes.Status409Conflict, exception.StatusCode);
+        await using var dbContext = await CreateDbContextAsync();
+        Assert.Equal(1, await dbContext.ProjectRepositoryLinks.CountAsync(
+            link => link.Active,
+            TestContext.Current.CancellationToken));
+    }
+
     public async ValueTask DisposeAsync()
     {
         if (_factory is not null)
@@ -231,9 +276,11 @@ public sealed class PublicAccessSourcePersistenceTests : IAsyncLifetime
         await GetRequiredService<IDbContextFactory<GitHubDbContext>>()
             .CreateDbContextAsync(TestContext.Current.CancellationToken);
 
-    private RepositoryLinkStore CreateLinkStore() => new(
+    private RepositoryLinkStore CreateLinkStore(
+        int maxLinked = 5,
+        int maxEnabled = 5) => new(
         GetRequiredService<IDbContextFactory<GitHubDbContext>>(),
-        new GitHubRepositoryLinkOptions(5, 5));
+        new GitHubRepositoryLinkOptions(maxLinked, maxEnabled));
 
     private async Task<GitHubAvailableRepositoriesResponse> CreatePublicSourceAsync()
     {

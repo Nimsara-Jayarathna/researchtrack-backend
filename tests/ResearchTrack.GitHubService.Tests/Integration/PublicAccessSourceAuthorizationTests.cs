@@ -175,6 +175,21 @@ public sealed class PublicAccessSourceAuthorizationTests : IAsyncLifetime
         Assert.Equal(UserId, LinkService.UserId);
     }
 
+    [Fact]
+    public async Task Unexpected_failure_does_not_leak_exception_or_stack_trace()
+    {
+        Service.Failure = new InvalidOperationException("sensitive-internal-detail");
+        using var request = CreateRequest(AuthSecurityConstants.Roles.Supervisor);
+
+        var response = await Client.SendAsync(request, TestContext.Current.CancellationToken);
+        var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        Assert.DoesNotContain("sensitive-internal-detail", body, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("stackTrace", body, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("An unexpected error occurred.", body, StringComparison.Ordinal);
+    }
+
     public async ValueTask DisposeAsync()
     {
         _client?.Dispose();
@@ -243,6 +258,7 @@ public sealed class PublicAccessSourceAuthorizationTests : IAsyncLifetime
 
     private sealed class StubPublicAccessSourceService : IPublicAccessSourceService
     {
+        public Exception? Failure { get; set; }
         public bool WasCalled { get; private set; }
         public bool AvailableWasCalled { get; private set; }
         public Guid? UserId { get; private set; }
@@ -254,6 +270,11 @@ public sealed class PublicAccessSourceAuthorizationTests : IAsyncLifetime
         {
             WasCalled = true;
             UserId = userId;
+            if (Failure is not null)
+            {
+                return Task.FromException<GitHubAvailableRepositoriesResponse>(Failure);
+            }
+
             return Task.FromResult(new GitHubAvailableRepositoriesResponse(
                 SourceId,
                 [new GitHubRepositoryOptionResponse(

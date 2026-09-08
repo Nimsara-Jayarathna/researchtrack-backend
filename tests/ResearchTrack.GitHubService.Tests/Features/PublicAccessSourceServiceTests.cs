@@ -117,6 +117,30 @@ public sealed class PublicAccessSourceServiceTests
         Assert.Null(gitHub.Owner);
     }
 
+    [Theory]
+    [InlineData(StatusCodes.Status400BadRequest, ErrorCodes.BadRequest)]
+    [InlineData(StatusCodes.Status404NotFound, ErrorCodes.NotFound)]
+    [InlineData(StatusCodes.Status503ServiceUnavailable, ErrorCodes.DependencyUnavailable)]
+    public async Task Repository_validation_failure_does_not_persist_access_source(
+        int statusCode,
+        string errorCode)
+    {
+        var gitHub = new StubGitHubClient
+        {
+            Failure = new ApiException(statusCode, errorCode, "Repository validation failed.")
+        };
+        var store = new StubStore();
+        var service = CreateService(new StubAuthorizationClient(), gitHub, store);
+
+        var exception = await Assert.ThrowsAsync<ApiException>(() => service.CreateAsync(
+            UserId,
+            new CreatePublicAccessSourceRequest(ProjectId, "https://github.com/openai/example"),
+            TestContext.Current.CancellationToken));
+
+        Assert.Equal(statusCode, exception.StatusCode);
+        Assert.Equal(0, store.CreateCallCount);
+    }
+
     private static PublicAccessSourceService CreateService(
         IProjectAuthorizationClient authorization,
         IGitHubPublicRepositoryClient gitHub,
@@ -146,6 +170,7 @@ public sealed class PublicAccessSourceServiceTests
 
     private sealed class StubGitHubClient : IGitHubPublicRepositoryClient
     {
+        public Exception? Failure { get; init; }
         public string? Owner { get; private set; }
         public string? Repository { get; private set; }
 
@@ -156,6 +181,11 @@ public sealed class PublicAccessSourceServiceTests
         {
             Owner = owner;
             Repository = repository;
+            if (Failure is not null)
+            {
+                return Task.FromException<GitHubPublicRepository>(Failure);
+            }
+
             return Task.FromResult(new GitHubPublicRepository(
                 1296269,
                 "openai",
@@ -171,6 +201,7 @@ public sealed class PublicAccessSourceServiceTests
     {
         public Exception? Failure { get; init; }
         public bool AvailableWasCalled { get; private set; }
+        public int CreateCallCount { get; private set; }
         public AvailableRepositoriesPersistenceResult? Available { get; init; } =
             new(
                 ProjectId,
@@ -193,6 +224,7 @@ public sealed class PublicAccessSourceServiceTests
             DateTime now,
             CancellationToken cancellationToken)
         {
+            CreateCallCount++;
             if (Failure is not null)
             {
                 return Task.FromException<GitHubAvailableRepositoriesResponse>(Failure);
