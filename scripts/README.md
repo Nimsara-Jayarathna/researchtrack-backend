@@ -8,6 +8,8 @@ All local runtime configuration is service-owned under `config/env/<service>/.en
 | `db-init.sh` | `admin/.env.local` + each business service `.env.local` | Provision dev/test DBs and scoped DB users |
 | `db-status.sh` | each business service `.env.local` | Verify service dev/test DB access |
 | `run.sh <service> [--no-build]` | selected service `.env.local` | Run one component; `--no-build` reuses an existing build |
+| `run.sh jmeter` | `performance-tests/jmeter/data/users.csv` + environment overrides | Run the safe one-user JMeter QA smoke test and generate terminal/Markdown results |
+| `run.sh selenium [pytest-options]` | `tests/selenium/.env.selenium` | Run the deployed full-system Selenium suite and forward optional pytest arguments |
 | `dev.sh <profile> [--no-build]` | delegated to each `run.sh` process | Run a local service profile; `--no-build` avoids concurrent rebuilds |
 | `migrate.sh <service|all>` | selected service `.env.local` | Apply EF Core migrations |
 | `migration-add.sh` | selected service `.env.local` | Add an EF migration |
@@ -44,3 +46,20 @@ all          every component
 ```
 
 The env parser treats files as data (`KEY=value`); it does not execute them as shell scripts.
+
+## QA test shortcuts
+
+From the repository root:
+
+```bash
+./scripts/run.sh jmeter
+./scripts/run.sh selenium
+```
+
+The JMeter shortcut defaults to the test API gateway with one thread, one loop, and a 60-second duration cap. Override its safe profile through environment variables when explicitly needed, for example `THREADS=5 RAMPUP=30 LOOPS=1 ./scripts/run.sh jmeter`.
+
+On its first run, the Selenium shortcut creates `tests/selenium/.venv` and installs the pinned requirements automatically. Selenium arguments are passed through to pytest, for example:
+
+```bash
+./scripts/run.sh selenium -m student
+```

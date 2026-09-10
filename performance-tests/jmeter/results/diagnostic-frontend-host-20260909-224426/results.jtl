@@ -1,0 +1,12 @@
+timeStamp,elapsed,label,responseCode,responseMessage,threadName,dataType,success,failureMessage,bytes,sentBytes,grpThreads,allThreads,URL,Latency,IdleTime,Connect
+1788974066385,1765,Login,405,"Number of samples in transaction : 1, number of failing samples : 1",Configured virtual users 1-1,,false,,356,267,1,1,null,0,0,691
+1788974067243,907,POST /api/v1/auth/login,405,Not Allowed,Configured virtual users 1-1,text,false,"Test failed: code expected to equal /
+
+****** received  : [[[405]]]
+
+****** comparison: [[[200]]]
+
+/",356,267,1,1,https://test.researchtrack.blipzo.xyz/api/v1/auth/login,907,0,691
+1788974068170,4348,Authenticated project read journey,200,"Number of samples in transaction : 2, number of failing samples : 2",Configured virtual users 1-1,,false,,1582,409,1,1,null,0,0,0
+1788974070057,226,GET /api/v1/auth/me,200,OK,Configured virtual users 1-1,text,false,Expected to find an object with property ['success'] in path $ but found 'java.lang.String'. This is not a json object according to the JsonProvider: 'com.jayway.jsonpath.spi.json.JsonSmartJsonProvider'.,791,204,1,1,https://test.researchtrack.blipzo.xyz/api/v1/auth/me,226,0,0
+1788974072128,389,GET /api/v1/projects,200,OK,Configured virtual users 1-1,text,false,Expected to find an object with property ['success'] in path $ but found 'java.lang.String'. This is not a json object according to the JsonProvider: 'com.jayway.jsonpath.spi.json.JsonSmartJsonProvider'.,791,205,1,1,https://test.researchtrack.blipzo.xyz/api/v1/projects,389,0,0

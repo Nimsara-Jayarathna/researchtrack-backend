@@ -15,9 +15,9 @@ think_time_ms="${THINK_TIME_MS:-500}"
 think_time_jitter_ms="${THINK_TIME_JITTER_MS:-500}"
 timestamp="$(date +%Y%m%d-%H%M%S)"
 results_dir="$script_dir/results"
-reports_dir="$script_dir/reports"
 result_file="$results_dir/researchtrack-$timestamp.jtl"
-report_dir="$reports_dir/researchtrack-$timestamp"
+jmeter_log="$results_dir/jmeter-$timestamp.log"
+summary_file="$results_dir/researchtrack-$timestamp-summary.md"
 
 if ! command -v "$jmeter_bin" >/dev/null 2>&1; then
   echo "Apache JMeter was not found. Install JMeter 5.6+ or set JMETER_BIN." >&2
@@ -37,14 +37,33 @@ if ! curl --fail --silent --show-error --max-time 5 "$target_base_url/health/liv
   exit 3
 fi
 
-mkdir -p "$results_dir" "$reports_dir"
+mkdir -p "$results_dir"
 
 echo "Target: $target_base_url | users: $threads | ramp-up: ${rampup}s | duration cap: ${duration}s | loops: $loops"
-exec "$jmeter_bin" -n \
+set +e
+"$jmeter_bin" -n \
   -t "$script_dir/test-plan.jmx" \
   -l "$result_file" \
-  -e -o "$report_dir" \
+  -j "$jmeter_log" \
+  -Jsummariser.ignore_transaction_controller_sample_result=false \
   -Jprotocol="$protocol" -Jhost="$host" -Jport="$port" \
   -Jthreads="$threads" -Jrampup="$rampup" -Jduration="$duration" -Jloops="$loops" \
   -Jusers_file="$users_file" \
   -Jthink_time_ms="$think_time_ms" -Jthink_time_jitter_ms="$think_time_jitter_ms"
+jmeter_status=$?
+set -e
+
+if [[ -s "$result_file" ]]; then
+  if command -v ruby >/dev/null 2>&1; then
+    ruby "$script_dir/summarize-results.rb" \
+      "$result_file" "$summary_file" "$target_base_url" \
+      "$threads" "$rampup" "$duration" "$loops"
+  else
+    echo "Ruby was not found; raw results are available at: $result_file" >&2
+  fi
+else
+  echo "No JMeter samples were written to: $result_file" >&2
+fi
+
+echo "JMeter log: $jmeter_log"
+exit "$jmeter_status"

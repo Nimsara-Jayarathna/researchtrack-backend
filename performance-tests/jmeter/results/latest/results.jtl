@@ -1,0 +1,24 @@
+timeStamp,elapsed,label,responseCode,responseMessage,threadName,dataType,success,failureMessage,bytes,sentBytes,grpThreads,allThreads,URL,Latency,IdleTime,Connect
+1788974145639,2077,Login,400,"Number of samples in transaction : 1, number of failing samples : 1",Configured virtual users 1-1,,false,,812,271,1,1,null,0,0,895
+1788974146570,1146,POST /api/v1/auth/login,400,Bad Request,Configured virtual users 1-1,text,false,"Test failed: code expected to equal /
+
+****** received  : [[[4]]]00
+
+****** comparison: [[[2]]]00
+
+/",812,271,1,1,https://test.api.researchtrack.blipzo.xyz/api/v1/auth/login,1146,0,895
+1788974147738,4314,Authenticated project read journey,401,"Number of samples in transaction : 2, number of failing samples : 2",Configured virtual users 1-1,,false,,1499,417,1,1,null,0,0,0
+1788974149095,237,GET /api/v1/auth/me,401,Unauthorized,Configured virtual users 1-1,text,false,"Test failed: code expected to equal /
+
+****** received  : [[[401]]]
+
+****** comparison: [[[200]]]
+
+/",750,208,1,1,https://test.api.researchtrack.blipzo.xyz/api/v1/auth/me,237,0,0
+1788974150768,1284,GET /api/v1/projects,401,Unauthorized,Configured virtual users 1-1,text,false,"Test failed: code expected to equal /
+
+****** received  : [[[401]]]
+
+****** comparison: [[[200]]]
+
+/",749,209,1,1,https://test.api.researchtrack.blipzo.xyz/api/v1/projects,1284,0,0

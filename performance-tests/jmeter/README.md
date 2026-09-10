@@ -67,7 +67,7 @@ If the target is HTTPS, set `PROTOCOL=https`. This is required when the server s
 
 ## Run profiles
 
-All commands below execute in non-GUI mode and create a timestamped `.jtl` plus HTML dashboard under `results/` and `reports/`.
+All commands below execute in non-GUI mode and create a timestamped `.jtl`, JMeter log, and Markdown summary under `results/`. The summary is also printed automatically when the run ends. The runner does not generate an HTML dashboard.
 
 ### Smoke test
 
@@ -94,7 +94,7 @@ THREADS=100 RAMPUP=600 DURATION=1200 LOOPS=-1 ./run-test.sh
 
 ### Stress test
 
-Run increasing concurrency intentionally and record each dashboard separately. Use at least six seconds of ramp-up per user to respect the current login limiter:
+Run increasing concurrency intentionally and record each report separately. Use at least six seconds of ramp-up per user to respect the current login limiter:
 
 ```bash
 for users in 50 100 200 300; do
@@ -125,21 +125,16 @@ At higher rates, `429 Too Many Requests` on login is expected behavior from the 
 For direct JMeter use, the equivalent smoke command is:
 
 ```bash
-jmeter -n -t performance-tests/jmeter/test-plan.jmx -l performance-tests/jmeter/results/smoke.jtl -e -o performance-tests/jmeter/reports/smoke -Jprotocol=http -Jhost=localhost -Jport=5000 -Jthreads=1 -Jrampup=1 -Jduration=60 -Jloops=1 -Jusers_file=performance-tests/jmeter/data/users.csv
+jmeter -n -t performance-tests/jmeter/test-plan.jmx -l performance-tests/jmeter/results/smoke.jtl -j performance-tests/jmeter/results/smoke.log -Jsummariser.ignore_transaction_controller_sample_result=false -Jprotocol=http -Jhost=localhost -Jport=5000 -Jthreads=1 -Jrampup=1 -Jduration=60 -Jloops=1 -Jusers_file=performance-tests/jmeter/data/users.csv
 ```
 
 ## Results and reports
 
-- `.jtl` raw samples: `results/`
-- JMeter HTML dashboard: `reports/<timestamp>/index.html`
+- `.jtl` raw samples: `results/researchtrack-<timestamp>.jtl`
+- JMeter logs: `results/jmeter-<timestamp>.log`
+- Markdown reports: `results/researchtrack-<timestamp>-summary.md`
 
-Open the dashboard locally, for example on macOS:
-
-```bash
-open reports/researchtrack-<timestamp>/index.html
-```
-
-Review average and median response time, p90/p95/p99, throughput, error percentage, active threads, latency, and response-time-over-time. Transaction Controller rows are especially useful for comparing login with the full authenticated project journey.
+The automatic report includes sample counts, successes, failures, error percentage, average/median/p90/p95/p99 response times, throughput, byte rates, endpoint results, transaction results, and failed-request details.
 
 Example acceptance thresholds only—agree the real SLO/SLA with the product and operations teams:
 
