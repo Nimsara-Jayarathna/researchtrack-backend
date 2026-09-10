@@ -58,6 +58,50 @@ public sealed class InfrastructureSmokeTests : IAsyncLifetime
         Assert.Equal("/api/v1/supervisor/dashboard", route.Match.Path);
     }
 
+    [Fact]
+    public void Frontend_github_contract_route_targets_github_service()
+    {
+        var proxyConfigProvider = Factory.Services
+            .GetRequiredService<IProxyConfigProvider>();
+        var proxyConfig = proxyConfigProvider.GetConfig();
+        var route = Assert.Single(
+            proxyConfig.Routes,
+            item => item.RouteId == "github-frontend-contract-route");
+
+        Assert.Equal("github", route.ClusterId);
+        Assert.Equal("/api/github/{**catch-all}", route.Match.Path);
+    }
+
+    [Fact]
+    public void Project_github_repositories_route_targets_github_service_before_project_route()
+    {
+        var proxyConfigProvider = Factory.Services
+            .GetRequiredService<IProxyConfigProvider>();
+        var proxyConfig = proxyConfigProvider.GetConfig();
+        var route = Assert.Single(
+            proxyConfig.Routes,
+            item => item.RouteId == "project-github-repositories-route");
+
+        Assert.Equal("github", route.ClusterId);
+        Assert.Equal(-15, route.Order);
+        Assert.Equal("/api/v1/projects/{projectId}/github-repositories", route.Match.Path);
+    }
+
+    [Fact]
+    public void Frontend_project_github_repositories_contract_targets_github_service()
+    {
+        var proxyConfigProvider = Factory.Services
+            .GetRequiredService<IProxyConfigProvider>();
+        var proxyConfig = proxyConfigProvider.GetConfig();
+        var route = Assert.Single(
+            proxyConfig.Routes,
+            item => item.RouteId == "project-github-repositories-frontend-contract-route");
+
+        Assert.Equal("github", route.ClusterId);
+        Assert.Equal(-15, route.Order);
+        Assert.Equal("/api/projects/{projectId}/github-repositories", route.Match.Path);
+    }
+
     public async ValueTask DisposeAsync()
     {
         _client?.Dispose();

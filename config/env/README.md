@@ -63,6 +63,7 @@ Remote application files must use:
 - Production: `ASPNETCORE_ENVIRONMENT=Production`, `DOTNET_ENVIRONMENT=Production`, `ASPNETCORE_URLS=http://+:8080`
 - DB services: `ConnectionStrings__DefaultConnection` with `Server=mysql`, `Port=3306`, and `SslMode=Disabled`
 - Project: `Services__Auth__BaseUrl=http://auth:8080`
+- GitHub: `Services__Project__BaseUrl=http://project:8080`
 - Gateway internal URLs: `http://<compose-service>:8080`
 
 `deploy/validate-env-files.sh` verifies that every runtime deployment file still contains every key in its canonical `.env.example` and then performs deployment-specific consistency checks.
@@ -85,7 +86,7 @@ Local scripts map those values into the ASP.NET/YARP hierarchy. The Gateway also
 
 ## Shared JWT configuration
 
-Auth and Project receive the same `Jwt__Issuer`, `Jwt__Audience`, and `Jwt__SigningKey` from `config/env/shared/.env.example`. Test and Production must use different signing keys.
+Auth, Project, and GitHub receive the same `Jwt__Issuer`, `Jwt__Audience`, and `Jwt__SigningKey` from `config/env/shared/.env.example`. Test and Production must use different signing keys.
 
 ## Future integration keys
 

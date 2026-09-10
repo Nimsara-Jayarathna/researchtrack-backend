@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using ResearchTrack.GitHubService.Persistence;
 
@@ -10,9 +11,11 @@ using ResearchTrack.GitHubService.Persistence;
 namespace ResearchTrack.GitHubService.Persistence.Migrations
 {
     [DbContext(typeof(GitHubDbContext))]
-    partial class GitHubDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260908122712_AddPublicAccessSources")]
+    partial class AddPublicAccessSources
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -126,132 +129,12 @@ namespace ResearchTrack.GitHubService.Persistence.Migrations
                     b.ToTable("github_repositories", (string)null);
                 });
 
-            modelBuilder.Entity("ResearchTrack.GitHubService.Domain.ProjectRepositoryLink", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("char(36)");
-
-                    b.Property<string>("AccessType")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("varchar(32)");
-
-                    b.Property<bool>("Active")
-                        .HasColumnType("tinyint(1)");
-
-                    b.Property<string>("ActiveRepositoryKey")
-                        .HasMaxLength(96)
-                        .HasColumnType("varchar(96)");
-
-                    b.Property<string>("CustomName")
-                        .HasMaxLength(255)
-                        .HasColumnType("varchar(255)");
-
-                    b.Property<string>("DefaultBranch")
-                        .HasMaxLength(255)
-                        .HasColumnType("varchar(255)");
-
-                    b.Property<bool>("Enabled")
-                        .HasColumnType("tinyint(1)");
-
-                    b.Property<string>("FullName")
-                        .IsRequired()
-                        .HasMaxLength(512)
-                        .HasColumnType("varchar(512)");
-
-                    b.Property<long>("GitHubRepoId")
-                        .HasColumnType("bigint");
-
-                    b.Property<Guid>("GitHubRepositoryId")
-                        .HasColumnType("char(36)");
-
-                    b.Property<DateTime?>("LastSyncedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<DateTime>("LinkedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<Guid>("LinkedByUserId")
-                        .HasColumnType("char(36)");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(255)
-                        .HasColumnType("varchar(255)");
-
-                    b.Property<string>("OwnerLogin")
-                        .IsRequired()
-                        .HasMaxLength(255)
-                        .HasColumnType("varchar(255)");
-
-                    b.Property<bool>("Primary")
-                        .HasColumnType("tinyint(1)");
-
-                    b.Property<string>("PrimaryProjectKey")
-                        .HasMaxLength(32)
-                        .HasColumnType("varchar(32)");
-
-                    b.Property<Guid>("ProjectId")
-                        .HasColumnType("char(36)");
-
-                    b.Property<Guid>("SourceId")
-                        .HasColumnType("char(36)");
-
-                    b.Property<string>("SyncStatus")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("varchar(32)");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<string>("Url")
-                        .IsRequired()
-                        .HasMaxLength(2048)
-                        .HasColumnType("varchar(2048)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ActiveRepositoryKey")
-                        .IsUnique()
-                        .HasDatabaseName("ux_project_repository_links_active_repository");
-
-                    b.HasIndex("GitHubRepositoryId");
-
-                    b.HasIndex("PrimaryProjectKey")
-                        .IsUnique()
-                        .HasDatabaseName("ux_project_repository_links_primary_project");
-
-                    b.HasIndex("SourceId")
-                        .HasDatabaseName("ix_project_repository_links_source_id");
-
-                    b.HasIndex("ProjectId", "Active")
-                        .HasDatabaseName("ix_project_repository_links_project_active");
-
-                    b.ToTable("project_repository_links", (string)null);
-                });
-
             modelBuilder.Entity("ResearchTrack.GitHubService.Domain.GitHubRepository", b =>
                 {
                     b.HasOne("ResearchTrack.GitHubService.Domain.GitHubAccessSource", null)
                         .WithMany()
                         .HasForeignKey("SourceId")
                         .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("ResearchTrack.GitHubService.Domain.ProjectRepositoryLink", b =>
-                {
-                    b.HasOne("ResearchTrack.GitHubService.Domain.GitHubRepository", null)
-                        .WithMany()
-                        .HasForeignKey("GitHubRepositoryId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("ResearchTrack.GitHubService.Domain.GitHubAccessSource", null)
-                        .WithMany()
-                        .HasForeignKey("SourceId")
-                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 #pragma warning restore 612, 618
