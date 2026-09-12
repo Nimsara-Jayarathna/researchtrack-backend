@@ -4,6 +4,7 @@ using ResearchTrack.BuildingBlocks.Api.Constants;
 using ResearchTrack.BuildingBlocks.Api.Exceptions;
 using ResearchTrack.GitHubService.Configuration;
 using ResearchTrack.GitHubService.Contracts;
+using ResearchTrack.GitHubService.Domain;
 using ResearchTrack.GitHubService.Features.Installation;
 using ResearchTrack.GitHubService.Infrastructure;
 using ResearchTrack.GitHubService.Infrastructure.GitHubApp;

@@ -10,6 +10,7 @@ using ResearchTrack.BuildingBlocks.Api.Contracts;
 using ResearchTrack.BuildingBlocks.Api.Security;
 using ResearchTrack.GitHubService.Contracts;
 using ResearchTrack.GitHubService.Features;
+using ResearchTrack.GitHubService.Features.Installation;
 using ResearchTrack.Testing;
 
 namespace ResearchTrack.GitHubService.Tests.Integration;
@@ -41,6 +42,9 @@ public sealed class PublicAccessSourceAuthorizationTests : IAsyncLifetime
                 services.AddSingleton<IPublicAccessSourceService>(_service);
                 services.RemoveAll<IRepositoryLinkService>();
                 services.AddSingleton<IRepositoryLinkService>(_linkService);
+                services.RemoveAll<IGitHubInstallationRepositoryService>();
+                services.AddSingleton<IGitHubInstallationRepositoryService>(
+                    new PublicSourceOnlyInstallationRepositoryService());
             });
         _client = _factory.CreateClient();
         return ValueTask.CompletedTask;
@@ -359,6 +363,38 @@ public sealed class PublicAccessSourceAuthorizationTests : IAsyncLifetime
                     new DateTime(2026, 9, 8, 12, 0, 0, DateTimeKind.Utc),
                     null,
                     "PENDING")]);
+    }
+
+    private sealed class PublicSourceOnlyInstallationRepositoryService
+        : IGitHubInstallationRepositoryService
+    {
+        public Task<GitHubAvailableRepositoriesResponse?> TryGetAvailableAsync(
+            Guid userId,
+            Guid sourceId,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<GitHubAvailableRepositoriesResponse?>(null);
+
+        public Task<GitHubInstallationRepositoriesPageResponse> GetInstallationPageAsync(
+            Guid userId,
+            Guid projectId,
+            long installationId,
+            int page,
+            int size,
+            CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<LegacyInstallationRepositorySelection> ResolveLegacySelectionAsync(
+            Guid userId,
+            Guid projectId,
+            long installationId,
+            long repositoryId,
+            CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<bool> TryVerifyForLinkAsync(
+            Guid userId,
+            Guid projectId,
+            Guid sourceId,
+            IReadOnlyList<LinkGitHubRepositoryRequestItem> repositories,
+            CancellationToken cancellationToken) => throw new NotSupportedException();
     }
 
 }

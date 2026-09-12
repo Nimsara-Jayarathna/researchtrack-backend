@@ -252,9 +252,9 @@ public sealed class GitHubInstallationStateService : IGitHubInstallationStateSer
     private static void ValidateReturnPath(string returnPath)
     {
         if (string.IsNullOrWhiteSpace(returnPath)
-            || !returnPath.StartsWith('/', StringComparison.Ordinal)
+            || !returnPath.StartsWith("/", StringComparison.Ordinal)
             || returnPath.StartsWith("//", StringComparison.Ordinal)
-            || Uri.TryCreate(returnPath, UriKind.Absolute, out _))
+            || returnPath.StartsWith("/\\", StringComparison.Ordinal))
         {
             throw new ArgumentException("Return context must be a local ResearchTrack path.", nameof(returnPath));
         }
