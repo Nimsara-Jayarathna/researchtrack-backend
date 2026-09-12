@@ -5,6 +5,7 @@ rt_cd_root
 rt_require_command curl
 
 profile="${1:-all}"
+health_check_timeout_seconds="${HEALTH_CHECK_TIMEOUT_SECONDS:-10}"
 case "$profile" in
   core) services=(gateway auth project) ;;
   integrations) services=(gateway auth project github jira) ;;
@@ -21,8 +22,8 @@ for service in "${services[@]}"; do
   base_url="${ASPNETCORE_URLS%%;*}"
   base_url="${base_url%/}"
   live="FAIL"; ready="FAIL"
-  curl -fsS --max-time 2 "$base_url/health/live" >/dev/null 2>&1 && live="OK"
-  curl -fsS --max-time 2 "$base_url/health/ready" >/dev/null 2>&1 && ready="OK"
+  curl -fsS --max-time "$health_check_timeout_seconds" "$base_url/health/live" >/dev/null 2>&1 && live="OK"
+  curl -fsS --max-time "$health_check_timeout_seconds" "$base_url/health/ready" >/dev/null 2>&1 && ready="OK"
   printf '%-12s %-10s %-10s\n' "$service" "$live" "$ready"
   [[ "$live" == "OK" ]] || failed=1
   [[ "$ready" == "OK" ]] || failed=1
