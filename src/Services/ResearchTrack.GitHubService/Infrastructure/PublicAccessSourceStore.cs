@@ -44,6 +44,7 @@ public sealed class PublicAccessSourceStore : IPublicAccessSourceStore
             AccessType = GitHubAccessTypes.PublicUrl,
             Active = true,
             ActiveRepositoryKey = activeKey,
+            ActiveInstallationKey = null,
             CreatedAt = now,
             UpdatedAt = now
         };
@@ -94,7 +95,9 @@ public sealed class PublicAccessSourceStore : IPublicAccessSourceStore
         var source = await dbContext.AccessSources
             .AsNoTracking()
             .SingleOrDefaultAsync(
-                item => item.Id == sourceId && item.Active,
+                item => item.Id == sourceId
+                    && item.Active
+                    && item.AccessType == GitHubAccessTypes.PublicUrl,
                 cancellationToken);
         if (source is null)
         {

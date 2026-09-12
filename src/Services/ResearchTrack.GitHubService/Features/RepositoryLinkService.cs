@@ -1,6 +1,7 @@
 using ResearchTrack.BuildingBlocks.Api.Contracts;
 using ResearchTrack.BuildingBlocks.Api.Exceptions;
 using ResearchTrack.GitHubService.Contracts;
+using ResearchTrack.GitHubService.Features.Installation;
 using ResearchTrack.GitHubService.Features.Synchronization;
 using ResearchTrack.GitHubService.Infrastructure;
 
@@ -10,6 +11,7 @@ public sealed class RepositoryLinkService : IRepositoryLinkService
 {
     private readonly IProjectAuthorizationClient _projectAuthorization;
     private readonly IRepositoryLinkStore _store;
+    private readonly IGitHubInstallationRepositoryService _installationRepositoryService;
     private readonly IInitialRepositorySyncRequester _syncRequester;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<RepositoryLinkService> _logger;
@@ -17,12 +19,14 @@ public sealed class RepositoryLinkService : IRepositoryLinkService
     public RepositoryLinkService(
         IProjectAuthorizationClient projectAuthorization,
         IRepositoryLinkStore store,
+        IGitHubInstallationRepositoryService installationRepositoryService,
         IInitialRepositorySyncRequester syncRequester,
         TimeProvider timeProvider,
         ILogger<RepositoryLinkService> logger)
     {
         _projectAuthorization = projectAuthorization;
         _store = store;
+        _installationRepositoryService = installationRepositoryService;
         _syncRequester = syncRequester;
         _timeProvider = timeProvider;
         _logger = logger;
@@ -35,6 +39,15 @@ public sealed class RepositoryLinkService : IRepositoryLinkService
     {
         Validate(request);
         await _projectAuthorization.EnsureCanManageAsync(request.ProjectId, cancellationToken);
+
+        // Public URL sources retain their existing validation path. Installation-backed
+        // sources are re-verified against GitHub immediately before persistence.
+        await _installationRepositoryService.TryVerifyForLinkAsync(
+            userId,
+            request.ProjectId,
+            request.SourceId,
+            request.Repositories!,
+            cancellationToken);
 
         var persisted = await _store.CreateLinksAsync(
             request.ProjectId,

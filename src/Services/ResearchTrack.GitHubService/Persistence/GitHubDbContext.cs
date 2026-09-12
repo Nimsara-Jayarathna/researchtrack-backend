@@ -11,6 +11,7 @@ public sealed class GitHubDbContext : DbContext
     }
 
     public DbSet<GitHubAccessSource> AccessSources => Set<GitHubAccessSource>();
+    public DbSet<GitHubInstallationFlowState> InstallationFlowStates => Set<GitHubInstallationFlowState>();
     public DbSet<GitHubRepository> Repositories => Set<GitHubRepository>();
     public DbSet<ProjectRepositoryLink> ProjectRepositoryLinks => Set<ProjectRepositoryLink>();
 
