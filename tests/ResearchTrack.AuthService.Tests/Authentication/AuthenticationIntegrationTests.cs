@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using ResearchTrack.AuthService.Contracts;
@@ -21,7 +22,10 @@ public sealed class AuthenticationIntegrationTests : IAsyncLifetime
     {
         var connectionString = TestDatabaseConfiguration.GetRequiredConnectionString("AUTH");
         _factory = new ResearchTrackWebApplicationFactory<Program>(connectionString);
-        _client = _factory.CreateClient();
+        _client = _factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            HandleCookies = false
+        });
 
         await using var scope = _factory.Services.CreateAsyncScope();
         var dbFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AuthDbContext>>();
