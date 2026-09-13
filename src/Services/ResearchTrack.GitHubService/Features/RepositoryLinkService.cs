@@ -1,6 +1,8 @@
+using ResearchTrack.BuildingBlocks.Api.Constants;
 using ResearchTrack.BuildingBlocks.Api.Contracts;
 using ResearchTrack.BuildingBlocks.Api.Exceptions;
 using ResearchTrack.GitHubService.Contracts;
+using ResearchTrack.GitHubService.Features.Installation;
 using ResearchTrack.GitHubService.Features.Synchronization;
 using ResearchTrack.GitHubService.Infrastructure;
 
@@ -10,6 +12,7 @@ public sealed class RepositoryLinkService : IRepositoryLinkService
 {
     private readonly IProjectAuthorizationClient _projectAuthorization;
     private readonly IRepositoryLinkStore _store;
+    private readonly IGitHubInstallationRepositoryService _installationRepositoryService;
     private readonly IInitialRepositorySyncRequester _syncRequester;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<RepositoryLinkService> _logger;
@@ -17,12 +20,14 @@ public sealed class RepositoryLinkService : IRepositoryLinkService
     public RepositoryLinkService(
         IProjectAuthorizationClient projectAuthorization,
         IRepositoryLinkStore store,
+        IGitHubInstallationRepositoryService installationRepositoryService,
         IInitialRepositorySyncRequester syncRequester,
         TimeProvider timeProvider,
         ILogger<RepositoryLinkService> logger)
     {
         _projectAuthorization = projectAuthorization;
         _store = store;
+        _installationRepositoryService = installationRepositoryService;
         _syncRequester = syncRequester;
         _timeProvider = timeProvider;
         _logger = logger;
@@ -35,6 +40,15 @@ public sealed class RepositoryLinkService : IRepositoryLinkService
     {
         Validate(request);
         await _projectAuthorization.EnsureCanManageAsync(request.ProjectId, cancellationToken);
+
+        // Public URL sources retain their existing validation path. Installation-backed
+        // sources are re-verified against GitHub immediately before persistence.
+        await _installationRepositoryService.TryVerifyForLinkAsync(
+            userId,
+            request.ProjectId,
+            request.SourceId,
+            request.Repositories!,
+            cancellationToken);
 
         var persisted = await _store.CreateLinksAsync(
             request.ProjectId,
@@ -95,6 +109,32 @@ public sealed class RepositoryLinkService : IRepositoryLinkService
 
         await _projectAuthorization.EnsureCanManageAsync(projectId, cancellationToken);
         return await _store.GetProjectAsync(projectId, cancellationToken);
+    }
+
+    public async Task EnsureBelongsToProjectAsync(
+        Guid userId,
+        Guid projectId,
+        Guid linkedRepositoryId,
+        CancellationToken cancellationToken)
+    {
+        if (projectId == Guid.Empty || linkedRepositoryId == Guid.Empty)
+        {
+            throw new ApiValidationException([
+                new ApiFieldError(
+                    "repository",
+                    ["Project id and linked repository id are required."])
+            ]);
+        }
+
+        await _projectAuthorization.EnsureCanManageAsync(projectId, cancellationToken);
+        var project = await _store.GetProjectAsync(projectId, cancellationToken);
+        if (!project.Repositories.Any(repository => repository.Id == linkedRepositoryId))
+        {
+            throw new ApiException(
+                StatusCodes.Status404NotFound,
+                ErrorCodes.NotFound,
+                "The linked GitHub repository was not found for this project.");
+        }
     }
 
     private static void Validate(LinkGitHubRepositoriesRequest request)

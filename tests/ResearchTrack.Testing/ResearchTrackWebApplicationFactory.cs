@@ -120,6 +120,10 @@ public sealed class ResearchTrackWebApplicationFactory<TProgram> : WebApplicatio
             ["PasswordHashing:SaltSizeBytes"] = "16",
             ["PasswordHashing:HashSizeBytes"] = "32",
 
+            // Password reset
+            ["PasswordReset:TokenExpiryMinutes"] = "30",
+            ["PasswordReset:FrontendBaseUrl"] = "http://localhost:5173",
+
             // Brevo
             ["Brevo:BaseUrl"] = "https://api.example.test/v3/",
             ["Brevo:ApiKey"] = "test-api-key",

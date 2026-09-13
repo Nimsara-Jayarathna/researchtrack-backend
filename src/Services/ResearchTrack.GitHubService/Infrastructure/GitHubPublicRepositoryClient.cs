@@ -10,8 +10,11 @@ public sealed class GitHubPublicRepositoryClient : IGitHubPublicRepositoryClient
 {
     public static readonly Uri TrustedBaseAddress = new("https://api.github.com/", UriKind.Absolute);
     private readonly HttpClient _httpClient;
+    private readonly ILogger<GitHubPublicRepositoryClient> _logger;
 
-    public GitHubPublicRepositoryClient(HttpClient httpClient)
+    public GitHubPublicRepositoryClient(
+        HttpClient httpClient,
+        ILogger<GitHubPublicRepositoryClient> logger)
     {
         if (httpClient.BaseAddress != TrustedBaseAddress)
         {
@@ -19,6 +22,7 @@ public sealed class GitHubPublicRepositoryClient : IGitHubPublicRepositoryClient
         }
 
         _httpClient = httpClient;
+        _logger = logger;
     }
 
     public async Task<GitHubPublicRepository> GetAsync(
@@ -54,7 +58,40 @@ public sealed class GitHubPublicRepositoryClient : IGitHubPublicRepositoryClient
 
             if (!response.IsSuccessStatusCode)
             {
-                throw DependencyFailure("GitHub could not validate the repository.");
+                var providerMessage = await ReadProviderMessageAsync(response, cancellationToken);
+                LogValidationFailure(owner, repository, response, providerMessage);
+
+                if (response.StatusCode == HttpStatusCode.Forbidden)
+                {
+                    if (IsRateLimited(response, providerMessage))
+                    {
+                        throw DependencyFailure(
+                            "GitHub API rate limit was reached. Retry after the GitHub rate limit resets.");
+                    }
+
+                    throw DependencyFailure(
+                        "GitHub denied the public repository validation request. Verify that the repository is public and reachable from GitHub.");
+                }
+
+                if (response.StatusCode == HttpStatusCode.TooManyRequests)
+                {
+                    throw DependencyFailure(
+                        "GitHub API rate limit was reached. Retry after the GitHub rate limit resets.");
+                }
+
+                if (response.StatusCode == HttpStatusCode.Unauthorized)
+                {
+                    throw DependencyFailure(
+                        "GitHub rejected the repository validation request. Public repository validation does not require a ResearchTrack access token.");
+                }
+
+                if ((int)response.StatusCode >= StatusCodes.Status500InternalServerError)
+                {
+                    throw DependencyFailure("GitHub is temporarily unavailable.");
+                }
+
+                throw DependencyFailure(
+                    $"GitHub repository validation failed with status {(int)response.StatusCode}.");
             }
 
             GitHubRepositoryPayload? payload;
@@ -111,6 +148,57 @@ public sealed class GitHubPublicRepositoryClient : IGitHubPublicRepositoryClient
                 ? "USER"
                 : throw DependencyFailure("GitHub returned an unsupported repository owner type.");
 
+    private void LogValidationFailure(
+        string owner,
+        string repository,
+        HttpResponseMessage response,
+        string? providerMessage)
+    {
+        _logger.LogWarning(
+            "GitHub public repository validation failed. Owner={Owner} Repository={Repository} Status={StatusCode} RateRemaining={RateRemaining} RateReset={RateReset} RetryAfter={RetryAfter} ProviderMessage={ProviderMessage}",
+            owner,
+            repository,
+            (int)response.StatusCode,
+            TryGetHeader(response, "X-RateLimit-Remaining"),
+            TryGetHeader(response, "X-RateLimit-Reset"),
+            TryGetHeader(response, "Retry-After"),
+            providerMessage);
+    }
+
+    private static bool IsRateLimited(HttpResponseMessage response, string? providerMessage)
+    {
+        if (string.Equals(TryGetHeader(response, "X-RateLimit-Remaining"), "0", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        return !string.IsNullOrWhiteSpace(providerMessage)
+            && (providerMessage.Contains("rate limit", StringComparison.OrdinalIgnoreCase)
+                || providerMessage.Contains("abuse detection", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static async Task<string?> ReadProviderMessageAsync(
+        HttpResponseMessage response,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var payload = await response.Content.ReadFromJsonAsync<GitHubErrorPayload>(cancellationToken);
+            return string.IsNullOrWhiteSpace(payload?.Message)
+                ? null
+                : payload.Message.Trim();
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static string? TryGetHeader(HttpResponseMessage response, string name) =>
+        response.Headers.TryGetValues(name, out var values)
+            ? values.FirstOrDefault()
+            : null;
+
     private static ApiException DependencyFailure(string message, Exception? inner = null) => new(
         StatusCodes.Status503ServiceUnavailable,
         ErrorCodes.DependencyUnavailable,
@@ -127,4 +215,6 @@ public sealed class GitHubPublicRepositoryClient : IGitHubPublicRepositoryClient
         GitHubOwnerPayload Owner);
 
     private sealed record GitHubOwnerPayload(string Login, string Type);
+
+    private sealed record GitHubErrorPayload(string? Message);
 }

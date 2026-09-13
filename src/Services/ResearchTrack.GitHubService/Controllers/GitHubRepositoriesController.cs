@@ -8,6 +8,7 @@ using ResearchTrack.BuildingBlocks.Api.Exceptions;
 using ResearchTrack.BuildingBlocks.Api.Security;
 using ResearchTrack.GitHubService.Contracts;
 using ResearchTrack.GitHubService.Features;
+using ResearchTrack.GitHubService.Features.Installation;
 
 namespace ResearchTrack.GitHubService.Controllers;
 
@@ -17,14 +18,17 @@ namespace ResearchTrack.GitHubService.Controllers;
 public sealed class GitHubRepositoriesController : ApiControllerBase
 {
     private readonly IRepositoryLinkService _repositoryLinkService;
-    private readonly IPublicAccessSourceService _accessSourceService;
+    private readonly IPublicAccessSourceService _publicAccessSourceService;
+    private readonly IGitHubInstallationRepositoryService _installationRepositoryService;
 
     public GitHubRepositoriesController(
         IRepositoryLinkService repositoryLinkService,
-        IPublicAccessSourceService accessSourceService)
+        IPublicAccessSourceService publicAccessSourceService,
+        IGitHubInstallationRepositoryService installationRepositoryService)
     {
         _repositoryLinkService = repositoryLinkService;
-        _accessSourceService = accessSourceService;
+        _publicAccessSourceService = publicAccessSourceService;
+        _installationRepositoryService = installationRepositoryService;
     }
 
     [HttpGet("available")]
@@ -33,15 +37,26 @@ public sealed class GitHubRepositoriesController : ApiControllerBase
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
     public async Task<ActionResult<ApiResponse<GitHubAvailableRepositoriesResponse>>> GetAvailable(
         [FromQuery] Guid sourceId,
         CancellationToken cancellationToken)
     {
-        var available = await _accessSourceService.GetAvailableAsync(
-            GetRequiredUserId(),
+        var userId = GetRequiredUserId();
+        var installationAvailable = await _installationRepositoryService.TryGetAvailableAsync(
+            userId,
             sourceId,
             cancellationToken);
-        return ApiOk(available);
+        if (installationAvailable is not null)
+        {
+            return ApiOk(installationAvailable);
+        }
+
+        var publicAvailable = await _publicAccessSourceService.GetAvailableAsync(
+            userId,
+            sourceId,
+            cancellationToken);
+        return ApiOk(publicAvailable);
     }
 
     [HttpPost("link")]

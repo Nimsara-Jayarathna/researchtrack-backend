@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using ResearchTrack.BuildingBlocks.Api.Constants;
+using ResearchTrack.BuildingBlocks.Api.Contracts;
 using ResearchTrack.BuildingBlocks.Api.Exceptions;
 using ResearchTrack.GitHubService.Configuration;
 using ResearchTrack.GitHubService.Contracts;
@@ -48,46 +49,84 @@ public sealed class RepositoryLinkStore : IRepositoryLinkStore
         {
             throw Conflict("The GitHub access source is inactive.");
         }
-        if (!string.Equals(source.AccessType, GitHubAccessTypes.PublicUrl, StringComparison.Ordinal))
+        if (!string.Equals(source.AccessType, GitHubAccessTypes.PublicUrl, StringComparison.Ordinal)
+            && !string.Equals(source.AccessType, GitHubAccessTypes.GitHubApp, StringComparison.Ordinal))
         {
             throw Conflict("The access source type is not supported by this linking flow.");
         }
 
-        var requestedIds = repositories.Select(item => item.GitHubRepositoryId).ToArray();
-        var sourceRepositories = await dbContext.Repositories
-            .Where(repository => repository.SourceId == sourceId)
-            .ToListAsync(cancellationToken);
-        if (sourceRepositories.Count != 1
-            || requestedIds.Length != 1
-            || sourceRepositories[0].Id != requestedIds[0])
+        var requestedIds = repositories
+            .Select(item => item.GitHubRepositoryId)
+            .ToArray();
+
+        if (string.Equals(source.AccessType, GitHubAccessTypes.PublicUrl, StringComparison.Ordinal)
+            && requestedIds.Length != 1)
         {
+            throw new ApiValidationException([
+                new ApiFieldError(
+                    "repositories",
+                    ["A public repository URL source contains exactly one repository."])
+            ]);
+        }
+
+        var selectedRepositories = await dbContext.Repositories
+            .Where(repository => repository.SourceId == sourceId
+                && requestedIds.Contains(repository.Id))
+            .ToListAsync(cancellationToken);
+        if (selectedRepositories.Count != requestedIds.Length)
+        {
+            var message = string.Equals(source.AccessType, GitHubAccessTypes.PublicUrl, StringComparison.Ordinal)
+                ? "The selected repository was not validated for this public access source."
+                : "One or more selected repositories were not verified for this GitHub App access source.";
             throw new ApiException(
                 StatusCodes.Status404NotFound,
                 ErrorCodes.NotFound,
-                "The selected repository was not validated for this public access source.");
+                message);
         }
 
-        var repository = sourceRepositories[0];
+        if (string.Equals(source.AccessType, GitHubAccessTypes.PublicUrl, StringComparison.Ordinal))
+        {
+            var publicRepositoryCount = await dbContext.Repositories.CountAsync(
+                item => item.SourceId == sourceId,
+                cancellationToken);
+            if (publicRepositoryCount != 1)
+            {
+                throw Conflict("The public access source contains an invalid repository inventory.");
+            }
+        }
+
         var existingLinks = await dbContext.ProjectRepositoryLinks
             .Where(link => link.ProjectId == projectId && link.Active)
             .ToListAsync(cancellationToken);
+        var selectedGitHubIds = selectedRepositories
+            .Select(repository => repository.GitHubRepositoryId)
+            .ToHashSet();
 
-        if (existingLinks.Any(link => link.GitHubRepoId == repository.GitHubRepositoryId))
+        if (existingLinks.Any(link => selectedGitHubIds.Contains(link.GitHubRepoId)))
         {
-            throw Conflict("This GitHub repository is already linked to the project.");
+            throw Conflict("One or more selected GitHub repositories are already linked to the project.");
         }
-        if (existingLinks.Count + 1 > _options.MaxLinkedRepositories)
+        if (existingLinks.Count + selectedRepositories.Count > _options.MaxLinkedRepositories)
         {
             throw Conflict("The project has reached its linked repository limit.");
         }
-        if (existingLinks.Count(link => link.Enabled) + 1 > _options.MaxEnabledRepositories)
+        if (existingLinks.Count(link => link.Enabled) + selectedRepositories.Count
+            > _options.MaxEnabledRepositories)
         {
             throw Conflict("The project has reached its enabled repository limit.");
         }
 
-        var selection = repositories[0];
-        var makePrimary = selection.Primary == true || existingLinks.All(link => !link.Primary);
-        if (makePrimary)
+        var selections = repositories.ToDictionary(item => item.GitHubRepositoryId);
+        var explicitPrimaryId = repositories
+            .Where(item => item.Primary == true)
+            .Select(item => (Guid?)item.GitHubRepositoryId)
+            .SingleOrDefault();
+        var newPrimaryId = explicitPrimaryId
+            ?? (existingLinks.All(link => !link.Primary)
+                ? requestedIds[0]
+                : (Guid?)null);
+
+        if (newPrimaryId is not null)
         {
             foreach (var currentPrimary in existingLinks.Where(link => link.Primary))
             {
@@ -102,33 +141,40 @@ public sealed class RepositoryLinkStore : IRepositoryLinkStore
             }
         }
 
-        var link = new ProjectRepositoryLink
-        {
-            Id = Guid.NewGuid(),
-            ProjectId = projectId,
-            SourceId = source.Id,
-            GitHubRepositoryId = repository.Id,
-            GitHubRepoId = repository.GitHubRepositoryId,
-            LinkedByUserId = userId,
-            AccessType = source.AccessType,
-            FullName = repository.FullName,
-            Name = repository.Name,
-            CustomName = NormalizeCustomName(selection.CustomName),
-            OwnerLogin = repository.OwnerLogin,
-            DefaultBranch = repository.DefaultBranch,
-            Url = repository.Url,
-            Active = true,
-            Primary = makePrimary,
-            Enabled = true,
-            ActiveRepositoryKey = $"{projectId:N}:{repository.GitHubRepositoryId}",
-            PrimaryProjectKey = makePrimary ? projectId.ToString("N") : null,
-            LinkedAt = now,
-            LastSyncedAt = null,
-            SyncStatus = GitHubSyncStatuses.Pending,
-            UpdatedAt = now
-        };
+        var links = selectedRepositories
+            .Select(repository =>
+            {
+                var selection = selections[repository.Id];
+                var makePrimary = repository.Id == newPrimaryId;
+                return new ProjectRepositoryLink
+                {
+                    Id = Guid.NewGuid(),
+                    ProjectId = projectId,
+                    SourceId = source.Id,
+                    GitHubRepositoryId = repository.Id,
+                    GitHubRepoId = repository.GitHubRepositoryId,
+                    LinkedByUserId = userId,
+                    AccessType = source.AccessType,
+                    FullName = repository.FullName,
+                    Name = repository.Name,
+                    CustomName = NormalizeCustomName(selection.CustomName),
+                    OwnerLogin = repository.OwnerLogin,
+                    DefaultBranch = repository.DefaultBranch,
+                    Url = repository.Url,
+                    Active = true,
+                    Primary = makePrimary,
+                    Enabled = true,
+                    ActiveRepositoryKey = $"{projectId:N}:{repository.GitHubRepositoryId}",
+                    PrimaryProjectKey = makePrimary ? projectId.ToString("N") : null,
+                    LinkedAt = now,
+                    LastSyncedAt = null,
+                    SyncStatus = GitHubSyncStatuses.Pending,
+                    UpdatedAt = now
+                };
+            })
+            .ToList();
 
-        dbContext.ProjectRepositoryLinks.Add(link);
+        dbContext.ProjectRepositoryLinks.AddRange(links);
         ProjectGitHubRepositoriesResponse response;
         try
         {
@@ -138,17 +184,17 @@ public sealed class RepositoryLinkStore : IRepositoryLinkStore
         }
         catch (DbUpdateException exception) when (IsDuplicateKey(exception))
         {
-            throw Conflict("This GitHub repository is already linked to the project.", exception);
+            throw Conflict("One or more selected GitHub repositories are already linked to the project.", exception);
         }
 
         return new RepositoryLinkPersistenceResult(
             response,
-            [new InitialRepositorySyncRequest(
+            links.Select(link => new InitialRepositorySyncRequest(
                 projectId,
                 link.Id,
                 link.SourceId,
                 link.GitHubRepositoryId,
-                link.GitHubRepoId)]);
+                link.GitHubRepoId)).ToList());
     }
 
     public async Task MarkSyncFailedAsync(

@@ -19,6 +19,7 @@ public static class AuthFeatureExtensions
         var emailOptions = EmailOptions.FromConfiguration(configuration);
         var jwtOptions = JwtOptions.FromConfiguration(configuration);
         var cookieOptions = AuthCookieOptions.FromConfiguration(configuration);
+        var passwordResetOptions = PasswordResetOptions.FromConfiguration(configuration);
 
         if (passwordPolicyOptions.MaximumLength < passwordPolicyOptions.MinimumLength)
         {
@@ -31,6 +32,7 @@ public static class AuthFeatureExtensions
         services.AddSingleton(emailOptions);
         services.AddSingleton(jwtOptions);
         services.AddSingleton(cookieOptions);
+        services.AddSingleton(passwordResetOptions);
         services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();
         services.AddSingleton<IPasswordPolicyValidator, PasswordPolicyValidator>();
         services.AddSingleton<InvalidPasswordTimingGuard>();
@@ -42,7 +44,9 @@ public static class AuthFeatureExtensions
             client.BaseAddress = new Uri(emailOptions.BaseUrl, UriKind.Absolute);
         });
         services.AddScoped<IRegistrationEmailService, RegistrationEmailService>();
+        services.AddScoped<IPasswordResetEmailService, PasswordResetEmailService>();
         services.AddScoped<IRegistrationService, RegistrationService>();
+        services.AddScoped<IPasswordResetService, PasswordResetService>();
         services.AddScoped<IUserAuthenticationService, UserAuthenticationService>();
         services.AddScoped<IUserDirectoryService, UserDirectoryService>();
         services.AddScoped<IUserAccountService, UserAccountService>();

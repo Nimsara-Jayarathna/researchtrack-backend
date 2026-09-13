@@ -32,6 +32,10 @@ namespace ResearchTrack.GitHubService.Persistence.Migrations
                     b.Property<bool>("Active")
                         .HasColumnType("tinyint(1)");
 
+                    b.Property<string>("ActiveInstallationKey")
+                        .HasMaxLength(128)
+                        .HasColumnType("varchar(128)");
+
                     b.Property<string>("ActiveRepositoryKey")
                         .HasMaxLength(128)
                         .HasColumnType("varchar(128)");
@@ -63,6 +67,10 @@ namespace ResearchTrack.GitHubService.Persistence.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("ActiveInstallationKey")
+                        .IsUnique()
+                        .HasDatabaseName("ux_github_access_sources_active_installation");
+
                     b.HasIndex("ActiveRepositoryKey")
                         .IsUnique()
                         .HasDatabaseName("ux_github_access_sources_active_repository");
@@ -71,6 +79,63 @@ namespace ResearchTrack.GitHubService.Persistence.Migrations
                         .HasDatabaseName("ix_github_access_sources_project_id");
 
                     b.ToTable("github_access_sources", (string)null);
+                });
+
+
+            modelBuilder.Entity("ResearchTrack.GitHubService.Domain.GitHubInstallationFlowState", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("char(36)");
+
+                    b.Property<DateTime?>("AuthorizationStartedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<DateTime?>("ConsumedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("FlowType")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)");
+
+                    b.Property<Guid>("InitiatingUserId")
+                        .HasColumnType("char(36)");
+
+                    b.Property<long?>("PendingInstallationId")
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("char(36)");
+
+                    b.Property<string>("ReturnPath")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("varchar(512)");
+
+                    b.Property<string>("StateHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExpiresAt")
+                        .HasDatabaseName("ix_github_installation_flow_states_expires_at");
+
+                    b.HasIndex("StateHash")
+                        .IsUnique()
+                        .HasDatabaseName("ux_github_installation_flow_states_hash");
+
+                    b.HasIndex("ProjectId", "InitiatingUserId")
+                        .HasDatabaseName("ix_github_installation_flow_states_project_user");
+
+                    b.ToTable("github_installation_flow_states", (string)null);
                 });
 
             modelBuilder.Entity("ResearchTrack.GitHubService.Domain.GitHubRepository", b =>

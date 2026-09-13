@@ -335,12 +335,18 @@ Kafka__BootstrapServers
 ```text
 Kafka__BootstrapServers
 GitHub__AppId
+GitHub__AppSlug
 GitHub__ClientId
 GitHub__ClientSecret
-GitHub__PrivateKeyPath
+GitHub__PrivateKeyBase64 (or GitHub__PrivateKeyPath for a mounted secret file)
+GitHub__SetupCallbackUrl
+GitHub__FrontendReturnOrigin
+GitHub__StateExpiryMinutes
 GitHub__WebhookSecret
 GitHub__SyncIntervalMinutes
 ```
+
+For SCRUM-15 GitHub App registration, least-privilege permissions, callback configuration, and manual QA, see [`docs/stories/SCRUM-15-connect-authorized-github-app.md`](docs/stories/SCRUM-15-connect-authorized-github-app.md).
 
 ### Jira
 

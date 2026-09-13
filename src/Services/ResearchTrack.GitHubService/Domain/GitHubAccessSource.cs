@@ -11,6 +11,7 @@ public sealed class GitHubAccessSource
     public required string AccessType { get; set; }
     public bool Active { get; set; }
     public string? ActiveRepositoryKey { get; set; }
+    public string? ActiveInstallationKey { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 }

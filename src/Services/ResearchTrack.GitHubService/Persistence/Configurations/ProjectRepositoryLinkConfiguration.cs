@@ -30,6 +30,10 @@ public sealed class ProjectRepositoryLinkConfiguration : IEntityTypeConfiguratio
         builder.Property(link => link.PrimaryProjectKey).HasMaxLength(32);
         builder.Property(link => link.LinkedAt).IsRequired();
         builder.Property(link => link.LastSyncedAt);
+        builder.Property(link => link.LastSyncStartedAt);
+        builder.Property(link => link.LastFailedSyncAt);
+        builder.Property(link => link.LastSyncError).HasMaxLength(2048);
+        builder.Property(link => link.LastKnownHeadSha).HasMaxLength(64);
         builder.Property(link => link.SyncStatus).HasMaxLength(32).IsRequired();
         builder.Property(link => link.UpdatedAt).IsRequired();
 

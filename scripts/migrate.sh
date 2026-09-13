@@ -113,7 +113,13 @@ get_migration_state() {
     local project="$2"
     local context="$3"
 
+    local connection
     local output
+
+    # Every service uses a non-routable design-time factory so migrations can
+    # be generated without secrets. Explicitly supply the validated local
+    # development connection when inspecting or updating a real database.
+    connection="$(runtime_connection)"
 
     if ! output="$(
         dotnet ef migrations list \
@@ -122,10 +128,20 @@ get_migration_state() {
             --context "$context" \
             --configuration "$configuration" \
             --no-build \
+            --connection "$connection" \
             --json \
             2>&1
     )"; then
         printf 'Failed to inspect migrations for %s.\n\n' "$svc" >&2
+        printf '%s\n' "$output" >&2
+        return 1
+    fi
+
+    if grep -Eq \
+        '"applied"[[:space:]]*:[[:space:]]*null' \
+        <<< "$output"; then
+
+        printf 'EF could not determine applied migrations for %s.\n\n' "$svc" >&2
         printf '%s\n' "$output" >&2
         return 1
     fi
@@ -140,6 +156,15 @@ get_migration_state() {
     fi
 
     return 0
+}
+
+runtime_connection() {
+    local explicit="${ConnectionStrings__DefaultConnection:-}"
+
+    case "$explicit" in
+        ""|*CHANGE_ME*|*__SET_ME__*|*__GENERATE__*) rt_db_connection dev ;;
+        *) printf '%s\n' "$explicit" ;;
+    esac
 }
 
 # ---------------------------------------------------------------------------
@@ -180,7 +205,8 @@ migrate_one() {
                 --startup-project "$project" \
                 --context "$context" \
                 --configuration "$configuration" \
-                --no-build
+                --no-build \
+                --connection "$(runtime_connection)"
 
             printf '  DONE     %s database is up to date.\n' "$svc"
             ;;

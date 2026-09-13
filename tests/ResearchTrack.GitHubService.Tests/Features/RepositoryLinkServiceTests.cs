@@ -4,6 +4,7 @@ using ResearchTrack.BuildingBlocks.Api.Constants;
 using ResearchTrack.BuildingBlocks.Api.Exceptions;
 using ResearchTrack.GitHubService.Contracts;
 using ResearchTrack.GitHubService.Features;
+using ResearchTrack.GitHubService.Features.Installation;
 using ResearchTrack.GitHubService.Features.Synchronization;
 using ResearchTrack.GitHubService.Infrastructure;
 
@@ -125,6 +126,35 @@ public sealed class RepositoryLinkServiceTests
     }
 
     [Fact]
+    public async Task Installation_verification_failure_stops_before_persistence_and_sync()
+    {
+        var store = new StubStore([]);
+        var sync = new StubSyncRequester([]);
+        var installation = new StubInstallationRepositoryService
+        {
+            VerifyFailure = new ApiException(
+                StatusCodes.Status404NotFound,
+                ErrorCodes.NotFound,
+                "Repository access removed")
+        };
+        var service = CreateService(
+            new StubAuthorizationClient(),
+            store,
+            sync,
+            installation);
+
+        var exception = await Assert.ThrowsAsync<ApiException>(() => service.LinkAsync(
+            UserId,
+            ValidRequest(),
+            TestContext.Current.CancellationToken));
+
+        Assert.Equal(StatusCodes.Status404NotFound, exception.StatusCode);
+        Assert.Equal(1, installation.VerifyCallCount);
+        Assert.Equal(0, store.CreateCallCount);
+        Assert.Equal(0, sync.CallCount);
+    }
+
+    [Fact]
     public async Task Project_read_authorizes_and_returns_persisted_state_without_sync()
     {
         var authorization = new StubAuthorizationClient();
@@ -146,9 +176,11 @@ public sealed class RepositoryLinkServiceTests
     private static RepositoryLinkService CreateService(
         IProjectAuthorizationClient authorization,
         IRepositoryLinkStore store,
-        IInitialRepositorySyncRequester sync) => new(
+        IInitialRepositorySyncRequester sync,
+        IGitHubInstallationRepositoryService? installationRepositoryService = null) => new(
             authorization,
             store,
+            installationRepositoryService ?? new StubInstallationRepositoryService(),
             sync,
             new FixedTimeProvider(new DateTimeOffset(2026, 9, 8, 12, 0, 0, TimeSpan.Zero)),
             NullLogger<RepositoryLinkService>.Instance);
@@ -234,6 +266,48 @@ public sealed class RepositoryLinkServiceTests
         {
             GetProjectCallCount++;
             return Task.FromResult(Response("FAILED"));
+        }
+    }
+
+    private sealed class StubInstallationRepositoryService : IGitHubInstallationRepositoryService
+    {
+        public Exception? VerifyFailure { get; init; }
+        public int VerifyCallCount { get; private set; }
+
+        public Task<GitHubAvailableRepositoriesResponse?> TryGetAvailableAsync(
+            Guid userId,
+            Guid sourceId,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<GitHubAvailableRepositoriesResponse?>(null);
+
+        public Task<GitHubInstallationRepositoriesPageResponse> GetInstallationPageAsync(
+            Guid userId,
+            Guid projectId,
+            long installationId,
+            int page,
+            int size,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<LegacyInstallationRepositorySelection> ResolveLegacySelectionAsync(
+            Guid userId,
+            Guid projectId,
+            long installationId,
+            long repositoryId,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<bool> TryVerifyForLinkAsync(
+            Guid userId,
+            Guid projectId,
+            Guid sourceId,
+            IReadOnlyList<LinkGitHubRepositoryRequestItem> repositories,
+            CancellationToken cancellationToken)
+        {
+            VerifyCallCount++;
+            return VerifyFailure is null
+                ? Task.FromResult(false)
+                : Task.FromException<bool>(VerifyFailure);
         }
     }
 

@@ -22,6 +22,10 @@ public sealed class ProjectRepositoryLink
     public string? PrimaryProjectKey { get; set; }
     public DateTime LinkedAt { get; set; }
     public DateTime? LastSyncedAt { get; set; }
+    public DateTime? LastSyncStartedAt { get; set; }
+    public DateTime? LastFailedSyncAt { get; set; }
+    public string? LastSyncError { get; set; }
+    public string? LastKnownHeadSha { get; set; }
     public required string SyncStatus { get; set; }
     public DateTime UpdatedAt { get; set; }
 }

@@ -18,7 +18,7 @@ public sealed class PublicAccessSourceServiceTests
     public async Task Authorized_user_receives_frontend_available_repository_contract()
     {
         var authorization = new StubAuthorizationClient();
-        var gitHub = new StubGitHubClient();
+        var gitHub = new StubRepositoryProbe();
         var store = new StubStore();
         var service = CreateService(authorization, gitHub, store);
 
@@ -34,8 +34,8 @@ public sealed class PublicAccessSourceServiceTests
         Assert.Equal(1, response.TotalCount);
         var item = Assert.Single(response.Items);
         Assert.Equal(RepositoryId, item.Id);
-        Assert.Equal(1296269, item.GitHubRepoId);
-        Assert.Equal("openai/example", item.FullName);
+        Assert.Equal(PublicRepositoryIdentity.CreateSyntheticId("OpenAI", "example"), item.GitHubRepoId);
+        Assert.Equal("OpenAI/example", item.FullName);
     }
 
     [Fact]
@@ -48,7 +48,7 @@ public sealed class PublicAccessSourceServiceTests
                 ErrorCodes.Forbidden,
                 "Forbidden")
         };
-        var gitHub = new StubGitHubClient();
+        var gitHub = new StubRepositoryProbe();
         var service = CreateService(authorization, gitHub, new StubStore());
 
         var exception = await Assert.ThrowsAsync<ApiException>(() => service.CreateAsync(
@@ -70,7 +70,7 @@ public sealed class PublicAccessSourceServiceTests
                 ErrorCodes.Conflict,
                 "An active public access source already exists.")
         };
-        var service = CreateService(new StubAuthorizationClient(), new StubGitHubClient(), store);
+        var service = CreateService(new StubAuthorizationClient(), new StubRepositoryProbe(), store);
 
         var exception = await Assert.ThrowsAsync<ApiException>(() => service.CreateAsync(
             UserId,
@@ -84,7 +84,7 @@ public sealed class PublicAccessSourceServiceTests
     public async Task Available_repository_read_authorizes_and_uses_persisted_metadata()
     {
         var authorization = new StubAuthorizationClient();
-        var gitHub = new StubGitHubClient();
+        var gitHub = new StubRepositoryProbe();
         var store = new StubStore();
         var service = CreateService(authorization, gitHub, store);
 
@@ -103,7 +103,7 @@ public sealed class PublicAccessSourceServiceTests
     public async Task Missing_available_source_returns_not_found_without_github_call()
     {
         var authorization = new StubAuthorizationClient();
-        var gitHub = new StubGitHubClient();
+        var gitHub = new StubRepositoryProbe();
         var store = new StubStore { Available = null };
         var service = CreateService(authorization, gitHub, store);
 
@@ -125,7 +125,7 @@ public sealed class PublicAccessSourceServiceTests
         int statusCode,
         string errorCode)
     {
-        var gitHub = new StubGitHubClient
+        var gitHub = new StubRepositoryProbe
         {
             Failure = new ApiException(statusCode, errorCode, "Repository validation failed.")
         };
@@ -143,7 +143,7 @@ public sealed class PublicAccessSourceServiceTests
 
     private static PublicAccessSourceService CreateService(
         IProjectAuthorizationClient authorization,
-        IGitHubPublicRepositoryClient gitHub,
+        IGitHubPublicRepositoryProbe gitHub,
         IPublicAccessSourceStore store) => new(
             authorization,
             gitHub,
@@ -168,13 +168,13 @@ public sealed class PublicAccessSourceServiceTests
         }
     }
 
-    private sealed class StubGitHubClient : IGitHubPublicRepositoryClient
+    private sealed class StubRepositoryProbe : IGitHubPublicRepositoryProbe
     {
         public Exception? Failure { get; init; }
         public string? Owner { get; private set; }
         public string? Repository { get; private set; }
 
-        public Task<GitHubPublicRepository> GetAsync(
+        public Task<GitHubPublicRepositoryProbeResult> ProbeAsync(
             string owner,
             string repository,
             CancellationToken cancellationToken)
@@ -183,16 +183,14 @@ public sealed class PublicAccessSourceServiceTests
             Repository = repository;
             if (Failure is not null)
             {
-                return Task.FromException<GitHubPublicRepository>(Failure);
+                return Task.FromException<GitHubPublicRepositoryProbeResult>(Failure);
             }
 
-            return Task.FromResult(new GitHubPublicRepository(
-                1296269,
-                "openai",
-                "ORG",
-                "example",
-                "openai/example",
-                "https://github.com/openai/example",
+            return Task.FromResult(new GitHubPublicRepositoryProbeResult(
+                owner,
+                repository,
+                $"{owner}/{repository}",
+                $"https://github.com/{owner}/{repository}",
                 "main"));
         }
     }

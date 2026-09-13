@@ -18,6 +18,7 @@ public sealed class GitHubAccessSourceConfiguration : IEntityTypeConfiguration<G
         builder.Property(source => source.AccessType).HasMaxLength(32).IsRequired();
         builder.Property(source => source.Active).IsRequired();
         builder.Property(source => source.ActiveRepositoryKey).HasMaxLength(128);
+        builder.Property(source => source.ActiveInstallationKey).HasMaxLength(128);
         builder.Property(source => source.CreatedAt).IsRequired();
         builder.Property(source => source.UpdatedAt).IsRequired();
 
@@ -26,5 +27,8 @@ public sealed class GitHubAccessSourceConfiguration : IEntityTypeConfiguration<G
         builder.HasIndex(source => source.ActiveRepositoryKey)
             .IsUnique()
             .HasDatabaseName("ux_github_access_sources_active_repository");
+        builder.HasIndex(source => source.ActiveInstallationKey)
+            .IsUnique()
+            .HasDatabaseName("ux_github_access_sources_active_installation");
     }
 }
