@@ -222,12 +222,16 @@ rt_database_name() {
 }
 
 rt_db_connection() {
-  local mode="${2:-${1:-dev}}" db
+  local mode="${2:-${1:-dev}}" db ssl_mode
   rt_validate_db_environment
   db="$(rt_database_name "$mode")"
+  ssl_mode="$Database__SslMode"
+  if [[ "${ssl_mode,,}" == "none" ]]; then
+    ssl_mode="Disabled"
+  fi
   printf 'Server=%s;Port=%s;Database=%s;User=%s;Password=%s;SslMode=%s;AllowPublicKeyRetrieval=%s;\n' \
     "$Database__Host" "$Database__Port" "$db" "$Database__Username" "$Database__Password" \
-    "$Database__SslMode" "$Database__AllowPublicKeyRetrieval"
+    "$ssl_mode" "$Database__AllowPublicKeyRetrieval"
 }
 
 rt_db_connection_for_service() (

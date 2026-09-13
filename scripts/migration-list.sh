@@ -15,8 +15,10 @@ rt_validate_db_environment
 
 project="$(rt_service_project "$service")"
 context="$(rt_service_context "$service")"
+connection="$(rt_db_connection dev)"
 
 dotnet ef migrations list \
   --project "$project" \
   --startup-project "$project" \
-  --context "$context"
+  --context "$context" \
+  --connection "$connection"

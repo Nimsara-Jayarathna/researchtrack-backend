@@ -112,6 +112,7 @@ get_migration_state() {
     local svc="$1"
     local project="$2"
     local context="$3"
+    local connection="$4"
 
     local output
 
@@ -120,12 +121,22 @@ get_migration_state() {
             --project "$project" \
             --startup-project "$project" \
             --context "$context" \
+            --connection "$connection" \
             --configuration "$configuration" \
             --no-build \
             --json \
             2>&1
     )"; then
         printf 'Failed to inspect migrations for %s.\n\n' "$svc" >&2
+        printf '%s\n' "$output" >&2
+        return 1
+    fi
+
+    if grep -Eq \
+        'An error occurred while accessing the database|Pending status not shown|Unable to determine which migrations have been applied' \
+        <<< "$output"; then
+
+        printf 'Failed to inspect applied migrations for %s.\n\n' "$svc" >&2
         printf '%s\n' "$output" >&2
         return 1
     fi
@@ -151,6 +162,7 @@ migrate_one() {
 
     local project
     local context
+    local connection
     local state
 
     # Load service-specific development configuration.
@@ -159,13 +171,14 @@ migrate_one() {
 
     project="$(rt_service_project "$svc")"
     context="$(rt_service_context "$svc")"
+    connection="$(rt_db_connection dev)"
 
     printf 'Checking %s (%s)...\n' "$svc" "$context"
 
     # IMPORTANT:
     # Use the function inside an if condition so set -e does not terminate
     # the script if migration inspection itself fails.
-    if ! state="$(get_migration_state "$svc" "$project" "$context")"; then
+    if ! state="$(get_migration_state "$svc" "$project" "$context" "$connection")"; then
         printf '  FAILED   Unable to determine migration state.\n'
         return 1
     fi
@@ -179,6 +192,7 @@ migrate_one() {
                 --project "$project" \
                 --startup-project "$project" \
                 --context "$context" \
+                --connection "$connection" \
                 --configuration "$configuration" \
                 --no-build
 
