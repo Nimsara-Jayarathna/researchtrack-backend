@@ -9,6 +9,7 @@ using ResearchTrack.BuildingBlocks.Api.Security;
 using ResearchTrack.GitHubService.Contracts;
 using ResearchTrack.GitHubService.Features;
 using ResearchTrack.GitHubService.Features.Installation;
+using ResearchTrack.GitHubService.Features.Synchronization;
 
 namespace ResearchTrack.GitHubService.Controllers;
 
@@ -19,13 +20,92 @@ public sealed class SupervisorGitHubCompatibilityController : ApiControllerBase
 {
     private readonly IGitHubInstallationRepositoryService _installationRepositoryService;
     private readonly IRepositoryLinkService _repositoryLinkService;
+    private readonly IProjectGitHubInventoryService _inventoryService;
+    private readonly IRepositorySyncQueue _syncQueue;
+    private readonly IGitHubEvidenceQueryService _evidenceQueryService;
+    private readonly IGitHubDashboardQueryService _dashboardQueryService;
 
     public SupervisorGitHubCompatibilityController(
         IGitHubInstallationRepositoryService installationRepositoryService,
-        IRepositoryLinkService repositoryLinkService)
+        IRepositoryLinkService repositoryLinkService,
+        IProjectGitHubInventoryService inventoryService,
+        IRepositorySyncQueue syncQueue,
+        IGitHubEvidenceQueryService evidenceQueryService,
+        IGitHubDashboardQueryService dashboardQueryService)
     {
         _installationRepositoryService = installationRepositoryService;
         _repositoryLinkService = repositoryLinkService;
+        _inventoryService = inventoryService;
+        _syncQueue = syncQueue;
+        _evidenceQueryService = evidenceQueryService;
+        _dashboardQueryService = dashboardQueryService;
+    }
+
+    [HttpGet]
+    [ProducesResponseType<ApiResponse<GitHubDashboardResponse>>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<GitHubDashboardResponse>>> GetDashboard(
+        Guid projectId,
+        [FromQuery] Guid? linkedRepositoryId = null,
+        CancellationToken cancellationToken = default)
+    {
+        return ApiOk(await _dashboardQueryService.GetDashboardAsync(
+            GetRequiredUserId(),
+            projectId,
+            linkedRepositoryId,
+            cancellationToken));
+    }
+
+    [HttpGet("activity")]
+    public async Task<ActionResult<ApiResponse<GitHubCompatibilityPage<GitHubDashboardCommitResponse>>>> GetActivity(
+        Guid projectId,
+        [FromQuery] Guid? linkedRepositoryId = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int size = 10,
+        CancellationToken cancellationToken = default)
+    {
+        return ApiOk(await _dashboardQueryService.GetActivityAsync(
+            GetRequiredUserId(),
+            projectId,
+            linkedRepositoryId,
+            page,
+            size,
+            cancellationToken));
+    }
+
+    [HttpGet("contributors")]
+    public async Task<ActionResult<ApiResponse<GitHubCompatibilityPage<GitHubDashboardContributorResponse>>>> GetDashboardContributors(
+        Guid projectId,
+        [FromQuery] Guid? linkedRepositoryId = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int size = 10,
+        CancellationToken cancellationToken = default)
+    {
+        return ApiOk(await _dashboardQueryService.GetContributorsAsync(
+            GetRequiredUserId(),
+            projectId,
+            linkedRepositoryId,
+            page,
+            size,
+            cancellationToken));
+    }
+
+    [HttpPost("refresh")]
+    public async Task<ActionResult<ApiResponse<GitHubProjectSyncQueuedResponse>>> RefreshProject(
+        Guid projectId,
+        CancellationToken cancellationToken)
+    {
+        var project = await _repositoryLinkService.GetProjectAsync(
+            GetRequiredUserId(),
+            projectId,
+            cancellationToken);
+        foreach (var repository in project.Repositories.Where(item => item.Enabled))
+        {
+            await _syncQueue.EnqueueAsync(
+                new RepositorySyncWorkItem(repository.Id, ResearchTrack.GitHubService.Domain.GitHubSyncTriggers.Manual),
+                cancellationToken);
+        }
+
+        return ApiOk(new GitHubProjectSyncQueuedResponse(projectId, "QUEUED"));
     }
 
     [HttpGet("installations/{installationId:long}/repositories")]
@@ -97,6 +177,108 @@ public sealed class SupervisorGitHubCompatibilityController : ApiControllerBase
                 repository.OwnerLogin ?? string.Empty,
                 repository.DefaultBranch,
                 repository.LastSyncedAt));
+    }
+
+
+    [HttpGet("repositories/inventory")]
+    [ProducesResponseType<ApiResponse<ProjectGitHubRepositoryListingResponse>>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<ProjectGitHubRepositoryListingResponse>>> GetInventory(
+        Guid projectId,
+        CancellationToken cancellationToken)
+    {
+        var result = await _inventoryService.GetAsync(
+            GetRequiredUserId(),
+            projectId,
+            cancellationToken);
+        return ApiOk(result);
+    }
+
+    [HttpPost("repositories/{linkedRepositoryId:guid}/sync")]
+    [ProducesResponseType<ApiResponse<GitHubSyncQueuedResponse>>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<GitHubSyncQueuedResponse>>> SyncRepository(
+        Guid projectId,
+        Guid linkedRepositoryId,
+        CancellationToken cancellationToken)
+    {
+        await _repositoryLinkService.EnsureBelongsToProjectAsync(
+            GetRequiredUserId(),
+            projectId,
+            linkedRepositoryId,
+            cancellationToken);
+        await _syncQueue.EnqueueAsync(
+            new RepositorySyncWorkItem(
+                linkedRepositoryId,
+                ResearchTrack.GitHubService.Domain.GitHubSyncTriggers.Manual),
+            cancellationToken);
+        return ApiOk(new GitHubSyncQueuedResponse(linkedRepositoryId, "QUEUED"));
+    }
+
+    [HttpGet("repositories/{linkedRepositoryId:guid}/commits")]
+    public async Task<ActionResult<ApiResponse<GitHubEvidencePage<GitHubCommitResponse>>>> GetCommits(
+        Guid projectId,
+        Guid linkedRepositoryId,
+        [FromQuery] int page = 1,
+        [FromQuery] int size = 50,
+        CancellationToken cancellationToken = default)
+    {
+        return ApiOk(await _evidenceQueryService.GetCommitsAsync(
+            GetRequiredUserId(),
+            projectId,
+            linkedRepositoryId,
+            page,
+            size,
+            cancellationToken));
+    }
+
+    [HttpGet("repositories/{linkedRepositoryId:guid}/contributors")]
+    public async Task<ActionResult<ApiResponse<GitHubEvidencePage<GitHubContributorResponse>>>> GetContributors(
+        Guid projectId,
+        Guid linkedRepositoryId,
+        [FromQuery] int page = 1,
+        [FromQuery] int size = 50,
+        CancellationToken cancellationToken = default)
+    {
+        return ApiOk(await _evidenceQueryService.GetContributorsAsync(
+            GetRequiredUserId(),
+            projectId,
+            linkedRepositoryId,
+            page,
+            size,
+            cancellationToken));
+    }
+
+    [HttpGet("repositories/{linkedRepositoryId:guid}/pull-requests")]
+    public async Task<ActionResult<ApiResponse<GitHubEvidencePage<GitHubPullRequestResponse>>>> GetPullRequests(
+        Guid projectId,
+        Guid linkedRepositoryId,
+        [FromQuery] int page = 1,
+        [FromQuery] int size = 50,
+        CancellationToken cancellationToken = default)
+    {
+        return ApiOk(await _evidenceQueryService.GetPullRequestsAsync(
+            GetRequiredUserId(),
+            projectId,
+            linkedRepositoryId,
+            page,
+            size,
+            cancellationToken));
+    }
+
+    [HttpGet("repositories/{linkedRepositoryId:guid}/sync-runs")]
+    public async Task<ActionResult<ApiResponse<GitHubEvidencePage<GitHubSyncRunResponse>>>> GetSyncRuns(
+        Guid projectId,
+        Guid linkedRepositoryId,
+        [FromQuery] int page = 1,
+        [FromQuery] int size = 25,
+        CancellationToken cancellationToken = default)
+    {
+        return ApiOk(await _evidenceQueryService.GetSyncRunsAsync(
+            GetRequiredUserId(),
+            projectId,
+            linkedRepositoryId,
+            page,
+            size,
+            cancellationToken));
     }
 
     private Guid GetRequiredUserId()

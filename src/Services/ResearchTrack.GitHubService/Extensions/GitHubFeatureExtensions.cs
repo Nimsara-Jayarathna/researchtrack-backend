@@ -32,8 +32,23 @@ public static class GitHubFeatureExtensions
         services.AddSingleton<GitHubOAuthPkce>();
         services.AddScoped<IPublicAccessSourceStore, PublicAccessSourceStore>();
         services.AddScoped<IRepositoryLinkService, RepositoryLinkService>();
+        services.AddScoped<IProjectGitHubInventoryService, ProjectGitHubInventoryService>();
+        services.AddScoped<IGitHubEvidenceQueryService, GitHubEvidenceQueryService>();
+        services.AddScoped<IGitHubDashboardQueryService, GitHubDashboardQueryService>();
         services.AddScoped<IRepositoryLinkStore, RepositoryLinkStore>();
-        services.AddSingleton<IInitialRepositorySyncRequester, DeferredInitialRepositorySyncRequester>();
+        services.AddSingleton<RepositorySyncQueue>();
+        services.AddSingleton<IRepositorySyncQueue>(provider => provider.GetRequiredService<RepositorySyncQueue>());
+        services.AddSingleton<IInitialRepositorySyncRequester>(provider => provider.GetRequiredService<RepositorySyncQueue>());
+        services.AddHostedService<RepositorySyncWorker>();
+        services.AddHostedService<RepositoryScheduledSyncWorker>();
+        services.AddScoped<IGitHubRepositorySynchronizationService, GitHubRepositorySynchronizationService>();
+        services.AddSingleton<IGitHubInstallationTokenProvider, GitHubInstallationTokenProvider>();
+
+        services.AddHttpClient<IGitHubRepositorySyncClient, GitHubRepositorySyncClient>(ConfigureGitHubApiClient)
+            .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+            {
+                AllowAutoRedirect = false
+            });
 
         services.AddHttpClient<IProjectAuthorizationClient, ProjectAuthorizationClient>(client =>
         {

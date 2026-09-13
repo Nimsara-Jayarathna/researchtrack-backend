@@ -1,3 +1,4 @@
+using ResearchTrack.BuildingBlocks.Api.Constants;
 using ResearchTrack.BuildingBlocks.Api.Contracts;
 using ResearchTrack.BuildingBlocks.Api.Exceptions;
 using ResearchTrack.GitHubService.Contracts;
@@ -108,6 +109,32 @@ public sealed class RepositoryLinkService : IRepositoryLinkService
 
         await _projectAuthorization.EnsureCanManageAsync(projectId, cancellationToken);
         return await _store.GetProjectAsync(projectId, cancellationToken);
+    }
+
+    public async Task EnsureBelongsToProjectAsync(
+        Guid userId,
+        Guid projectId,
+        Guid linkedRepositoryId,
+        CancellationToken cancellationToken)
+    {
+        if (projectId == Guid.Empty || linkedRepositoryId == Guid.Empty)
+        {
+            throw new ApiValidationException([
+                new ApiFieldError(
+                    "repository",
+                    ["Project id and linked repository id are required."])
+            ]);
+        }
+
+        await _projectAuthorization.EnsureCanManageAsync(projectId, cancellationToken);
+        var project = await _store.GetProjectAsync(projectId, cancellationToken);
+        if (!project.Repositories.Any(repository => repository.Id == linkedRepositoryId))
+        {
+            throw new ApiException(
+                StatusCodes.Status404NotFound,
+                ErrorCodes.NotFound,
+                "The linked GitHub repository was not found for this project.");
+        }
     }
 
     private static void Validate(LinkGitHubRepositoriesRequest request)

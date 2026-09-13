@@ -13,4 +13,10 @@ public interface IRepositoryLinkService
         Guid userId,
         Guid projectId,
         CancellationToken cancellationToken);
+
+    Task EnsureBelongsToProjectAsync(
+        Guid userId,
+        Guid projectId,
+        Guid linkedRepositoryId,
+        CancellationToken cancellationToken);
 }

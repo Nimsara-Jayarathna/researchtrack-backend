@@ -341,6 +341,19 @@ public sealed class PublicAccessSourceAuthorizationTests : IAsyncLifetime
             return Task.FromResult(Response());
         }
 
+        public Task EnsureBelongsToProjectAsync(
+            Guid userId,
+            Guid projectId,
+            Guid linkedRepositoryId,
+            CancellationToken cancellationToken)
+        {
+            GetWasCalled = true;
+            UserId = userId;
+            Assert.Equal(ProjectId, projectId);
+            Assert.Equal(Guid.Parse("55555555-5555-5555-5555-555555555555"), linkedRepositoryId);
+            return Task.CompletedTask;
+        }
+
         private static ProjectGitHubRepositoriesResponse Response() => new(
                 ProjectId,
                 5,
