@@ -1,3 +1,4 @@
+using Prometheus;
 using ResearchTrack.BuildingBlocks.Api.Extensions;
 using ResearchTrack.BuildingBlocks.Api.Security;
 using ResearchTrack.GitHubService.Extensions;
@@ -12,7 +13,9 @@ builder.Services.AddGitHubPersistence(builder.Configuration);
 builder.Services.AddGitHubFeatures(builder.Configuration);
 
 var app = builder.Build();
+app.UseHttpMetrics();
 app.UseResearchTrackApi();
+app.MapMetrics();
 app.Run();
 
 public partial class Program;
