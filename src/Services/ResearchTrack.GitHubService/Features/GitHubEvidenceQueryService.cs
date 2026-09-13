@@ -1,5 +1,5 @@
-using ResearchTrack.BuildingBlocks.Api.Constants;
 using Microsoft.EntityFrameworkCore;
+using ResearchTrack.BuildingBlocks.Api.Constants;
 using ResearchTrack.BuildingBlocks.Api.Contracts;
 using ResearchTrack.BuildingBlocks.Api.Exceptions;
 using ResearchTrack.GitHubService.Contracts;
