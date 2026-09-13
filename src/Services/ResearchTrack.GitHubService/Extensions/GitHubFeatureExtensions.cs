@@ -90,18 +90,14 @@ public static class GitHubFeatureExtensions
 
         services.AddScoped<IGitHubInstallationRepositoryClient, GitHubInstallationRepositoryClient>();
 
-        services.AddHttpClient<IGitHubPublicRepositoryClient, GitHubPublicRepositoryClient>(client =>
+        services.AddHttpClient<IGitHubPublicRepositoryProbe, GitHubPublicRepositoryProbe>(client =>
         {
-            client.BaseAddress = GitHubPublicRepositoryClient.TrustedBaseAddress;
+            client.BaseAddress = GitHubPublicRepositoryProbe.TrustedBaseAddress;
             client.Timeout = TimeSpan.FromSeconds(10);
             client.DefaultRequestHeaders.UserAgent.Add(
                 new ProductInfoHeaderValue("ResearchTrack", "1.0"));
             client.DefaultRequestHeaders.Accept.Add(
-                new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
-            client.DefaultRequestHeaders.Add("X-GitHub-Api-Version", "2026-03-10");
-        }).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
-        {
-            AllowAutoRedirect = false
+                new MediaTypeWithQualityHeaderValue("application/x-git-upload-pack-advertisement"));
         });
 
         return services;

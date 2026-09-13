@@ -10,6 +10,7 @@ public sealed class GitHubRepositorySyncClient : IGitHubRepositorySyncClient
 {
     private const int PerPage = 100;
     private const int MaxPages = 1000;
+    private static long _anonymousRateLimitResetUnixSeconds;
     private readonly HttpClient _httpClient;
 
     public GitHubRepositorySyncClient(HttpClient httpClient)
@@ -149,6 +150,8 @@ public sealed class GitHubRepositorySyncClient : IGitHubRepositorySyncClient
         string? token,
         CancellationToken cancellationToken)
     {
+        ThrowIfAnonymousRateLimited(token);
+
         using var request = new HttpRequestMessage(HttpMethod.Get, relativeUrl);
         if (!string.IsNullOrWhiteSpace(token))
         {
@@ -182,7 +185,7 @@ public sealed class GitHubRepositorySyncClient : IGitHubRepositorySyncClient
                     "The GitHub repository or resource was not found.");
             }
 
-            if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
                 throw new ApiException(
                     StatusCodes.Status403Forbidden,
@@ -190,12 +193,31 @@ public sealed class GitHubRepositorySyncClient : IGitHubRepositorySyncClient
                     "ResearchTrack no longer has permission to read this GitHub repository.");
             }
 
+            if (response.StatusCode == HttpStatusCode.Forbidden)
+            {
+                var rateRemaining = TryGetHeader(response, "X-RateLimit-Remaining");
+                if (string.Equals(rateRemaining, "0", StringComparison.Ordinal))
+                {
+                    RememberAnonymousRateLimit(token, response);
+                    throw new ApiException(
+                        StatusCodes.Status503ServiceUnavailable,
+                        ErrorCodes.DependencyUnavailable,
+                        BuildRateLimitMessage(response));
+                }
+
+                throw new ApiException(
+                    StatusCodes.Status403Forbidden,
+                    ErrorCodes.Forbidden,
+                    "ResearchTrack does not have permission to read this GitHub repository.");
+            }
+
             if ((int)response.StatusCode == StatusCodes.Status429TooManyRequests)
             {
+                RememberAnonymousRateLimit(token, response);
                 throw new ApiException(
                     StatusCodes.Status503ServiceUnavailable,
                     ErrorCodes.DependencyUnavailable,
-                    "GitHub API rate limit was reached. Retry after the GitHub rate limit resets.");
+                    BuildRateLimitMessage(response));
             }
 
             if (!response.IsSuccessStatusCode)
@@ -207,6 +229,67 @@ public sealed class GitHubRepositorySyncClient : IGitHubRepositorySyncClient
             await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
             return await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
         }
+    }
+
+    private static void ThrowIfAnonymousRateLimited(string? token)
+    {
+        if (!string.IsNullOrWhiteSpace(token))
+        {
+            return;
+        }
+
+        var resetUnixSeconds = Interlocked.Read(ref _anonymousRateLimitResetUnixSeconds);
+        var nowUnixSeconds = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        if (resetUnixSeconds <= nowUnixSeconds)
+        {
+            return;
+        }
+
+        var resetAt = DateTimeOffset.FromUnixTimeSeconds(resetUnixSeconds);
+        throw new ApiException(
+            StatusCodes.Status503ServiceUnavailable,
+            ErrorCodes.DependencyUnavailable,
+            $"GitHub API rate limit is still active for anonymous requests. Retry after {resetAt:O}.");
+    }
+
+    private static void RememberAnonymousRateLimit(string? token, HttpResponseMessage response)
+    {
+        if (!string.IsNullOrWhiteSpace(token))
+        {
+            return;
+        }
+
+        var reset = TryGetHeader(response, "X-RateLimit-Reset");
+        var resetUnixSeconds = long.TryParse(reset, out var parsed)
+            ? parsed
+            : DateTimeOffset.UtcNow.AddMinutes(5).ToUnixTimeSeconds();
+        Interlocked.Exchange(ref _anonymousRateLimitResetUnixSeconds, resetUnixSeconds);
+    }
+
+    private static string BuildRateLimitMessage(HttpResponseMessage response)
+    {
+        var reset = TryGetHeader(response, "X-RateLimit-Reset");
+        if (long.TryParse(reset, out var unixSeconds))
+        {
+            try
+            {
+                var resetAt = DateTimeOffset.FromUnixTimeSeconds(unixSeconds);
+                return $"GitHub API rate limit was reached. Retry after {resetAt:O}.";
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                // Fall back to the generic message below.
+            }
+        }
+
+        return "GitHub API rate limit was reached. Retry after the GitHub rate limit resets.";
+    }
+
+    private static string? TryGetHeader(HttpResponseMessage response, string name)
+    {
+        return response.Headers.TryGetValues(name, out var values)
+            ? values.FirstOrDefault()
+            : null;
     }
 
     private static GitHubSyncRepository ParseRepository(JsonElement element)

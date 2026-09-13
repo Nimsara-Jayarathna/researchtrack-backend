@@ -10,18 +10,18 @@ namespace ResearchTrack.GitHubService.Features;
 public sealed class PublicAccessSourceService : IPublicAccessSourceService
 {
     private readonly IProjectAuthorizationClient _projectAuthorization;
-    private readonly IGitHubPublicRepositoryClient _gitHubClient;
+    private readonly IGitHubPublicRepositoryProbe _repositoryProbe;
     private readonly IPublicAccessSourceStore _store;
     private readonly TimeProvider _timeProvider;
 
     public PublicAccessSourceService(
         IProjectAuthorizationClient projectAuthorization,
-        IGitHubPublicRepositoryClient gitHubClient,
+        IGitHubPublicRepositoryProbe repositoryProbe,
         IPublicAccessSourceStore store,
         TimeProvider timeProvider)
     {
         _projectAuthorization = projectAuthorization;
-        _gitHubClient = gitHubClient;
+        _repositoryProbe = repositoryProbe;
         _store = store;
         _timeProvider = timeProvider;
     }
@@ -33,7 +33,19 @@ public sealed class PublicAccessSourceService : IPublicAccessSourceService
     {
         await _projectAuthorization.EnsureCanManageAsync(request.ProjectId, cancellationToken);
         var address = GitHubRepositoryUrlParser.Parse(request.RepositoryUrl);
-        var repository = await _gitHubClient.GetAsync(address.Owner, address.Repository, cancellationToken);
+        var probe = await _repositoryProbe.ProbeAsync(
+            address.Owner,
+            address.Repository,
+            cancellationToken);
+
+        var repository = new GitHubPublicRepository(
+            PublicRepositoryIdentity.CreateSyntheticId(probe.OwnerLogin, probe.Name),
+            probe.OwnerLogin,
+            "UNKNOWN",
+            probe.Name,
+            probe.FullName,
+            probe.HtmlUrl,
+            probe.DefaultBranch);
 
         return await _store.CreateAsync(
             request.ProjectId,

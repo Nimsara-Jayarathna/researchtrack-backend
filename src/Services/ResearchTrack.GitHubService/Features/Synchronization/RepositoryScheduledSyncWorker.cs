@@ -8,6 +8,7 @@ public sealed class RepositoryScheduledSyncWorker : BackgroundService
 {
     private static readonly TimeSpan ScanInterval = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan StaleAfter = TimeSpan.FromMinutes(15);
+    private static readonly TimeSpan FailureCooldown = TimeSpan.FromHours(1);
 
     private readonly IDbContextFactory<GitHubDbContext> _dbContextFactory;
     private readonly IRepositorySyncQueue _queue;
@@ -53,7 +54,9 @@ public sealed class RepositoryScheduledSyncWorker : BackgroundService
 
     private async Task EnqueueStaleRepositoriesAsync(CancellationToken cancellationToken)
     {
-        var cutoff = _timeProvider.GetUtcNow().UtcDateTime - StaleAfter;
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
+        var cutoff = now - StaleAfter;
+        var failureCutoff = now - FailureCooldown;
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
         var repositoryIds = await dbContext.ProjectRepositoryLinks
             .AsNoTracking()
@@ -61,6 +64,7 @@ public sealed class RepositoryScheduledSyncWorker : BackgroundService
                 link.Active
                 && link.Enabled
                 && link.SyncStatus != GitHubSyncStatuses.InProgress
+                && (link.LastFailedSyncAt == null || link.LastFailedSyncAt < failureCutoff)
                 && (link.LastSyncedAt == null || link.LastSyncedAt < cutoff))
             .OrderBy(link => link.LastSyncedAt)
             .Select(link => link.Id)

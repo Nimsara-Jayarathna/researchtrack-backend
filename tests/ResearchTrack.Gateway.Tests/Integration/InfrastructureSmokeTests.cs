@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using Microsoft.Extensions.DependencyInjection;
+using ResearchTrack.Gateway;
 using ResearchTrack.Testing;
 using Yarp.ReverseProxy.Configuration;
 
@@ -8,12 +9,12 @@ namespace ResearchTrack.Gateway.Tests.Integration;
 
 public sealed class InfrastructureSmokeTests : IAsyncLifetime
 {
-    private ResearchTrackWebApplicationFactory<Program>? _factory;
+    private ResearchTrackWebApplicationFactory<GatewayAssemblyMarker>? _factory;
     private HttpClient? _client;
 
     public ValueTask InitializeAsync()
     {
-        _factory = new ResearchTrackWebApplicationFactory<Program>();
+        _factory = new ResearchTrackWebApplicationFactory<GatewayAssemblyMarker>();
         _client = _factory.CreateClient();
         return ValueTask.CompletedTask;
     }
@@ -112,7 +113,7 @@ public sealed class InfrastructureSmokeTests : IAsyncLifetime
     }
 
     private HttpClient Client => _client ?? throw new InvalidOperationException("Test client is not initialized.");
-    private ResearchTrackWebApplicationFactory<Program> Factory => _factory ?? throw new InvalidOperationException("Test factory is not initialized.");
+    private ResearchTrackWebApplicationFactory<GatewayAssemblyMarker> Factory => _factory ?? throw new InvalidOperationException("Test factory is not initialized.");
 
     public sealed record ErrorEnvelope(bool Success, ErrorBody? Error, MetaBody? Meta);
     public sealed record ErrorBody(string Code, string Message);

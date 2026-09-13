@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.WebUtilities;
 using ResearchTrack.BuildingBlocks.Api.Constants;
 using ResearchTrack.BuildingBlocks.Api.Contracts;
 using ResearchTrack.BuildingBlocks.Api.Controllers;
@@ -82,11 +83,15 @@ public sealed class GitHubInstallationController : ApiControllerBase
         var returnUri = new Uri(
             _gitHubAppOptions.FrontendReturnOrigin,
             result.ReturnPath.TrimStart('/'));
-        var query = new Dictionary<string, string>
+        var query = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var pair in QueryHelpers.ParseQuery(returnUri.Query))
         {
-            ["githubSetup"] = result.Succeeded ? "success" : "failed",
-            ["githubFlow"] = result.FlowType
-        };
+            query[pair.Key] = pair.Value.ToString();
+        }
+
+        query["tab"] = "integrations";
+        query["githubSetup"] = result.Succeeded ? "success" : "failed";
+        query["githubFlow"] = result.FlowType;
 
         if (result.SourceId is Guid sourceId)
         {

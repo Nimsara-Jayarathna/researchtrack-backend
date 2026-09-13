@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging.Abstractions;
 using ResearchTrack.BuildingBlocks.Api.Exceptions;
 using ResearchTrack.GitHubService.Infrastructure;
 
@@ -38,19 +39,53 @@ public sealed class GitHubPublicRepositoryClientTests
         Assert.Equal(StatusCodes.Status404NotFound, exception.StatusCode);
     }
 
-    [Fact]
-    public async Task Maps_github_failure_to_dependency_unavailable()
+    [Theory]
+    [InlineData(HttpStatusCode.TooManyRequests, "rate limit")]
+    [InlineData(HttpStatusCode.InternalServerError, "temporarily unavailable")]
+    public async Task Maps_github_failures_to_actionable_dependency_errors(
+        HttpStatusCode upstreamStatus,
+        string expectedMessage)
     {
-        var client = CreateClient(new StubHandler(HttpStatusCode.InternalServerError, "{}"));
+        var client = CreateClient(new StubHandler(upstreamStatus, "{}"));
 
         var exception = await Assert.ThrowsAsync<ApiException>(
             () => client.GetAsync("owner", "repository", TestContext.Current.CancellationToken));
 
         Assert.Equal(StatusCodes.Status503ServiceUnavailable, exception.StatusCode);
+        Assert.Contains(expectedMessage, exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+
+    [Fact]
+    public async Task Maps_github_403_rate_limit_only_when_provider_reports_rate_limit()
+    {
+        var client = CreateClient(new StubHandler(
+            HttpStatusCode.Forbidden,
+            "{\"message\":\"API rate limit exceeded for this IP.\"}"));
+
+        var exception = await Assert.ThrowsAsync<ApiException>(
+            () => client.GetAsync("owner", "repository", TestContext.Current.CancellationToken));
+
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, exception.StatusCode);
+        Assert.Contains("rate limit", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Does_not_misreport_generic_github_403_as_rate_limit()
+    {
+        var client = CreateClient(new StubHandler(
+            HttpStatusCode.Forbidden,
+            "{\"message\":\"Repository access blocked.\"}"));
+
+        var exception = await Assert.ThrowsAsync<ApiException>(
+            () => client.GetAsync("owner", "repository", TestContext.Current.CancellationToken));
+
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, exception.StatusCode);
+        Assert.Contains("denied", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("rate limit", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Theory]
-    [InlineData(HttpStatusCode.TooManyRequests)]
     [InlineData(HttpStatusCode.BadGateway)]
     public async Task Maps_rate_limit_and_upstream_errors_to_dependency_unavailable(
         HttpStatusCode upstreamStatus)
@@ -84,7 +119,9 @@ public sealed class GitHubPublicRepositoryClientTests
         {
             BaseAddress = GitHubPublicRepositoryClient.TrustedBaseAddress
         };
-        return new GitHubPublicRepositoryClient(httpClient);
+        return new GitHubPublicRepositoryClient(
+            httpClient,
+            NullLogger<GitHubPublicRepositoryClient>.Instance);
     }
 
     private static string PublicRepositoryJson() => """

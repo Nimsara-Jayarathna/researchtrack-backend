@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using ResearchTrack.BuildingBlocks.Api.Constants;
 using ResearchTrack.BuildingBlocks.Api.Exceptions;
 using ResearchTrack.GitHubService.Domain;
+using ResearchTrack.GitHubService.Infrastructure;
 using ResearchTrack.GitHubService.Persistence;
 
 namespace ResearchTrack.GitHubService.Features.Synchronization;
@@ -56,10 +57,24 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
 
             if (repository.Id != syncContext.Link.GitHubRepoId)
             {
-                throw new ApiException(
-                    StatusCodes.Status409Conflict,
-                    ErrorCodes.Conflict,
-                    "The GitHub repository identity no longer matches the linked ResearchTrack repository.");
+                if (string.Equals(
+                        syncContext.Source.AccessType,
+                        GitHubAccessTypes.PublicUrl,
+                        StringComparison.Ordinal)
+                    && PublicRepositoryIdentity.IsSynthetic(syncContext.Link.GitHubRepoId))
+                {
+                    await PromotePublicRepositoryIdentityAsync(
+                        syncContext,
+                        repository,
+                        cancellationToken);
+                }
+                else
+                {
+                    throw new ApiException(
+                        StatusCodes.Status409Conflict,
+                        ErrorCodes.Conflict,
+                        "The GitHub repository identity no longer matches the linked ResearchTrack repository.");
+                }
             }
 
             var branches = await _gitHubClient.GetBranchesAsync(
@@ -174,6 +189,89 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
                 "The GitHub access source is no longer active.");
 
         return new SyncContext(link, source);
+    }
+
+    private async Task PromotePublicRepositoryIdentityAsync(
+        SyncContext syncContext,
+        GitHubSyncRepository repository,
+        CancellationToken cancellationToken)
+    {
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+
+        var link = await dbContext.ProjectRepositoryLinks
+            .SingleAsync(item => item.Id == syncContext.Link.Id, cancellationToken);
+        var source = await dbContext.AccessSources
+            .SingleAsync(item => item.Id == syncContext.Source.Id, cancellationToken);
+        var repositoryEntity = await dbContext.Repositories
+            .SingleAsync(item => item.Id == link.GitHubRepositoryId, cancellationToken);
+
+        var conflictingLinkExists = await dbContext.ProjectRepositoryLinks
+            .AsNoTracking()
+            .AnyAsync(item =>
+                item.Id != link.Id
+                && item.ProjectId == link.ProjectId
+                && item.Active
+                && item.GitHubRepoId == repository.Id,
+                cancellationToken);
+        if (conflictingLinkExists)
+        {
+            throw new ApiException(
+                StatusCodes.Status409Conflict,
+                ErrorCodes.Conflict,
+                "This GitHub repository is already linked to the project.");
+        }
+
+        repositoryEntity.GitHubRepositoryId = repository.Id;
+        repositoryEntity.FullName = repository.FullName;
+        repositoryEntity.Name = repository.Name;
+        repositoryEntity.OwnerLogin = repository.OwnerLogin;
+        repositoryEntity.DefaultBranch = repository.DefaultBranch;
+        repositoryEntity.Url = repository.HtmlUrl;
+        repositoryEntity.UpdatedAt = now;
+
+        link.GitHubRepoId = repository.Id;
+        link.FullName = repository.FullName;
+        link.Name = repository.Name;
+        link.OwnerLogin = repository.OwnerLogin;
+        link.DefaultBranch = repository.DefaultBranch;
+        link.Url = repository.HtmlUrl;
+        link.ActiveRepositoryKey = $"{link.ProjectId:N}:{repository.Id}";
+        link.UpdatedAt = now;
+
+        source.OwnerLogin = repository.OwnerLogin;
+        source.ActiveRepositoryKey = $"{source.ProjectId:N}:{GitHubAccessTypes.PublicUrl}:{repository.Id}";
+        source.UpdatedAt = now;
+
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        }
+        catch (DbUpdateException exception)
+        {
+            throw new ApiException(
+                StatusCodes.Status409Conflict,
+                ErrorCodes.Conflict,
+                "The public GitHub repository identity conflicts with an existing linked repository.",
+                innerException: exception);
+        }
+
+        // Keep the already-loaded context consistent for the remainder of this sync.
+        syncContext.Link.GitHubRepoId = repository.Id;
+        syncContext.Link.FullName = repository.FullName;
+        syncContext.Link.Name = repository.Name;
+        syncContext.Link.OwnerLogin = repository.OwnerLogin;
+        syncContext.Link.DefaultBranch = repository.DefaultBranch;
+        syncContext.Link.Url = repository.HtmlUrl;
+        syncContext.Link.ActiveRepositoryKey = $"{syncContext.Link.ProjectId:N}:{repository.Id}";
+
+        _logger.LogInformation(
+            "Promoted provisional public repository identity to GitHub repository id. ProjectId={ProjectId} LinkedRepositoryId={LinkedRepositoryId} GitHubRepositoryId={GitHubRepositoryId}",
+            syncContext.Link.ProjectId,
+            syncContext.Link.Id,
+            repository.Id);
     }
 
     private async Task MarkStartedAsync(
