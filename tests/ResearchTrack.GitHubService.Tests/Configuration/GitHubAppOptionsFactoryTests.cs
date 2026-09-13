@@ -48,6 +48,31 @@ public sealed class GitHubAppOptionsFactoryTests
         Assert.Throws<InvalidOperationException>(() => GitHubAppOptionsFactory.Create(configuration));
     }
 
+    [Fact]
+    public void Base64_private_key_takes_precedence_over_file_path()
+    {
+        var values = ValidValues();
+        values["GitHub:PrivateKeyBase64"] = Convert.ToBase64String(
+            System.Text.Encoding.UTF8.GetBytes("-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----"));
+        values["GitHub:PrivateKeyPath"] = "CHANGE_ME";
+
+        var options = GitHubAppOptionsFactory.Create(
+            new ConfigurationBuilder().AddInMemoryCollection(values).Build());
+
+        Assert.NotNull(options.PrivateKeyBase64);
+        Assert.Empty(options.PrivateKeyPath);
+    }
+
+    [Fact]
+    public void Invalid_base64_private_key_is_rejected()
+    {
+        var values = ValidValues();
+        values["GitHub:PrivateKeyBase64"] = "not-base64";
+
+        Assert.Throws<InvalidOperationException>(() => GitHubAppOptionsFactory.Create(
+            new ConfigurationBuilder().AddInMemoryCollection(values).Build()));
+    }
+
     private static IConfiguration BuildConfiguration() =>
         new ConfigurationBuilder().AddInMemoryCollection(ValidValues()).Build();
 

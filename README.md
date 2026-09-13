@@ -338,7 +338,7 @@ GitHub__AppId
 GitHub__AppSlug
 GitHub__ClientId
 GitHub__ClientSecret
-GitHub__PrivateKeyPath
+GitHub__PrivateKeyBase64 (or GitHub__PrivateKeyPath for a mounted secret file)
 GitHub__SetupCallbackUrl
 GitHub__FrontendReturnOrigin
 GitHub__StateExpiryMinutes

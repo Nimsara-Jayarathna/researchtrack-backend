@@ -24,7 +24,7 @@ Create or use the GitHub App dedicated to ResearchTrack. The GitHub App display 
 - **App ID**: copy the numeric App ID into `GitHub__AppId`.
 - **Client ID**: copy the GitHub App Client ID into `GitHub__ClientId`.
 - **Client Secret**: create a GitHub App client secret and provide it only to the backend as `GitHub__ClientSecret`.
-- **Private key**: generate a GitHub App private key, store the PEM outside source control, and set `GitHub__PrivateKeyPath` to its backend-readable filesystem path.
+- **Private key**: generate a GitHub App private key and set `GitHub__PrivateKeyBase64` to the base64-encoded PEM. A mounted secret file through `GitHub__PrivateKeyPath` remains supported as an alternative.
 - **Setup URL**: set this to the public ResearchTrack callback endpoint. For local direct-service development the example is `http://localhost:5103/api/github/access-source/install/callback`. In a deployed environment use the public HTTPS backend/gateway origin plus `/api/github/access-source/install/callback`.
 - **Callback URL**: set the GitHub App OAuth callback URL to the same public callback endpoint. The backend explicitly starts the user-authorization leg after the setup callback.
 - **Request user authorization (OAuth) during installation**: leave this disabled. ResearchTrack uses the Setup URL first, then explicitly starts the user authorization check so it can bind the returned installation to the existing ResearchTrack state.
@@ -60,7 +60,7 @@ GitHub__AppId
 GitHub__AppSlug
 GitHub__ClientId
 GitHub__ClientSecret
-GitHub__PrivateKeyPath
+GitHub__PrivateKeyBase64
 GitHub__SetupCallbackUrl
 GitHub__FrontendReturnOrigin
 GitHub__StateExpiryMinutes
@@ -73,7 +73,7 @@ Never create frontend `VITE_*` variables containing GitHub credentials.
 ## Secret handling
 
 - Keep the real `.env` / `.env.local` files untracked.
-- Never commit the GitHub App PEM private key.
+- Never commit the GitHub App PEM private key or its base64 representation.
 - Do not print the private key, Client Secret, App JWT, GitHub user token, installation token, Authorization headers, or ResearchTrack state values.
 - Installation tokens are created on demand and are not stored in ResearchTrack tables.
 - GitHub user tokens exist only for the callback identity check and are not persisted.

@@ -35,7 +35,9 @@ public sealed class GitHubAppJwtProvider : IGitHubAppJwtProvider
         var unsignedToken = $"{header}.{payload}";
 
         using var rsa = RSA.Create();
-        var pem = File.ReadAllText(_options.PrivateKeyPath);
+        var pem = _options.PrivateKeyBase64 is not null
+            ? Encoding.UTF8.GetString(Convert.FromBase64String(_options.PrivateKeyBase64))
+            : File.ReadAllText(_options.PrivateKeyPath);
         rsa.ImportFromPem(pem);
         var signature = rsa.SignData(
             Encoding.ASCII.GetBytes(unsignedToken),

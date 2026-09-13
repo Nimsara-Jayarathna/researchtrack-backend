@@ -18,7 +18,11 @@ public static class GitHubAppOptionsFactory
 
         var clientId = RequireValue(configuration, "GitHub:ClientId");
         var clientSecret = RequireValue(configuration, "GitHub:ClientSecret");
-        var privateKeyPath = RequireValue(configuration, "GitHub:PrivateKeyPath");
+        var privateKeyBase64 = OptionalValue(configuration, "GitHub:PrivateKeyBase64");
+        var privateKeyPath = privateKeyBase64 is null
+            ? RequireValue(configuration, "GitHub:PrivateKeyPath")
+            : string.Empty;
+        ValidatePrivateKeyBase64(privateKeyBase64);
         var setupCallbackUrl = RequireHttpsUrl(configuration, "GitHub:SetupCallbackUrl", allowLocalHttp: true);
         var frontendReturnOrigin = RequireHttpsOrigin(configuration, "GitHub:FrontendReturnOrigin", allowLocalHttp: true);
         var stateExpiryMinutes = configuration.GetValue<int>("GitHub:StateExpiryMinutes");
@@ -35,7 +39,41 @@ public static class GitHubAppOptionsFactory
             privateKeyPath,
             setupCallbackUrl,
             frontendReturnOrigin,
-            TimeSpan.FromMinutes(stateExpiryMinutes));
+            TimeSpan.FromMinutes(stateExpiryMinutes))
+        {
+            PrivateKeyBase64 = privateKeyBase64
+        };
+    }
+
+    private static string? OptionalValue(IConfiguration configuration, string key)
+    {
+        var value = configuration[key]?.Trim();
+        return string.IsNullOrWhiteSpace(value)
+            || value.Equals("CHANGE_ME", StringComparison.OrdinalIgnoreCase)
+                ? null
+                : value;
+    }
+
+    private static void ValidatePrivateKeyBase64(string? value)
+    {
+        if (value is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var pem = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(value));
+            if (!pem.Contains("-----BEGIN", StringComparison.Ordinal)
+                || !pem.Contains("PRIVATE KEY-----", StringComparison.Ordinal))
+            {
+                throw Invalid("GitHub:PrivateKeyBase64", "must contain a base64-encoded PEM private key.");
+            }
+        }
+        catch (FormatException)
+        {
+            throw Invalid("GitHub:PrivateKeyBase64", "must contain a base64-encoded PEM private key.");
+        }
     }
 
     private static string RequireValue(IConfiguration configuration, string key)

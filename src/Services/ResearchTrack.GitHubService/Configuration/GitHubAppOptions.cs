@@ -11,4 +11,6 @@ public sealed record GitHubAppOptions(
     TimeSpan StateLifetime)
 {
     public const string SectionName = "GitHub";
+
+    public string? PrivateKeyBase64 { get; init; }
 }
