@@ -99,7 +99,7 @@ public sealed class GitHubRepositoryAccessTokenService : IGitHubRepositoryAccess
             request.RequestedFullName,
             $"https://github.com/{request.RequestedOwner}/{request.RequestedRepositoryName}",
             request.Status,
-            request.ExpiresAt,
+            DateTime.SpecifyKind(request.ExpiresAt, DateTimeKind.Utc),
             safeFailure);
     }
 

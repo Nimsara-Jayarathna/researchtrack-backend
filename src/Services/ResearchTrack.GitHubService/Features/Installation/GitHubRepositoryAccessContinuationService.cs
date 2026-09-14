@@ -81,7 +81,7 @@ public sealed class GitHubRepositoryAccessContinuationService : IGitHubRepositor
         return new GitHubRepositoryAccessRequestContinueResponse(
             request.Id,
             authorizeUrl.AbsoluteUri,
-            request.ExpiresAt);
+            DateTime.SpecifyKind(request.ExpiresAt, DateTimeKind.Utc));
     }
 
     private static ApiException Unavailable() => new(

@@ -328,7 +328,14 @@ public sealed class GitHubInstallationRepositoryService : IGitHubInstallationRep
                 "GitHub returned an ambiguous repository identity for the requested repository.");
         }
 
-        var authoritative = matches[0];
+        // A multi-page listing can become stale while it is being enumerated.
+        // Refresh the exact stable identity immediately before completion.
+        var authoritative = await GetAccessibleRepositoryAsync(token, matches[0].Id, cancellationToken);
+        if (!string.Equals(authoritative.OwnerLogin, requestedOwner.Trim(), StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(authoritative.Name, requestedRepositoryName.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            throw NotFound("The requested repository identity changed during GitHub verification.");
+        }
         _logger.LogInformation(
             "Verified exact owner-granted GitHub repository. InstallationId={InstallationId} GitHubRepositoryId={GitHubRepositoryId}",
             installationId,

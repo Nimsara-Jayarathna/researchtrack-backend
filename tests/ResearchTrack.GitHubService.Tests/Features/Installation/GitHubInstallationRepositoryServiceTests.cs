@@ -321,6 +321,8 @@ public sealed class GitHubInstallationRepositoryServiceTests
     {
         var repositoryClient = new StubRepositoryClient
         {
+            Repository = new GitHubInstallationRepository(202, "OpenAI", "ResearchTrack",
+                "OpenAI/ResearchTrack", "https://github.com/OpenAI/ResearchTrack", "main", true),
             Pages =
             {
                 [1] = new GitHubInstallationRepositoryPage(
@@ -380,6 +382,26 @@ public sealed class GitHubInstallationRepositoryServiceTests
             TestContext.Current.CancellationToken));
 
         Assert.Equal(StatusCodes.Status404NotFound, exception.StatusCode);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Requested_repository_revoked_or_renamed_after_listing_cannot_complete(bool renamed)
+    {
+        var client = new StubRepositoryClient
+        {
+            Repository = Repository(202, "org/renamed", "renamed"),
+            GetFailure = renamed ? null : new ApiException(StatusCodes.Status404NotFound, "NOT_FOUND", "Revoked"),
+            Pages = { [1] = new GitHubInstallationRepositoryPage(
+                [new GitHubInstallationRepository(202, "openai", "researchtrack", "openai/researchtrack",
+                    "https://github.com/openai/researchtrack", "main", true)], 1, false) }
+        };
+        var service = CreateService(new StubAuthorizationClient(), new StubStore(), new StubGitHubAppClient(), client);
+        var exception = await Assert.ThrowsAsync<ApiException>(() => service.VerifyRequestedRepositoryAsync(
+            777, "openai", "researchtrack", TestContext.Current.CancellationToken));
+        Assert.Equal(404, exception.StatusCode);
+        Assert.Equal(1, client.GetCallCount);
     }
 
     private static GitHubInstallationRepositoryService CreateService(

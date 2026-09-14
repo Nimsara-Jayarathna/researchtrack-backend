@@ -185,6 +185,6 @@ public sealed class GitHubRepositoryAccessRequestService : IGitHubRepositoryAcce
         request.RequestedFullName,
         $"https://github.com/{request.RequestedOwner}/{request.RequestedRepositoryName}",
         request.Status,
-        request.ExpiresAt,
+        DateTime.SpecifyKind(request.ExpiresAt, DateTimeKind.Utc),
         GitHubRepositoryAccessFailureCodes.IsSafe(request.FailureCode) ? request.FailureCode : null);
 }

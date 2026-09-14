@@ -15,13 +15,16 @@ public sealed class GitHubRepositoryAccessCompletionStore : IGitHubRepositoryAcc
 
     private readonly IDbContextFactory<GitHubDbContext> _dbContextFactory;
     private readonly GitHubRepositoryLinkOptions _options;
+    private readonly TimeProvider _timeProvider;
 
     public GitHubRepositoryAccessCompletionStore(
         IDbContextFactory<GitHubDbContext> dbContextFactory,
-        GitHubRepositoryLinkOptions options)
+        GitHubRepositoryLinkOptions options,
+        TimeProvider timeProvider)
     {
         _dbContextFactory = dbContextFactory;
         _options = options;
+        _timeProvider = timeProvider;
     }
 
     public async Task<OwnerGrantedRepositoryCompletionPersistenceResult> CompleteAsync(
@@ -117,6 +120,10 @@ public sealed class GitHubRepositoryAccessCompletionStore : IGitHubRepositoryAcc
         {
             return Missing(requestId);
         }
+
+        // The project lock and database reads can outlive the bearer deadline.
+        // Never authorize completion using only the time captured by the caller.
+        now = Later(now, _timeProvider.GetUtcNow().UtcDateTime);
 
         if (request.ProjectId != projectId)
         {
@@ -374,6 +381,23 @@ public sealed class GitHubRepositoryAccessCompletionStore : IGitHubRepositoryAcc
         request.FailureCode = null;
         request.Version++;
 
+        var commitTime = Later(now, _timeProvider.GetUtcNow().UtcDateTime);
+        if (request.ExpiresAt <= commitTime)
+        {
+            // Discard all staged connection changes before materializing expiry.
+            db.ChangeTracker.Clear();
+            await db.RepositoryAccessRequests
+                .Where(item => item.Id == requestId
+                    && item.Status == GitHubRepositoryAccessRequestStatuses.Pending
+                    && item.ExpiresAt <= commitTime)
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(item => item.Status, GitHubRepositoryAccessRequestStatuses.Expired)
+                    .SetProperty(item => item.ConsumedAt, commitTime)
+                    .SetProperty(item => item.Version, item => item.Version + 1), cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return Failed(request, GitHubRepositoryAccessFailureCodes.RequestExpired);
+        }
+
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
@@ -449,6 +473,8 @@ public sealed class GitHubRepositoryAccessCompletionStore : IGitHubRepositoryAcc
     }
 
 
+
+    private static DateTime Later(DateTime first, DateTime second) => first > second ? first : second;
 
     private static ApiException CompletionInProgress(Exception? inner = null) => new(
         StatusCodes.Status409Conflict,

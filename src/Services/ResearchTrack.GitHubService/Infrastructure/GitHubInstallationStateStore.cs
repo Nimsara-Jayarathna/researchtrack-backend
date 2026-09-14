@@ -8,10 +8,12 @@ namespace ResearchTrack.GitHubService.Infrastructure;
 public sealed class GitHubInstallationStateStore : IGitHubInstallationStateStore
 {
     private readonly IDbContextFactory<GitHubDbContext> _dbContextFactory;
+    private readonly TimeProvider _timeProvider;
 
-    public GitHubInstallationStateStore(IDbContextFactory<GitHubDbContext> dbContextFactory)
+    public GitHubInstallationStateStore(IDbContextFactory<GitHubDbContext> dbContextFactory, TimeProvider timeProvider)
     {
         _dbContextFactory = dbContextFactory;
+        _timeProvider = timeProvider;
     }
 
     public async Task CreateAsync(
@@ -39,6 +41,7 @@ public sealed class GitHubInstallationStateStore : IGitHubInstallationStateStore
         await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
         var request = await dbContext.RepositoryAccessRequests
             .SingleOrDefaultAsync(item => item.Id == requestId, cancellationToken);
+        now = Later(now, _timeProvider.GetUtcNow().UtcDateTime);
         if (request is null
             || request.ProjectId != state.ProjectId
             || request.InitiatingUserId != state.InitiatingUserId
@@ -70,7 +73,17 @@ public sealed class GitHubInstallationStateStore : IGitHubInstallationStateStore
         request.AuthorizationStartedAt ??= now;
         request.Version++;
         dbContext.InstallationFlowStates.Add(state);
-        await dbContext.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            throw new ResearchTrack.BuildingBlocks.Api.Exceptions.ApiException(
+                StatusCodes.Status409Conflict,
+                ResearchTrack.BuildingBlocks.Api.Constants.ErrorCodes.Conflict,
+                "The access request changed. Please validate the link again.");
+        }
         await transaction.CommitAsync(cancellationToken);
         return RequestedInstallationStateCreateOutcome.Created;
     }
@@ -133,6 +146,7 @@ public sealed class GitHubInstallationStateStore : IGitHubInstallationStateStore
             .SingleOrDefaultAsync(item => item.StateHash == stateHash, cancellationToken);
         var request = await dbContext.RepositoryAccessRequests
             .SingleOrDefaultAsync(item => item.Id == repositoryAccessRequestId, cancellationToken);
+        now = Later(now, _timeProvider.GetUtcNow().UtcDateTime);
 
         if (state is null || request is null)
         {
@@ -181,7 +195,14 @@ public sealed class GitHubInstallationStateStore : IGitHubInstallationStateStore
         request.AuthorizationStartedAt ??= now;
         request.Version++;
 
-        await dbContext.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return null;
+        }
         await transaction.CommitAsync(cancellationToken);
         dbContext.Entry(state).State = EntityState.Detached;
         return state;
@@ -224,6 +245,8 @@ public sealed class GitHubInstallationStateStore : IGitHubInstallationStateStore
                 state.ConsumedAt!.Value))
             .SingleAsync(cancellationToken);
     }
+
+    private static DateTime Later(DateTime first, DateTime second) => first > second ? first : second;
 
     public async Task<GitHubInstallationFlowState?> FindAsync(
         string stateHash,

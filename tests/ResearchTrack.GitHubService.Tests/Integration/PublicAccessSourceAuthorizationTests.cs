@@ -63,6 +63,25 @@ public sealed class PublicAccessSourceAuthorizationTests : IAsyncLifetime
         Assert.False(Service.WasCalled);
     }
 
+    [Theory]
+    [InlineData("/api/github/access-requests", null, HttpStatusCode.Unauthorized)]
+    [InlineData("/api/v1/github/access-requests", null, HttpStatusCode.Unauthorized)]
+    [InlineData("/api/github/access-requests", "STUDENT", HttpStatusCode.Forbidden)]
+    [InlineData("/api/v1/github/access-requests", "STUDENT", HttpStatusCode.Forbidden)]
+    public async Task Owner_grant_creation_requires_supervisor_authentication(string path, string? role, HttpStatusCode expected)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, path)
+        {
+            Content = JsonContent.Create(new CreateGitHubRepositoryAccessRequest(ProjectId, "https://github.com/openai/example"))
+        };
+        if (role is not null)
+        {
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", CreateToken(role));
+        }
+        var response = await Client.SendAsync(request, TestContext.Current.CancellationToken);
+        Assert.Equal(expected, response.StatusCode);
+    }
+
     [Fact]
     public async Task Student_is_not_authorized_to_manage_github_access()
     {

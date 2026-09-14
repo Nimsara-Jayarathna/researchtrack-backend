@@ -9,6 +9,7 @@ using ResearchTrack.Testing;
 
 namespace ResearchTrack.GitHubService.Tests.Integration;
 
+[Collection("Owner-grant database isolation")]
 public sealed class OwnerGrantedRepositoryCompletionPersistenceTests : IAsyncLifetime
 {
     private static readonly Guid ProjectId = Guid.Parse("11111111-1111-1111-1111-111111111111");
@@ -339,7 +340,7 @@ public sealed class OwnerGrantedRepositoryCompletionPersistenceTests : IAsyncLif
         }
 
         var store = new GitHubInstallationStateStore(
-            GetRequiredService<IDbContextFactory<GitHubDbContext>>());
+            GetRequiredService<IDbContextFactory<GitHubDbContext>>(), new FixedTimeProvider(Now));
         var bound = await store.TryBindRequestedInstallationAsync(
             stateHash,
             request.Id,
@@ -478,11 +479,94 @@ public sealed class OwnerGrantedRepositoryCompletionPersistenceTests : IAsyncLif
         }
     }
 
+    [Theory]
+    [Trait("Category", "DatabaseIntegration")]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Expiry_after_caller_timestamp_or_during_transaction_cannot_create_connection(bool duringTransaction)
+    {
+        var request = await SeedRequestAsync(Guid.NewGuid());
+        var clock = new ExpiringTimeProvider(Now, request.ExpiresAt, duringTransaction);
+        var store = new GitHubRepositoryAccessCompletionStore(
+            GetRequiredService<IDbContextFactory<GitHubDbContext>>(), new GitHubRepositoryLinkOptions(5, 5), clock);
+        var result = await store.CompleteAsync(request.Id, Installation(777),
+            Repository(987654, "openai", "researchtrack"), Now, TestContext.Current.CancellationToken);
+        Assert.False(result.Succeeded);
+        Assert.Null(result.InitialSyncRequest);
+        await using var db = await CreateDbContextAsync();
+        Assert.Equal(GitHubRepositoryAccessRequestStatuses.Expired,
+            (await db.RepositoryAccessRequests.SingleAsync(TestContext.Current.CancellationToken)).Status);
+        Assert.Empty(await db.AccessSources.ToListAsync(TestContext.Current.CancellationToken));
+        Assert.Empty(await db.Repositories.ToListAsync(TestContext.Current.CancellationToken));
+        Assert.Empty(await db.ProjectRepositoryLinks.ToListAsync(TestContext.Current.CancellationToken));
+    }
+
+    private sealed class ExpiringTimeProvider(DateTime initial, DateTime expired, bool duringTransaction) : TimeProvider
+    {
+        private int _calls;
+        public override DateTimeOffset GetUtcNow() => new(
+            duringTransaction && ++_calls == 1 ? initial : expired);
+    }
+
+    [Fact]
+    [Trait("Category", "DatabaseIntegration")]
+    public async Task Scheduler_recovers_committed_link_when_immediate_handoff_was_lost()
+    {
+        var request = await SeedRequestAsync(Guid.NewGuid());
+        var result = await CreateStore().CompleteAsync(request.Id, Installation(777),
+            Repository(987654, "openai", "researchtrack"), Now, TestContext.Current.CancellationToken);
+        Assert.True(result.Succeeded);
+        // Intentionally discard InitialSyncRequest, modelling a crash after commit.
+        var queue = new ResearchTrack.GitHubService.Features.Synchronization.RepositorySyncQueue();
+        using var worker = new ResearchTrack.GitHubService.Features.Synchronization.RepositoryScheduledSyncWorker(
+            GetRequiredService<IDbContextFactory<GitHubDbContext>>(), queue, new FixedTimeProvider(Now),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<ResearchTrack.GitHubService.Features.Synchronization.RepositoryScheduledSyncWorker>.Instance);
+        await worker.StartAsync(TestContext.Current.CancellationToken);
+        try
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            await using var reader = queue.ReadAllAsync(timeout.Token).GetAsyncEnumerator(timeout.Token);
+            Assert.True(await reader.MoveNextAsync());
+            Assert.Equal(result.LinkedRepositoryId, reader.Current.LinkedRepositoryId);
+        }
+        finally
+        {
+            await worker.StopAsync(TestContext.Current.CancellationToken);
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "DatabaseIntegration")]
+    public async Task Migrated_database_contains_every_index_named_by_the_current_model()
+    {
+        await using var db = await CreateDbContextAsync();
+        Assert.False(db.Database.HasPendingModelChanges());
+        await db.Database.OpenConnectionAsync(TestContext.Current.CancellationToken);
+        foreach (var entity in db.Model.GetEntityTypes())
+        {
+            foreach (var index in entity.GetIndexes())
+            {
+                await using var command = db.Database.GetDbConnection().CreateCommand();
+                command.CommandText = "SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = @table AND index_name = @index";
+                var table = command.CreateParameter(); table.ParameterName = "@table"; table.Value = entity.GetTableName(); command.Parameters.Add(table);
+                var name = command.CreateParameter(); name.ParameterName = "@index"; name.Value = index.GetDatabaseName(); command.Parameters.Add(name);
+                Assert.True(Convert.ToInt64(await command.ExecuteScalarAsync(TestContext.Current.CancellationToken)) > 0,
+                    $"Missing migrated index {entity.GetTableName()}.{index.GetDatabaseName()}");
+            }
+        }
+    }
+
     private GitHubRepositoryAccessCompletionStore CreateStore(
         int maxLinked = 5,
         int maxEnabled = 5) => new(
         GetRequiredService<IDbContextFactory<GitHubDbContext>>(),
-        new GitHubRepositoryLinkOptions(maxLinked, maxEnabled));
+        new GitHubRepositoryLinkOptions(maxLinked, maxEnabled),
+        new FixedTimeProvider(Now));
+
+    private sealed class FixedTimeProvider(DateTime now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => new(now);
+    }
 
     private async Task<GitHubRepositoryAccessRequest> SeedRequestAsync(
         Guid requestId,
@@ -619,3 +703,8 @@ public sealed class OwnerGrantedRepositoryCompletionPersistenceTests : IAsyncLif
         await GetRequiredService<IDbContextFactory<GitHubDbContext>>()
             .CreateDbContextAsync(TestContext.Current.CancellationToken);
 }
+
+// These tests recreate the shared test database. Serialize against the existing
+// public-link/readiness suites; concurrency inside individual tests is retained.
+[CollectionDefinition("Owner-grant database isolation", DisableParallelization = true)]
+public sealed class OwnerGrantDatabaseCollection;

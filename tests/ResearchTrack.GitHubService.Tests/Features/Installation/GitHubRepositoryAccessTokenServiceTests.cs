@@ -100,6 +100,17 @@ public sealed class GitHubRepositoryAccessTokenServiceTests
         Assert.DoesNotContain(store.Request!.RequestTokenHash, rendered, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public async Task Database_expiry_serializes_as_utc_for_non_utc_owner_browsers()
+    {
+        var request = PendingRequest();
+        request.ExpiresAt = DateTime.SpecifyKind(request.ExpiresAt, DateTimeKind.Unspecified);
+        var response = await CreateService(new StubStore { Request = request })
+            .ValidateAsync(RawToken, TestContext.Current.CancellationToken);
+        Assert.Equal(DateTimeKind.Utc, response.ExpiresAt.Kind);
+        Assert.Contains("2026-09-14T09:10:00Z", System.Text.Json.JsonSerializer.Serialize(response), StringComparison.Ordinal);
+    }
+
     private static GitHubRepositoryAccessTokenService CreateService(StubStore store) => new(
         store,
         new FixedTimeProvider(Now),
