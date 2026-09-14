@@ -15,7 +15,8 @@ config/env/
 ├── github/.env.example
 ├── jira/.env.example
 ├── meeting/.env.example
-└── submission/.env.example
+├── submission/.env.example
+└── grafana/.env.example
 ```
 
 There is deliberately **no second set of deployment templates under `deploy/`**.
@@ -54,6 +55,7 @@ The same committed contracts are used to prepare GitHub Environment multiline se
 | `jira/.env.example` | `JIRA_ENV_FILE` | `jira.env` |
 | `meeting/.env.example` | `MEETING_ENV_FILE` | `meeting.env` |
 | `submission/.env.example` | `SUBMISSION_ENV_FILE` | `submission.env` |
+| `grafana/.env.example` | `GRAFANA_ENV_FILE` | `grafana.env` |
 
 Copy the complete example shape, then change values for the target environment. Do not commit the completed files.
 
