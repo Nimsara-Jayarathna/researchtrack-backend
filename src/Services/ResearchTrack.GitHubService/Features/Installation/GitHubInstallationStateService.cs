@@ -30,7 +30,8 @@ public sealed class GitHubInstallationStateService : IGitHubInstallationStateSer
         Guid initiatingUserId,
         string flowType,
         string returnPath,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Guid? accessRequestId = null)
     {
         if (projectId == Guid.Empty || initiatingUserId == Guid.Empty)
         {
@@ -50,6 +51,7 @@ public sealed class GitHubInstallationStateService : IGitHubInstallationStateSer
                 StateHash = HashState(value),
                 ProjectId = projectId,
                 InitiatingUserId = initiatingUserId,
+                AccessRequestId = accessRequestId,
                 FlowType = flowType,
                 ReturnPath = returnPath,
                 CreatedAt = now,
@@ -73,11 +75,19 @@ public sealed class GitHubInstallationStateService : IGitHubInstallationStateSer
 
     public async Task<ValidatedGitHubInstallationState> ValidateExternalCallbackAsync(
         string state,
-        string expectedFlowType,
         CancellationToken cancellationToken)
     {
-        var existing = await GetValidExternalStateAsync(
-            state, expectedFlowType, cancellationToken);
+        if (string.IsNullOrWhiteSpace(state))
+        {
+            throw InvalidState("GitHub installation state is required.");
+        }
+        var existing = await _store.FindAsync(HashState(state), cancellationToken);
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
+        if (existing is null || existing.ConsumedAt is not null || existing.ExpiresAt <= now
+            || !GitHubInstallationFlowTypes.IsSupported(existing.FlowType))
+        {
+            throw InvalidState("GitHub installation state is unknown, expired, or already used.");
+        }
         return MapValidated(existing);
     }
 
@@ -227,6 +237,7 @@ public sealed class GitHubInstallationStateService : IGitHubInstallationStateSer
             state.InitiatingUserId,
             state.FlowType,
             state.ReturnPath,
+            state.AccessRequestId,
             state.PendingInstallationId,
             state.AuthorizationStartedAt);
 
@@ -243,7 +254,7 @@ public sealed class GitHubInstallationStateService : IGitHubInstallationStateSer
 
     private static void ValidateFlowType(string flowType)
     {
-        if (!string.Equals(flowType, GitHubInstallationFlowTypes.Direct, StringComparison.Ordinal))
+        if (!GitHubInstallationFlowTypes.IsSupported(flowType))
         {
             throw new ArgumentException("Unsupported GitHub installation flow type.", nameof(flowType));
         }

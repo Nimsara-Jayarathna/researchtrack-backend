@@ -99,6 +99,7 @@ public sealed class GitHubInstallationStateStore : IGitHubInstallationStateStore
                 state.InitiatingUserId,
                 state.FlowType,
                 state.ReturnPath,
+                state.AccessRequestId,
                 state.PendingInstallationId,
                 state.ConsumedAt!.Value))
             .SingleAsync(cancellationToken);

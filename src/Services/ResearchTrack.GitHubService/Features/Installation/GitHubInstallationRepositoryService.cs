@@ -2,6 +2,7 @@ using ResearchTrack.BuildingBlocks.Api.Constants;
 using ResearchTrack.BuildingBlocks.Api.Contracts;
 using ResearchTrack.BuildingBlocks.Api.Exceptions;
 using ResearchTrack.GitHubService.Contracts;
+using ResearchTrack.GitHubService.Domain;
 using ResearchTrack.GitHubService.Infrastructure;
 using ResearchTrack.GitHubService.Infrastructure.GitHubApp;
 
@@ -228,7 +229,8 @@ public sealed class GitHubInstallationRepositoryService : IGitHubInstallationRep
         // Defense in depth: linking already authorizes in RepositoryLinkService.
         await _projectAuthorization.EnsureCanManageAsync(projectId, cancellationToken);
 
-        if (repositories.Count != 1)
+        if (string.Equals(source.AccessType, GitHubAccessTypes.InstallationDirect, StringComparison.Ordinal)
+            && repositories.Count != 1)
         {
             throw new ApiValidationException([
                 new ApiFieldError(
@@ -237,46 +239,50 @@ public sealed class GitHubInstallationRepositoryService : IGitHubInstallationRep
             ]);
         }
 
-        var selection = repositories[0];
-        var storedSelection = await _store.GetSelectionAsync(
-            sourceId,
-            selection.GitHubRepositoryId,
-            cancellationToken)
-            ?? throw NotFound(
-                "The selected repository was not offered by this GitHub App access source.");
-
         // Token creation proves the installation is currently accessible by this GitHub App.
+        // Direct and requested authorization deliberately share this verification pipeline.
         var token = await _gitHubAppClient.CreateInstallationTokenAsync(
             source.InstallationId,
             cancellationToken);
 
-        var authoritative = await GetAccessibleRepositoryAsync(
-            token,
-            storedSelection.GitHubRepositoryId,
-            cancellationToken);
-
-        if (authoritative.Id != storedSelection.GitHubRepositoryId)
+        foreach (var selection in repositories)
         {
-            throw DependencyFailure("GitHub returned unexpected repository metadata.");
-        }
+            var storedSelection = await _store.GetSelectionAsync(
+                sourceId,
+                selection.GitHubRepositoryId,
+                cancellationToken)
+                ?? throw NotFound(
+                    "The selected repository was not offered by this GitHub App access source.");
 
-        var verifiedRepositoryId = await _store.UpsertVerifiedAsync(
-            source.Id,
-            authoritative,
-            _timeProvider.GetUtcNow().UtcDateTime,
-            cancellationToken);
-        if (verifiedRepositoryId != storedSelection.Id)
-        {
-            throw Conflict("The selected repository identity changed unexpectedly.");
-        }
+            var authoritative = await GetAccessibleRepositoryAsync(
+                token,
+                storedSelection.GitHubRepositoryId,
+                cancellationToken);
 
-        _logger.LogInformation(
-            "Verified GitHub App repository before linking. ProjectId={ProjectId} SourceId={SourceId} InstallationId={InstallationId} GitHubRepositoryId={GitHubRepositoryId} UserId={UserId}",
-            projectId,
-            source.Id,
-            source.InstallationId,
-            authoritative.Id,
-            userId);
+            if (authoritative.Id != storedSelection.GitHubRepositoryId)
+            {
+                throw DependencyFailure("GitHub returned unexpected repository metadata.");
+            }
+
+            var verifiedRepositoryId = await _store.UpsertVerifiedAsync(
+                source.Id,
+                authoritative,
+                _timeProvider.GetUtcNow().UtcDateTime,
+                cancellationToken);
+            if (verifiedRepositoryId != storedSelection.Id)
+            {
+                throw Conflict("The selected repository identity changed unexpectedly.");
+            }
+
+            _logger.LogInformation(
+                "Verified GitHub App repository before linking. ProjectId={ProjectId} SourceId={SourceId} InstallationId={InstallationId} GitHubRepositoryId={GitHubRepositoryId} AccessType={AccessType} UserId={UserId}",
+                projectId,
+                source.Id,
+                source.InstallationId,
+                authoritative.Id,
+                source.AccessType,
+                userId);
+        }
 
         return true;
     }
