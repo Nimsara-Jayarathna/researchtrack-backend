@@ -2,7 +2,7 @@ name: Backend Deploy - Test
 
 on:
   push:
-    branches: ["devops/scrum-195-do-202-deploy-grafana-and-build-researchtrack-service-dashboard"]
+    branches: ["develop"]
   workflow_dispatch:
     inputs:
       force_full_build:
