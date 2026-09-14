@@ -105,7 +105,12 @@ services:
     image: prom/prometheus:latest
     restart: unless-stopped
     volumes:
-      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - type: bind
+        source: ./monitoring/prometheus.yml
+        target: /etc/prometheus/prometheus.yml
+        read_only: true
+        bind:
+          create_host_path: false
       - prometheus-data:/prometheus
     networks:
       backend: {}
@@ -121,7 +126,12 @@ services:
       - "127.0.0.1:${GRAFANA_HOST_PORT:-9000}:3000"
     volumes:
       - grafana-data:/var/lib/grafana
-      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - type: bind
+        source: ./monitoring/grafana/provisioning
+        target: /etc/grafana/provisioning
+        read_only: true
+        bind:
+          create_host_path: false
     networks:
       backend: {}
     mem_limit: ${GRAFANA_MEMORY_LIMIT:-256m}
@@ -138,8 +148,18 @@ services:
       - --max-connections=100
     volumes:
       - mysql-data:/var/lib/mysql
-      - ./mysql/reconcile-databases.sh:/docker-entrypoint-initdb.d/01-reconcile-databases.sh:ro
-      - ./mysql/reconcile-databases.sh:/opt/researchtrack/reconcile-databases.sh:ro
+      - type: bind
+        source: ./mysql/reconcile-databases.sh
+        target: /docker-entrypoint-initdb.d/01-reconcile-databases.sh
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./mysql/reconcile-databases.sh
+        target: /opt/researchtrack/reconcile-databases.sh
+        read_only: true
+        bind:
+          create_host_path: false
     networks:
       database: {}
     healthcheck:
