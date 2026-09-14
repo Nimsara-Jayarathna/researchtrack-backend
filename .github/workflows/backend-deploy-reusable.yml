@@ -157,7 +157,7 @@ jobs:
               [[ "$line" == *=* ]] || { echo "Invalid deploy.env entry: $line" >&2; exit 1; }
               key="${line%%=*}"
               case "$key" in
-                DEPLOY_ENV|IMAGE_PREFIX|EDGE_NETWORK) ;;
+                DEPLOY_ENV|IMAGE_PREFIX|EDGE_NETWORK|GRAFANA_HOST_PORT) ;;
                 *) echo "deploy.env contains unsupported key '$key'." >&2; exit 1 ;;
               esac
               if [[ -n "${seen[$key]:-}" ]]; then
@@ -187,6 +187,7 @@ jobs:
           DEPLOY_ENV=$deploy_env
           IMAGE_PREFIX=$image_prefix
           EDGE_NETWORK=$edge_network
+          GRAFANA_HOST_PORT=${{ vars.GRAFANA_HOST_PORT }}
           EOF
           validate_deploy_env "$RUNNER_TEMP/deploy.env"
 
@@ -240,7 +241,7 @@ jobs:
               [[ "$line" == *=* ]] || { echo "Invalid deploy.env entry: $line" >&2; exit 1; }
               key="${line%%=*}"
               case "$key" in
-                DEPLOY_ENV|IMAGE_PREFIX|EDGE_NETWORK) ;;
+                DEPLOY_ENV|IMAGE_PREFIX|EDGE_NETWORK|GRAFANA_HOST_PORT) ;;
                 *) echo "deploy.env contains unsupported key '$key'." >&2; exit 1 ;;
               esac
               if [[ -n "${seen[$key]:-}" ]]; then
