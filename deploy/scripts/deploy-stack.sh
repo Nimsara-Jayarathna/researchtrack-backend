@@ -18,6 +18,7 @@ esac
 compose=(docker compose --env-file deploy.env -f compose.yml)
 app_services=(gateway auth project github jira meeting submission)
 db_services=(auth project github jira meeting submission)
+observability_services=(prometheus grafana)
 
 echo "[1/9] Validate Compose"
 "${compose[@]}" config --quiet
@@ -87,7 +88,7 @@ for service in "${db_services[@]}"; do
 done
 
 echo "[9/9] Reconcile application containers"
-"${compose[@]}" up -d --remove-orphans "${app_services[@]}"
+"${compose[@]}" up -d --remove-orphans "${app_services[@]}" "${observability_services[@]}"
 
 echo
 echo "========== COMPOSE STATE AFTER UP =========="
