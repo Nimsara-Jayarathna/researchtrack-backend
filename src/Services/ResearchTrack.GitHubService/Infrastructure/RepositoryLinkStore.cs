@@ -49,25 +49,14 @@ public sealed class RepositoryLinkStore : IRepositoryLinkStore
         {
             throw Conflict("The GitHub access source is inactive.");
         }
-        if (!string.Equals(source.AccessType, GitHubAccessTypes.PublicUrl, StringComparison.Ordinal)
-            && !string.Equals(source.AccessType, GitHubAccessTypes.GitHubApp, StringComparison.Ordinal))
+        if (!string.Equals(source.AccessType, GitHubAccessTypes.GitHubApp, StringComparison.Ordinal))
         {
-            throw Conflict("The access source type is not supported by this linking flow.");
+            throw Conflict("The access source is not backed by the ResearchTrack GitHub App.");
         }
 
         var requestedIds = repositories
             .Select(item => item.GitHubRepositoryId)
             .ToArray();
-
-        if (string.Equals(source.AccessType, GitHubAccessTypes.PublicUrl, StringComparison.Ordinal)
-            && requestedIds.Length != 1)
-        {
-            throw new ApiValidationException([
-                new ApiFieldError(
-                    "repositories",
-                    ["A public repository URL source contains exactly one repository."])
-            ]);
-        }
 
         var selectedRepositories = await dbContext.Repositories
             .Where(repository => repository.SourceId == sourceId
@@ -75,24 +64,10 @@ public sealed class RepositoryLinkStore : IRepositoryLinkStore
             .ToListAsync(cancellationToken);
         if (selectedRepositories.Count != requestedIds.Length)
         {
-            var message = string.Equals(source.AccessType, GitHubAccessTypes.PublicUrl, StringComparison.Ordinal)
-                ? "The selected repository was not validated for this public access source."
-                : "One or more selected repositories were not verified for this GitHub App access source.";
             throw new ApiException(
                 StatusCodes.Status404NotFound,
                 ErrorCodes.NotFound,
-                message);
-        }
-
-        if (string.Equals(source.AccessType, GitHubAccessTypes.PublicUrl, StringComparison.Ordinal))
-        {
-            var publicRepositoryCount = await dbContext.Repositories.CountAsync(
-                item => item.SourceId == sourceId,
-                cancellationToken);
-            if (publicRepositoryCount != 1)
-            {
-                throw Conflict("The public access source contains an invalid repository inventory.");
-            }
+                "One or more selected repositories were not verified for this GitHub App access source.");
         }
 
         var existingLinks = await dbContext.ProjectRepositoryLinks

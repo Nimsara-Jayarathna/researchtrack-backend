@@ -41,8 +41,8 @@ public sealed class RepositoryLinkService : IRepositoryLinkService
         Validate(request);
         await _projectAuthorization.EnsureCanManageAsync(request.ProjectId, cancellationToken);
 
-        // Public URL sources retain their existing validation path. Installation-backed
-        // sources are re-verified against GitHub immediately before persistence.
+        // Re-verify the GitHub App installation and selected repository immediately
+        // before persistence so every linked repository has an authorized source.
         await _installationRepositoryService.TryVerifyForLinkAsync(
             userId,
             request.ProjectId,

@@ -80,7 +80,7 @@ public sealed class GitHubInstallationRepositoryServiceTests
     }
 
     [Fact]
-    public async Task Non_installation_source_returns_null_for_public_url_fallback()
+    public async Task Unknown_source_returns_null_without_calling_GitHub()
     {
         var store = new StubStore { Source = null };
         var app = new StubGitHubAppClient();
