@@ -8,7 +8,8 @@ public sealed record GitHubAppOptions(
     string PrivateKeyPath,
     Uri SetupCallbackUrl,
     Uri FrontendReturnOrigin,
-    TimeSpan StateLifetime)
+    TimeSpan StateLifetime,
+    TimeSpan AccessRequestLifetime)
 {
     public const string SectionName = "GitHub";
 

@@ -342,13 +342,14 @@ GitHub__PrivateKeyBase64 (or GitHub__PrivateKeyPath for a mounted secret file)
 GitHub__SetupCallbackUrl
 GitHub__FrontendReturnOrigin
 GitHub__StateExpiryMinutes
+GitHub__AccessRequestExpiryHours
 GitHub__WebhookSecret
 GitHub__SyncIntervalMinutes
 ```
 
 For SCRUM-15 GitHub App registration, least-privilege permissions, callback configuration, and manual QA, see [`docs/stories/SCRUM-15-connect-authorized-github-app.md`](docs/stories/SCRUM-15-connect-authorized-github-app.md).
 
-For the owner-granted, exact-repository access-request contract—including pending/completed/failed/expired states, time-bounded one-time links, callback recovery, exact installation verification, idempotent completion, and the Story 11 synchronization handoff—see [`docs/stories/owner-granted-github-repository-access.md`](docs/stories/owner-granted-github-repository-access.md). This request is not an active repository connection, and a private repository URL is not proof of access.
+For the owner-granted GitHub App access-request contract—including pending/completed/failed/expired/revoked states, time-bounded shareable links, owner binding, shared GitHub App callback handling, and supervisor-side repository selection—see [`docs/stories/owner-granted-github-repository-access.md`](docs/stories/owner-granted-github-repository-access.md). A request grants no repository link by itself; every linked repository is still verified through the GitHub App installation token before persistence.
 
 ### Jira
 
