@@ -107,6 +107,7 @@ jobs:
           MEETING_ENV_FILE: ${{ secrets.MEETING_ENV_FILE }}
           SUBMISSION_ENV_FILE: ${{ secrets.SUBMISSION_ENV_FILE }}
           GATEWAY_ENV_FILE: ${{ secrets.GATEWAY_ENV_FILE }}
+          GRAFANA_ENV_FILE: ${{ secrets.GRAFANA_ENV_FILE }}
         run: |
           set -euo pipefail
           umask 077
@@ -134,6 +135,7 @@ jobs:
           write_secret meeting.env "$MEETING_ENV_FILE"
           write_secret submission.env "$SUBMISSION_ENV_FILE"
           write_secret gateway.env "$GATEWAY_ENV_FILE"
+          write_secret grafana.env "$GRAFANA_ENV_FILE"
 
           ./deploy/validate-env-files.sh "$secret_dir" config/env "${{ inputs.environment_name }}"
 
