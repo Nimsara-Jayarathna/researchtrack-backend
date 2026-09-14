@@ -6,6 +6,7 @@ public sealed class GitHubInstallationFlowState
     public required string StateHash { get; set; }
     public Guid ProjectId { get; set; }
     public Guid InitiatingUserId { get; set; }
+    public Guid? AccessRequestId { get; set; }
     public required string FlowType { get; set; }
     public required string ReturnPath { get; set; }
     public DateTime CreatedAt { get; set; }

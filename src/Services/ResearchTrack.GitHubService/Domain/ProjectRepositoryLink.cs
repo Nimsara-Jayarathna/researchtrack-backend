@@ -18,7 +18,6 @@ public sealed class ProjectRepositoryLink
     public bool Active { get; set; }
     public bool Primary { get; set; }
     public bool Enabled { get; set; }
-    public string? ActiveRepositoryKey { get; set; }
     public string? PrimaryProjectKey { get; set; }
     public DateTime LinkedAt { get; set; }
     public DateTime? LastSyncedAt { get; set; }

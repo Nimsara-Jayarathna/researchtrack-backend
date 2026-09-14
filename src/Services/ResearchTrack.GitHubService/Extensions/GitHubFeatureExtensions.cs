@@ -24,6 +24,8 @@ public static class GitHubFeatureExtensions
         services.AddScoped<IGitHubInstallationStateService, GitHubInstallationStateService>();
         services.AddScoped<IGitHubInstallationStateStore, GitHubInstallationStateStore>();
         services.AddScoped<IGitHubInstallationFlowService, GitHubInstallationFlowService>();
+        services.AddScoped<IGitHubAccessRequestService, GitHubAccessRequestService>();
+        services.AddSingleton<IGitHubAccessRequestTokenService, GitHubAccessRequestTokenService>();
         services.AddScoped<IGitHubInstallationRepositoryService, GitHubInstallationRepositoryService>();
         services.AddScoped<IInstallationAccessSourceStore, InstallationAccessSourceStore>();
         services.AddScoped<IInstallationRepositoryStore, InstallationRepositoryStore>();
@@ -49,6 +51,12 @@ public static class GitHubFeatureExtensions
             });
 
         services.AddHttpClient<IProjectAuthorizationClient, ProjectAuthorizationClient>(client =>
+        {
+            client.BaseAddress = EnsureTrailingSlash(projectBaseUrl);
+            client.Timeout = TimeSpan.FromSeconds(10);
+        });
+
+        services.AddHttpClient<IProjectMetadataClient, ProjectMetadataClient>(client =>
         {
             client.BaseAddress = EnsureTrailingSlash(projectBaseUrl);
             client.Timeout = TimeSpan.FromSeconds(10);
