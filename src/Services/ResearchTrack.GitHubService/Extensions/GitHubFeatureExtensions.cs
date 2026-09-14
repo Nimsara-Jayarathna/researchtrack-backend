@@ -21,7 +21,6 @@ public static class GitHubFeatureExtensions
         services.AddSingleton(linkOptions);
         services.AddSingleton(_ => GitHubAppOptionsFactory.Create(configuration));
         services.AddHttpContextAccessor();
-        services.AddScoped<IPublicAccessSourceService, PublicAccessSourceService>();
         services.AddScoped<IGitHubInstallationStateService, GitHubInstallationStateService>();
         services.AddScoped<IGitHubInstallationStateStore, GitHubInstallationStateStore>();
         services.AddScoped<IGitHubInstallationFlowService, GitHubInstallationFlowService>();
@@ -30,7 +29,6 @@ public static class GitHubFeatureExtensions
         services.AddScoped<IInstallationRepositoryStore, InstallationRepositoryStore>();
         services.AddSingleton<IGitHubAppJwtProvider, GitHubAppJwtProvider>();
         services.AddSingleton<GitHubOAuthPkce>();
-        services.AddScoped<IPublicAccessSourceStore, PublicAccessSourceStore>();
         services.AddScoped<IRepositoryLinkService, RepositoryLinkService>();
         services.AddScoped<IProjectGitHubInventoryService, ProjectGitHubInventoryService>();
         services.AddScoped<IGitHubEvidenceQueryService, GitHubEvidenceQueryService>();
@@ -90,23 +88,13 @@ public static class GitHubFeatureExtensions
 
         services.AddScoped<IGitHubInstallationRepositoryClient, GitHubInstallationRepositoryClient>();
 
-        services.AddHttpClient<IGitHubPublicRepositoryProbe, GitHubPublicRepositoryProbe>(client =>
-        {
-            client.BaseAddress = GitHubPublicRepositoryProbe.TrustedBaseAddress;
-            client.Timeout = TimeSpan.FromSeconds(10);
-            client.DefaultRequestHeaders.UserAgent.Add(
-                new ProductInfoHeaderValue("ResearchTrack", "1.0"));
-            client.DefaultRequestHeaders.Accept.Add(
-                new MediaTypeWithQualityHeaderValue("application/x-git-upload-pack-advertisement"));
-        });
 
         return services;
     }
 
-
     private static void ConfigureGitHubApiClient(HttpClient client)
     {
-        client.BaseAddress = GitHubPublicRepositoryClient.TrustedBaseAddress;
+        client.BaseAddress = GitHubApiDefaults.TrustedBaseAddress;
         client.Timeout = TimeSpan.FromSeconds(10);
         client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("ResearchTrack", "1.0"));
         client.DefaultRequestHeaders.Accept.Add(

@@ -18,16 +18,13 @@ namespace ResearchTrack.GitHubService.Controllers;
 public sealed class GitHubRepositoriesController : ApiControllerBase
 {
     private readonly IRepositoryLinkService _repositoryLinkService;
-    private readonly IPublicAccessSourceService _publicAccessSourceService;
     private readonly IGitHubInstallationRepositoryService _installationRepositoryService;
 
     public GitHubRepositoriesController(
         IRepositoryLinkService repositoryLinkService,
-        IPublicAccessSourceService publicAccessSourceService,
         IGitHubInstallationRepositoryService installationRepositoryService)
     {
         _repositoryLinkService = repositoryLinkService;
-        _publicAccessSourceService = publicAccessSourceService;
         _installationRepositoryService = installationRepositoryService;
     }
 
@@ -46,17 +43,13 @@ public sealed class GitHubRepositoriesController : ApiControllerBase
         var installationAvailable = await _installationRepositoryService.TryGetAvailableAsync(
             userId,
             sourceId,
-            cancellationToken);
-        if (installationAvailable is not null)
-        {
-            return ApiOk(installationAvailable);
-        }
+            cancellationToken)
+            ?? throw new ApiException(
+                StatusCodes.Status404NotFound,
+                ErrorCodes.NotFound,
+                "The active GitHub App access source was not found.");
 
-        var publicAvailable = await _publicAccessSourceService.GetAvailableAsync(
-            userId,
-            sourceId,
-            cancellationToken);
-        return ApiOk(publicAvailable);
+        return ApiOk(installationAvailable);
     }
 
     [HttpPost("link")]
