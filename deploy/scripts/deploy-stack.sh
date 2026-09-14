@@ -19,6 +19,7 @@ compose=(docker compose --env-file deploy.env -f compose.yml)
 app_services=(gateway auth project github jira meeting submission)
 db_services=(auth project github jira meeting submission)
 observability_services=(prometheus grafana)
+started_services=("${app_services[@]}" "${observability_services[@]}")
 
 echo "[1/9] Validate Compose"
 "${compose[@]}" config --quiet
@@ -96,7 +97,7 @@ echo "========== COMPOSE STATE AFTER UP =========="
 echo "============================================"
 echo
 
-for service in "${app_services[@]}"; do
+for service in "${started_services[@]}"; do
   container_id="$("${compose[@]}" ps -a -q "$service")"
   if [[ -z "$container_id" ]]; then
     echo "ERROR: docker compose up returned successfully but '$service' was not created." >&2

@@ -5,7 +5,7 @@ This deployment baseline runs the ResearchTrack API Gateway and all currently av
 - `develop` -> GitHub Environment `test` -> Docker Compose project `researchtrack-test`
 - `main` -> GitHub Environment `production` -> Docker Compose project `researchtrack-production`
 
-Kafka and the observability stack are intentionally not part of this baseline. They can be added after the core backend deployment is stable.
+Kafka is intentionally not part of this baseline. Prometheus and Grafana are deployed with the backend stack for service observability.
 
 ## Deployed services
 
@@ -16,6 +16,8 @@ Kafka and the observability stack are intentionally not part of this baseline. T
 - Jira Service
 - Meeting Service
 - Submission Service
+- Prometheus
+- Grafana
 - one MySQL 8.4 container per environment, with a separate logical database and DB account for each service
 
 Only the Gateway joins the external reverse-proxy Docker network. Microservices and MySQL do not publish host ports.
@@ -54,6 +56,7 @@ Create the following secrets in **both** environments. Use the same names but di
 - `JIRA_ENV_FILE`
 - `MEETING_ENV_FILE`
 - `SUBMISSION_ENV_FILE`
+- `GRAFANA_ENV_FILE`
 
 The canonical shape for each multiline secret is the matching `config/env/<component>/.env.example`. There is no duplicate deployment-template directory. Copy the complete example shape, replace local values with the target Test/Production values, and store the result as the corresponding GitHub Environment secret. During deployment the files are written with restrictive permissions; the previous environment directory is retained only while deployment is in progress/failing and is deleted after a successful health-verified deployment.
 
@@ -87,6 +90,8 @@ Each environment is deployed under `BACKEND_DEPLOY_ROOT/<environment>`:
 DEPLOY_ENV=test
 IMAGE_PREFIX=ghcr.io/nimsara-jayarathna
 EDGE_NETWORK=npm_default
+GRAFANA_HOST_PORT=9001
+GRAFANA_MEMORY_LIMIT=256m
 ```
 
 The service runtime values remain in `env/*.env`. Manual VPS debugging should load only the deployment metadata explicitly:

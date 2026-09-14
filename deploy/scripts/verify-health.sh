@@ -5,6 +5,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 compose=(docker compose --env-file deploy.env -f compose.yml)
 services=(gateway auth project github jira meeting submission)
+observability_services=(prometheus grafana)
 
 for service in "${services[@]}"; do
   echo "Checking $service..."
@@ -67,4 +68,35 @@ for service in "${services[@]}"; do
   echo "$service is healthy and ready."
 done
 
-echo "All ResearchTrack backend services are healthy."
+for service in "${observability_services[@]}"; do
+  echo "Checking $service..."
+
+  container_id="$("${compose[@]}" ps -a -q "$service")"
+
+  if [[ -z "$container_id" ]]; then
+    echo "Container was never created: $service" >&2
+    echo
+    echo "Current Compose state:"
+    "${compose[@]}" ps -a
+    exit 1
+  fi
+
+  running="$(docker inspect --format='{{.State.Running}}' "$container_id" 2>/dev/null || true)"
+  if [[ "$running" != "true" ]]; then
+    echo "$service container exists but has stopped." >&2
+    echo
+    echo "Container status:"
+    docker inspect \
+      --format='Status={{.State.Status}} ExitCode={{.State.ExitCode}} Error={{.State.Error}}' \
+      "$container_id" || true
+
+    echo
+    echo "Last 200 log lines:"
+    docker logs --tail 200 "$container_id" || true
+    exit 1
+  fi
+
+  echo "$service is running."
+done
+
+echo "All ResearchTrack backend and observability services are healthy."
