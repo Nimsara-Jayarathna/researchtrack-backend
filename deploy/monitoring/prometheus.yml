@@ -6,7 +6,7 @@ scrape_configs:
     metrics_path: /metrics
     static_configs:
       - targets:
-          - 'gateway:9100'
+          - 'gateway:8080'
           - 'auth:8080'
           - 'project:8080'
           - 'github:8080'

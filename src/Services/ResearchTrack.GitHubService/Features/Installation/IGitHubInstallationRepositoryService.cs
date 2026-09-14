@@ -1,4 +1,5 @@
 using ResearchTrack.GitHubService.Contracts;
+using ResearchTrack.GitHubService.Infrastructure.GitHubApp;
 
 namespace ResearchTrack.GitHubService.Features.Installation;
 
@@ -29,5 +30,11 @@ public interface IGitHubInstallationRepositoryService
         Guid projectId,
         Guid sourceId,
         IReadOnlyList<LinkGitHubRepositoryRequestItem> repositories,
+        CancellationToken cancellationToken);
+
+    Task<GitHubInstallationRepository> VerifyRequestedRepositoryAsync(
+        long installationId,
+        string requestedOwner,
+        string requestedRepositoryName,
         CancellationToken cancellationToken);
 }

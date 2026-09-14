@@ -139,6 +139,59 @@ public sealed class GitHubInstallationStateServiceTests
     }
 
     [Fact]
+    public async Task Requested_state_is_one_time_and_replay_is_rejected()
+    {
+        var store = new StubStore();
+        var service = CreateService(store, Now);
+        var requestId = Guid.Parse("33333333-3333-3333-3333-333333333333");
+        var created = await service.CreateRequestedAsync(
+            ProjectId,
+            UserId,
+            requestId,
+            "/github/access-updated",
+            TestContext.Current.CancellationToken);
+
+        var consumed = await service.ConsumeAsync(
+            created.Value,
+            UserId,
+            GitHubInstallationFlowTypes.Requested,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(requestId, consumed.RepositoryAccessRequestId);
+        Assert.Equal(GitHubInstallationFlowTypes.Requested, consumed.FlowType);
+
+        var exception = await Assert.ThrowsAsync<ApiException>(() => service.ConsumeAsync(
+            created.Value,
+            UserId,
+            GitHubInstallationFlowTypes.Requested,
+            TestContext.Current.CancellationToken));
+
+        Assert.Contains("already", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData(RequestedInstallationStateCreateOutcome.Expired, StatusCodes.Status410Gone)]
+    [InlineData(RequestedInstallationStateCreateOutcome.NotPending, StatusCodes.Status409Conflict)]
+    [InlineData(RequestedInstallationStateCreateOutcome.ContextMismatch, StatusCodes.Status404NotFound)]
+    public async Task Requested_state_creation_honors_atomic_request_lifecycle_outcome(
+        RequestedInstallationStateCreateOutcome outcome,
+        int expectedStatusCode)
+    {
+        var store = new StubStore { RequestedCreateOutcome = outcome };
+        var service = CreateService(store, Now);
+
+        var exception = await Assert.ThrowsAsync<ApiException>(() => service.CreateRequestedAsync(
+            ProjectId,
+            UserId,
+            Guid.Parse("33333333-3333-3333-3333-333333333333"),
+            "/github/access-updated",
+            TestContext.Current.CancellationToken));
+
+        Assert.Equal(expectedStatusCode, exception.StatusCode);
+        Assert.Null(store.State);
+    }
+
+    [Fact]
     public async Task State_cannot_be_consumed_by_different_user()
     {
         var store = new StubStore();
@@ -233,10 +286,25 @@ public sealed class GitHubInstallationStateServiceTests
     {
         public GitHubInstallationFlowState? State { get; private set; }
 
+        public RequestedInstallationStateCreateOutcome RequestedCreateOutcome { get; set; } = RequestedInstallationStateCreateOutcome.Created;
+
         public Task CreateAsync(GitHubInstallationFlowState state, CancellationToken cancellationToken)
         {
             State = state;
             return Task.CompletedTask;
+        }
+
+        public Task<RequestedInstallationStateCreateOutcome> CreateRequestedAsync(
+            GitHubInstallationFlowState state,
+            DateTime now,
+            CancellationToken cancellationToken)
+        {
+            if (RequestedCreateOutcome == RequestedInstallationStateCreateOutcome.Created)
+            {
+                State = state;
+            }
+
+            return Task.FromResult(RequestedCreateOutcome);
         }
 
         public Task<GitHubInstallationFlowState?> TryBindInstallationAsync(
@@ -257,6 +325,22 @@ public sealed class GitHubInstallationStateServiceTests
             }
 
             State.PendingInstallationId ??= installationId;
+            State.AuthorizationStartedAt ??= now;
+            return Task.FromResult<GitHubInstallationFlowState?>(State);
+        }
+
+        public Task<GitHubInstallationFlowState?> TryBindRequestedInstallationAsync(
+            string stateHash,
+            Guid repositoryAccessRequestId,
+            long installationId,
+            DateTime now,
+            CancellationToken cancellationToken)
+        {
+            if (State is null || State.RepositoryAccessRequestId != repositoryAccessRequestId)
+            {
+                return Task.FromResult<GitHubInstallationFlowState?>(null);
+            }
+            State.PendingInstallationId = installationId;
             State.AuthorizationStartedAt ??= now;
             return Task.FromResult<GitHubInstallationFlowState?>(State);
         }
@@ -284,6 +368,7 @@ public sealed class GitHubInstallationStateServiceTests
                 State.InitiatingUserId,
                 State.FlowType,
                 State.ReturnPath,
+                State.RepositoryAccessRequestId,
                 State.PendingInstallationId,
                 now));
         }

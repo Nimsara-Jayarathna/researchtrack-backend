@@ -10,6 +10,7 @@ public sealed class GitHubInstallationFlowState
     public required string ReturnPath { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime ExpiresAt { get; set; }
+    public Guid? RepositoryAccessRequestId { get; set; }
     public long? PendingInstallationId { get; set; }
     public DateTime? AuthorizationStartedAt { get; set; }
     public DateTime? ConsumedAt { get; set; }

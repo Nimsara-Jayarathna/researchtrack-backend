@@ -19,12 +19,20 @@ public sealed class GitHubInstallationFlowStateConfiguration
         builder.Property(state => state.ReturnPath).HasMaxLength(512).IsRequired();
         builder.Property(state => state.CreatedAt).IsRequired();
         builder.Property(state => state.ExpiresAt).IsRequired();
+        builder.Property(state => state.RepositoryAccessRequestId);
         builder.Property(state => state.PendingInstallationId);
         builder.Property(state => state.AuthorizationStartedAt);
 
         builder.HasIndex(state => state.StateHash)
             .IsUnique()
             .HasDatabaseName("ux_github_installation_flow_states_hash");
+        builder.HasIndex(state => state.RepositoryAccessRequestId)
+            .HasDatabaseName("ix_github_installation_states_access_request");
+        builder.HasOne<GitHubRepositoryAccessRequest>()
+            .WithMany()
+            .HasForeignKey(state => state.RepositoryAccessRequestId)
+            .OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("fk_github_installation_states_access_request");
         builder.HasIndex(state => state.ExpiresAt)
             .HasDatabaseName("ix_github_installation_flow_states_expires_at");
         builder.HasIndex(state => new { state.ProjectId, state.InitiatingUserId })

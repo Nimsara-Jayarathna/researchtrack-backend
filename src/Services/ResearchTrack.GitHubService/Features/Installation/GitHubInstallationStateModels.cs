@@ -9,6 +9,7 @@ public sealed record ValidatedGitHubInstallationState(
     Guid InitiatingUserId,
     string FlowType,
     string ReturnPath,
+    Guid? RepositoryAccessRequestId,
     long? PendingInstallationId,
     DateTime? AuthorizationStartedAt);
 
@@ -17,5 +18,6 @@ public sealed record ConsumedGitHubInstallationState(
     Guid InitiatingUserId,
     string FlowType,
     string ReturnPath,
+    Guid? RepositoryAccessRequestId,
     long? PendingInstallationId,
     DateTime ConsumedAt);

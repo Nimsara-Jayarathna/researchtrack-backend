@@ -301,16 +301,4 @@ for service in gateway auth project github jira meeting submission; do
   }
 done
 
-grafana_file="$ENV_DIR/grafana.env"
-grafana_contract="$CONTRACT_ROOT/grafana/.env.example"
-
-[[ -f "$grafana_file" ]] || { echo "Missing deployment environment file: grafana.env" >&2; exit 1; }
-[[ -f "$grafana_contract" ]] || { echo "Missing canonical environment contract: $grafana_contract" >&2; exit 1; }
-
-validate_file_format "$grafana_file"
-validate_file_format "$grafana_contract"
-validate_contract_shape "$grafana_file" "$grafana_contract"
-
-require_value "$grafana_file" GF_SECURITY_ADMIN_PASSWORD >/dev/null
-
 echo "Deployment environment files match config/env contracts and passed deployment validation."

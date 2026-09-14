@@ -11,6 +11,7 @@ using ResearchTrack.BuildingBlocks.Api.Security;
 using ResearchTrack.GitHubService.Contracts;
 using ResearchTrack.GitHubService.Features;
 using ResearchTrack.GitHubService.Features.Installation;
+using ResearchTrack.GitHubService.Infrastructure.GitHubApp;
 using ResearchTrack.Testing;
 
 namespace ResearchTrack.GitHubService.Tests.Integration;
@@ -407,6 +408,12 @@ public sealed class PublicAccessSourceAuthorizationTests : IAsyncLifetime
             Guid projectId,
             Guid sourceId,
             IReadOnlyList<LinkGitHubRepositoryRequestItem> repositories,
+            CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<GitHubInstallationRepository> VerifyRequestedRepositoryAsync(
+            long installationId,
+            string requestedOwner,
+            string requestedRepositoryName,
             CancellationToken cancellationToken) => throw new NotSupportedException();
     }
 

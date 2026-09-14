@@ -24,6 +24,58 @@ public sealed class GitHubInstallationStateStore : IGitHubInstallationStateStore
     }
 
 
+    public async Task<RequestedInstallationStateCreateOutcome> CreateRequestedAsync(
+        GitHubInstallationFlowState state,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        if (state.RepositoryAccessRequestId is not Guid requestId || requestId == Guid.Empty
+            || !string.Equals(state.FlowType, GitHubInstallationFlowTypes.Requested, StringComparison.Ordinal))
+        {
+            return RequestedInstallationStateCreateOutcome.ContextMismatch;
+        }
+
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+        var request = await dbContext.RepositoryAccessRequests
+            .SingleOrDefaultAsync(item => item.Id == requestId, cancellationToken);
+        if (request is null
+            || request.ProjectId != state.ProjectId
+            || request.InitiatingUserId != state.InitiatingUserId
+            || !string.Equals(request.FlowType, GitHubInstallationFlowTypes.Requested, StringComparison.Ordinal))
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return RequestedInstallationStateCreateOutcome.ContextMismatch;
+        }
+
+        if (!string.Equals(request.Status, GitHubRepositoryAccessRequestStatuses.Pending, StringComparison.Ordinal))
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return string.Equals(request.Status, GitHubRepositoryAccessRequestStatuses.Expired, StringComparison.Ordinal)
+                ? RequestedInstallationStateCreateOutcome.Expired
+                : RequestedInstallationStateCreateOutcome.NotPending;
+        }
+
+        if (request.ExpiresAt <= now)
+        {
+            request.Status = GitHubRepositoryAccessRequestStatuses.Expired;
+            request.FailureCode = null;
+            request.ConsumedAt = now;
+            request.Version++;
+            await dbContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return RequestedInstallationStateCreateOutcome.Expired;
+        }
+
+        request.AuthorizationStartedAt ??= now;
+        request.Version++;
+        dbContext.InstallationFlowStates.Add(state);
+        await dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return RequestedInstallationStateCreateOutcome.Created;
+    }
+
+
     public async Task<GitHubInstallationFlowState?> TryBindInstallationAsync(
         string stateHash,
         long installationId,
@@ -67,6 +119,74 @@ public sealed class GitHubInstallationStateStore : IGitHubInstallationStateStore
             .SingleAsync(state => state.StateHash == stateHash, cancellationToken);
     }
 
+    public async Task<GitHubInstallationFlowState?> TryBindRequestedInstallationAsync(
+        string stateHash,
+        Guid repositoryAccessRequestId,
+        long installationId,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+
+        var state = await dbContext.InstallationFlowStates
+            .SingleOrDefaultAsync(item => item.StateHash == stateHash, cancellationToken);
+        var request = await dbContext.RepositoryAccessRequests
+            .SingleOrDefaultAsync(item => item.Id == repositoryAccessRequestId, cancellationToken);
+
+        if (state is null || request is null)
+        {
+            return null;
+        }
+
+        var contextMatches = state.RepositoryAccessRequestId == repositoryAccessRequestId
+            && string.Equals(state.FlowType, GitHubInstallationFlowTypes.Requested, StringComparison.Ordinal)
+            && state.ProjectId == request.ProjectId
+            && state.InitiatingUserId == request.InitiatingUserId
+            && string.Equals(request.FlowType, GitHubInstallationFlowTypes.Requested, StringComparison.Ordinal);
+
+        // Close the race between callback pre-validation and installation binding. If the owner
+        // request expires after validation but before this transaction acquires the rows, materialize
+        // EXPIRED and consume this one-time state atomically. The expired request can never bind an
+        // installation on a later replay.
+        if (contextMatches
+            && state.ConsumedAt is null
+            && state.ExpiresAt > now
+            && string.Equals(request.Status, GitHubRepositoryAccessRequestStatuses.Pending, StringComparison.Ordinal)
+            && request.ExpiresAt <= now)
+        {
+            request.Status = GitHubRepositoryAccessRequestStatuses.Expired;
+            request.FailureCode = null;
+            request.ConsumedAt = now;
+            request.Version++;
+            state.ConsumedAt = now;
+            await dbContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return null;
+        }
+
+        if (!contextMatches
+            || state.ConsumedAt is not null
+            || state.ExpiresAt <= now
+            || !string.Equals(request.Status, GitHubRepositoryAccessRequestStatuses.Pending, StringComparison.Ordinal)
+            || (state.PendingInstallationId is long stateInstallation && stateInstallation != installationId)
+            || (request.PendingInstallationId is long requestInstallation && requestInstallation != installationId))
+        {
+            return null;
+        }
+
+        state.PendingInstallationId ??= installationId;
+        state.AuthorizationStartedAt ??= now;
+        request.PendingInstallationId ??= installationId;
+        request.AuthorizationStartedAt ??= now;
+        request.Version++;
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        dbContext.Entry(state).State = EntityState.Detached;
+        return state;
+    }
+
     public async Task<ConsumedGitHubInstallationState?> TryConsumeAsync(
         string stateHash,
         Guid expectedUserId,
@@ -99,6 +219,7 @@ public sealed class GitHubInstallationStateStore : IGitHubInstallationStateStore
                 state.InitiatingUserId,
                 state.FlowType,
                 state.ReturnPath,
+                state.RepositoryAccessRequestId,
                 state.PendingInstallationId,
                 state.ConsumedAt!.Value))
             .SingleAsync(cancellationToken);

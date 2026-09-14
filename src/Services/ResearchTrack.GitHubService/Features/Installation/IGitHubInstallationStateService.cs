@@ -9,6 +9,17 @@ public interface IGitHubInstallationStateService
         string returnPath,
         CancellationToken cancellationToken);
 
+    Task<GitHubInstallationState> CreateRequestedAsync(
+        Guid projectId,
+        Guid initiatingUserId,
+        Guid repositoryAccessRequestId,
+        string returnPath,
+        CancellationToken cancellationToken);
+
+    Task<ValidatedGitHubInstallationState> ValidateExternalCallbackAsync(
+        string state,
+        CancellationToken cancellationToken);
+
     Task<ValidatedGitHubInstallationState> ValidateAsync(
         string state,
         Guid expectedUserId,
@@ -24,6 +35,13 @@ public interface IGitHubInstallationStateService
         string state,
         long installationId,
         string expectedFlowType,
+        CancellationToken cancellationToken);
+
+
+    Task<ValidatedGitHubInstallationState> BindRequestedInstallationAsync(
+        string state,
+        Guid repositoryAccessRequestId,
+        long installationId,
         CancellationToken cancellationToken);
 
     Task<ConsumedGitHubInstallationState> ConsumeAsync(

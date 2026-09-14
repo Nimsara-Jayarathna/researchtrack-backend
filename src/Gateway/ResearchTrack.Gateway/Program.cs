@@ -5,26 +5,7 @@ using ResearchTrack.BuildingBlocks.Api.Extensions;
 using ResearchTrack.BuildingBlocks.Api.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
-builder.WebHost.ConfigureKestrel(options =>
-{
-    options.AddServerHeader = false;
-
-    var urls = Environment.GetEnvironmentVariable("ASPNETCORE_URLS");
-    if (!string.IsNullOrWhiteSpace(urls))
-    {
-        foreach (var url in urls.Split(';', StringSplitOptions.RemoveEmptyEntries))
-        {
-            var uri = new Uri(url.Replace("+", "0.0.0.0").Replace("*", "0.0.0.0"));
-            options.Listen(System.Net.IPAddress.Any, uri.Port);
-        }
-    }
-    else
-    {
-        options.ListenAnyIP(5000); // local fallback, matches launchSettings default
-    }
-
-    options.ListenAnyIP(9100); // internal-only metrics port, never published to host or edge
-});
+builder.WebHost.ConfigureKestrel(options => options.AddServerHeader = false);
 
 // Keep config/env/gateway/.env.example as the single gateway configuration contract.
 // Local scripts already map these friendly variables to ASP.NET configuration keys;
@@ -109,7 +90,7 @@ app.UseResearchTrackApi();
 app.UseCors("frontend");
 app.UseRateLimiter();
 app.MapReverseProxy();
-app.MapMetrics().RequireHost("*:9100"); // only answers on 9100, not the public 8080
+app.MapMetrics();
 app.Run();
 
 public partial class Program;

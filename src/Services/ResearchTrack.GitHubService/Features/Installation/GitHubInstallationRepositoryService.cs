@@ -281,6 +281,62 @@ public sealed class GitHubInstallationRepositoryService : IGitHubInstallationRep
         return true;
     }
 
+    public async Task<GitHubInstallationRepository> VerifyRequestedRepositoryAsync(
+        long installationId,
+        string requestedOwner,
+        string requestedRepositoryName,
+        CancellationToken cancellationToken)
+    {
+        if (installationId <= 0
+            || string.IsNullOrWhiteSpace(requestedOwner)
+            || string.IsNullOrWhiteSpace(requestedRepositoryName))
+        {
+            throw new ApiValidationException([
+                new ApiFieldError(
+                    "repository",
+                    ["A valid installation and requested repository identity are required."])
+            ]);
+        }
+
+        var installation = await _gitHubAppClient.GetInstallationAsync(
+            installationId,
+            cancellationToken);
+        if (installation.InstallationId != installationId)
+        {
+            throw DependencyFailure(
+                "GitHub installation verification returned an unexpected installation.");
+        }
+
+        var token = await _gitHubAppClient.CreateInstallationTokenAsync(
+            installationId,
+            cancellationToken);
+        var repositories = await ListAllRepositoriesAsync(token, cancellationToken);
+        var matches = repositories
+            .Where(repository =>
+                string.Equals(repository.OwnerLogin, requestedOwner.Trim(), StringComparison.OrdinalIgnoreCase)
+                && string.Equals(repository.Name, requestedRepositoryName.Trim(), StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (matches.Count == 0)
+        {
+            throw NotFound(
+                "The requested repository is not accessible to this GitHub App installation.");
+        }
+        if (matches.Count != 1)
+        {
+            throw DependencyFailure(
+                "GitHub returned an ambiguous repository identity for the requested repository.");
+        }
+
+        var authoritative = matches[0];
+        _logger.LogInformation(
+            "Verified exact owner-granted GitHub repository. InstallationId={InstallationId} GitHubRepositoryId={GitHubRepositoryId}",
+            installationId,
+            authoritative.Id);
+
+        return authoritative;
+    }
+
     private async Task<GitHubInstallationRepository> GetAccessibleRepositoryAsync(
         GitHubInstallationToken token,
         long repositoryId,

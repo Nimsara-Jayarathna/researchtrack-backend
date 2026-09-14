@@ -7,10 +7,23 @@ public interface IGitHubInstallationStateStore
 {
     Task CreateAsync(GitHubInstallationFlowState state, CancellationToken cancellationToken);
 
+    Task<RequestedInstallationStateCreateOutcome> CreateRequestedAsync(
+        GitHubInstallationFlowState state,
+        DateTime now,
+        CancellationToken cancellationToken);
+
     Task<GitHubInstallationFlowState?> TryBindInstallationAsync(
         string stateHash,
         long installationId,
         string expectedFlowType,
+        DateTime now,
+        CancellationToken cancellationToken);
+
+
+    Task<GitHubInstallationFlowState?> TryBindRequestedInstallationAsync(
+        string stateHash,
+        Guid repositoryAccessRequestId,
+        long installationId,
         DateTime now,
         CancellationToken cancellationToken);
 

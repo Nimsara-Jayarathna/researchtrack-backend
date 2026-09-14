@@ -24,6 +24,12 @@ public static class GitHubFeatureExtensions
         services.AddScoped<IPublicAccessSourceService, PublicAccessSourceService>();
         services.AddScoped<IGitHubInstallationStateService, GitHubInstallationStateService>();
         services.AddScoped<IGitHubInstallationStateStore, GitHubInstallationStateStore>();
+        services.AddScoped<IGitHubRepositoryAccessRequestStore, GitHubRepositoryAccessRequestStore>();
+        services.AddScoped<IGitHubRepositoryAccessRequestService, GitHubRepositoryAccessRequestService>();
+        services.AddScoped<IGitHubRepositoryAccessTokenService, GitHubRepositoryAccessTokenService>();
+        services.AddScoped<IGitHubRepositoryAccessContinuationService, GitHubRepositoryAccessContinuationService>();
+        services.AddScoped<IGitHubRepositoryAccessCompletionStore, GitHubRepositoryAccessCompletionStore>();
+        services.AddScoped<IGitHubRepositoryAccessCompletionService, GitHubRepositoryAccessCompletionService>();
         services.AddScoped<IGitHubInstallationFlowService, GitHubInstallationFlowService>();
         services.AddScoped<IGitHubInstallationRepositoryService, GitHubInstallationRepositoryService>();
         services.AddScoped<IInstallationAccessSourceStore, InstallationAccessSourceStore>();

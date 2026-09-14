@@ -16,6 +16,7 @@ namespace ResearchTrack.GitHubService.Controllers;
 [Route("api/github/access-source/install")]
 [Route("api/v1/github/access-source/install")]
 [Authorize(Policy = AuthSecurityConstants.Policies.SupervisorOnly)]
+[ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
 public sealed class GitHubInstallationController : ApiControllerBase
 {
     private readonly IGitHubInstallationFlowService _installationFlowService;
@@ -70,11 +71,6 @@ public sealed class GitHubInstallationController : ApiControllerBase
             error,
             cancellationToken);
 
-        if (!string.IsNullOrWhiteSpace(result.ExternalRedirectUrl))
-        {
-            return Redirect(result.ExternalRedirectUrl);
-        }
-
         return Redirect(BuildFrontendReturnUrl(result));
     }
 
@@ -90,18 +86,34 @@ public sealed class GitHubInstallationController : ApiControllerBase
         }
 
         query["tab"] = "integrations";
-        query["githubSetup"] = result.Succeeded ? "success" : "failed";
+        query["githubSetup"] = result.Succeeded
+            ? "success"
+            : result.FlowType == ResearchTrack.GitHubService.Domain.GitHubInstallationFlowTypes.Requested
+                && string.IsNullOrWhiteSpace(result.ErrorCode)
+                    ? "pending"
+                    : "failed";
         query["githubFlow"] = result.FlowType;
 
-        if (result.SourceId is Guid sourceId)
+        if (result.RepositoryAccessRequestId is Guid requestId)
         {
-            query["githubSourceId"] = sourceId.ToString("D");
+            query["githubRequestId"] = requestId.ToString("D");
         }
 
-        if (result.InstallationId is long installationId)
+        if (string.Equals(
+                result.FlowType,
+                ResearchTrack.GitHubService.Domain.GitHubInstallationFlowTypes.Direct,
+                StringComparison.Ordinal))
         {
-            query["installationId"] = installationId.ToString(
-                System.Globalization.CultureInfo.InvariantCulture);
+            if (result.SourceId is Guid sourceId)
+            {
+                query["githubSourceId"] = sourceId.ToString("D");
+            }
+
+            if (result.InstallationId is long installationId)
+            {
+                query["installationId"] = installationId.ToString(
+                    System.Globalization.CultureInfo.InvariantCulture);
+            }
         }
 
         if (!string.IsNullOrWhiteSpace(result.ErrorCode))

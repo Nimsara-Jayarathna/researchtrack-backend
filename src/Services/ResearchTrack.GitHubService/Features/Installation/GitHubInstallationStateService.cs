@@ -37,7 +37,12 @@ public sealed class GitHubInstallationStateService : IGitHubInstallationStateSer
             throw new ArgumentException("Project and initiating user are required.");
         }
 
-        ValidateFlowType(flowType);
+        if (!string.Equals(flowType, GitHubInstallationFlowTypes.Direct, StringComparison.Ordinal))
+        {
+            throw new ArgumentException(
+                "Requested installation state must be created with a bound owner-grant request.",
+                nameof(flowType));
+        }
         ValidateReturnPath(returnPath);
 
         var value = Base64UrlEncode(RandomNumberGenerator.GetBytes(StateBytes));
@@ -58,6 +63,69 @@ public sealed class GitHubInstallationStateService : IGitHubInstallationStateSer
             cancellationToken);
 
         return new GitHubInstallationState(value, expiresAt);
+    }
+
+    public async Task<GitHubInstallationState> CreateRequestedAsync(
+        Guid projectId,
+        Guid initiatingUserId,
+        Guid repositoryAccessRequestId,
+        string returnPath,
+        CancellationToken cancellationToken)
+    {
+        if (repositoryAccessRequestId == Guid.Empty)
+        {
+            throw new ArgumentException("Repository access request id is required.", nameof(repositoryAccessRequestId));
+        }
+
+        if (projectId == Guid.Empty || initiatingUserId == Guid.Empty)
+        {
+            throw new ArgumentException("Project and initiating user are required.");
+        }
+
+        ValidateReturnPath(returnPath);
+        var value = Base64UrlEncode(RandomNumberGenerator.GetBytes(StateBytes));
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
+        var expiresAt = now.Add(_options.StateLifetime);
+        var outcome = await _store.CreateRequestedAsync(
+            new GitHubInstallationFlowState
+            {
+                Id = Guid.NewGuid(),
+                StateHash = HashState(value),
+                ProjectId = projectId,
+                InitiatingUserId = initiatingUserId,
+                FlowType = GitHubInstallationFlowTypes.Requested,
+                ReturnPath = returnPath,
+                RepositoryAccessRequestId = repositoryAccessRequestId,
+                CreatedAt = now,
+                ExpiresAt = expiresAt
+            },
+            now,
+            cancellationToken);
+
+        return outcome switch
+        {
+            RequestedInstallationStateCreateOutcome.Created => new GitHubInstallationState(value, expiresAt),
+            RequestedInstallationStateCreateOutcome.Expired => throw new ApiException(
+                StatusCodes.Status410Gone,
+                ErrorCodes.Conflict,
+                "Owner-granted GitHub request has expired."),
+            RequestedInstallationStateCreateOutcome.NotPending => throw new ApiException(
+                StatusCodes.Status409Conflict,
+                ErrorCodes.Conflict,
+                "Owner-granted GitHub request is no longer pending."),
+            _ => throw new ApiException(
+                StatusCodes.Status404NotFound,
+                ErrorCodes.NotFound,
+                "Owner-granted GitHub request is unavailable.")
+        };
+    }
+
+    public async Task<ValidatedGitHubInstallationState> ValidateExternalCallbackAsync(
+        string state,
+        CancellationToken cancellationToken)
+    {
+        var existing = await GetValidExternalStateAsync(state, expectedFlowType: null, cancellationToken);
+        return MapValidated(existing);
     }
 
     public async Task<ValidatedGitHubInstallationState> ValidateAsync(
@@ -116,6 +184,38 @@ public sealed class GitHubInstallationStateService : IGitHubInstallationStateSer
         return MapValidated(bound);
     }
 
+    public async Task<ValidatedGitHubInstallationState> BindRequestedInstallationAsync(
+        string state,
+        Guid repositoryAccessRequestId,
+        long installationId,
+        CancellationToken cancellationToken)
+    {
+        if (repositoryAccessRequestId == Guid.Empty || installationId <= 0)
+        {
+            throw InvalidState("Requested GitHub installation binding is invalid.");
+        }
+
+        var existing = await GetValidExternalStateAsync(
+            state, GitHubInstallationFlowTypes.Requested, cancellationToken);
+        if (existing.RepositoryAccessRequestId != repositoryAccessRequestId)
+        {
+            throw InvalidState("GitHub installation state does not match the owner-granted request.");
+        }
+
+        var bound = await _store.TryBindRequestedInstallationAsync(
+            HashState(state),
+            repositoryAccessRequestId,
+            installationId,
+            _timeProvider.GetUtcNow().UtcDateTime,
+            cancellationToken);
+        if (bound is null)
+        {
+            throw InvalidState("Owner-granted GitHub installation could not be bound safely.");
+        }
+
+        return MapValidated(bound);
+    }
+
     public async Task<ConsumedGitHubInstallationState> ConsumeAsync(
         string state,
         Guid expectedUserId,
@@ -147,7 +247,7 @@ public sealed class GitHubInstallationStateService : IGitHubInstallationStateSer
 
     private async Task<GitHubInstallationFlowState> GetValidExternalStateAsync(
         string state,
-        string expectedFlowType,
+        string? expectedFlowType,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(state))
@@ -155,7 +255,10 @@ public sealed class GitHubInstallationStateService : IGitHubInstallationStateSer
             throw InvalidState("GitHub installation state is required.");
         }
 
-        ValidateFlowType(expectedFlowType);
+        if (expectedFlowType is not null)
+        {
+            ValidateFlowType(expectedFlowType);
+        }
         var stateHash = HashState(state);
         var now = _timeProvider.GetUtcNow().UtcDateTime;
         var existing = await _store.FindAsync(stateHash, cancellationToken);
@@ -174,7 +277,8 @@ public sealed class GitHubInstallationStateService : IGitHubInstallationStateSer
             throw InvalidState("GitHub installation state has expired.");
         }
 
-        if (!string.Equals(existing.FlowType, expectedFlowType, StringComparison.Ordinal))
+        if (expectedFlowType is not null
+            && !string.Equals(existing.FlowType, expectedFlowType, StringComparison.Ordinal))
         {
             throw InvalidState("GitHub installation state does not match the expected ResearchTrack flow.");
         }
@@ -227,6 +331,7 @@ public sealed class GitHubInstallationStateService : IGitHubInstallationStateSer
             state.InitiatingUserId,
             state.FlowType,
             state.ReturnPath,
+            state.RepositoryAccessRequestId,
             state.PendingInstallationId,
             state.AuthorizationStartedAt);
 
@@ -243,7 +348,8 @@ public sealed class GitHubInstallationStateService : IGitHubInstallationStateSer
 
     private static void ValidateFlowType(string flowType)
     {
-        if (!string.Equals(flowType, GitHubInstallationFlowTypes.Direct, StringComparison.Ordinal))
+        if (!string.Equals(flowType, GitHubInstallationFlowTypes.Direct, StringComparison.Ordinal)
+            && !string.Equals(flowType, GitHubInstallationFlowTypes.Requested, StringComparison.Ordinal))
         {
             throw new ArgumentException("Unsupported GitHub installation flow type.", nameof(flowType));
         }

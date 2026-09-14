@@ -5,6 +5,7 @@ using ResearchTrack.BuildingBlocks.Api.Exceptions;
 using ResearchTrack.GitHubService.Contracts;
 using ResearchTrack.GitHubService.Features;
 using ResearchTrack.GitHubService.Features.Installation;
+using ResearchTrack.GitHubService.Infrastructure.GitHubApp;
 using ResearchTrack.GitHubService.Features.Synchronization;
 using ResearchTrack.GitHubService.Infrastructure;
 
@@ -309,6 +310,12 @@ public sealed class RepositoryLinkServiceTests
                 ? Task.FromResult(false)
                 : Task.FromException<bool>(VerifyFailure);
         }
+
+        public Task<GitHubInstallationRepository> VerifyRequestedRepositoryAsync(
+            long installationId,
+            string requestedOwner,
+            string requestedRepositoryName,
+            CancellationToken cancellationToken) => throw new NotSupportedException();
     }
 
     private sealed class StubSyncRequester(List<string> order) : IInitialRepositorySyncRequester

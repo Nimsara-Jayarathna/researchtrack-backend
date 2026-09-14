@@ -316,6 +316,72 @@ public sealed class GitHubInstallationRepositoryServiceTests
         Assert.Equal("https://github.com/org/renamed", store.LastVerifiedRepository?.HtmlUrl);
     }
 
+    [Fact]
+    public async Task Requested_repository_verification_matches_exact_persisted_owner_and_name_case_insensitively()
+    {
+        var repositoryClient = new StubRepositoryClient
+        {
+            Pages =
+            {
+                [1] = new GitHubInstallationRepositoryPage(
+                    [
+                        Repository(101, "other/repo", "repo"),
+                        new GitHubInstallationRepository(
+                            202,
+                            "OpenAI",
+                            "ResearchTrack",
+                            "OpenAI/ResearchTrack",
+                            "https://github.com/OpenAI/ResearchTrack",
+                            "main",
+                            true)
+                    ],
+                    2,
+                    false)
+            }
+        };
+        var app = new StubGitHubAppClient();
+        var service = CreateService(new StubAuthorizationClient(), new StubStore(), app, repositoryClient);
+
+        var repository = await service.VerifyRequestedRepositoryAsync(
+            777,
+            "openai",
+            "researchtrack",
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(202, repository.Id);
+        Assert.Equal("OpenAI/ResearchTrack", repository.FullName);
+        Assert.Equal(1, app.GetInstallationCallCount);
+        Assert.Equal(1, app.CreateTokenCallCount);
+    }
+
+    [Fact]
+    public async Task Requested_repository_verification_rejects_an_installation_without_the_exact_repository()
+    {
+        var repositoryClient = new StubRepositoryClient
+        {
+            Pages =
+            {
+                [1] = new GitHubInstallationRepositoryPage(
+                    [Repository(101, "openai/another", "another")],
+                    1,
+                    false)
+            }
+        };
+        var service = CreateService(
+            new StubAuthorizationClient(),
+            new StubStore(),
+            new StubGitHubAppClient(),
+            repositoryClient);
+
+        var exception = await Assert.ThrowsAsync<ApiException>(() => service.VerifyRequestedRepositoryAsync(
+            777,
+            "openai",
+            "researchtrack",
+            TestContext.Current.CancellationToken));
+
+        Assert.Equal(StatusCodes.Status404NotFound, exception.StatusCode);
+    }
+
     private static GitHubInstallationRepositoryService CreateService(
         StubAuthorizationClient authorization,
         StubStore store,

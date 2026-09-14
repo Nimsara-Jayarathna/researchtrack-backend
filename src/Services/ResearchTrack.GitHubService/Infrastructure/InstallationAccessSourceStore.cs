@@ -23,8 +23,12 @@ public sealed class InstallationAccessSourceStore : IInstallationAccessSourceSto
         DateTime now,
         CancellationToken cancellationToken)
     {
-        var activeInstallationKey = $"{projectId:N}:{GitHubAccessTypes.GitHubApp}:{installation.InstallationId}";
+        var activeInstallationKey = GitHubAccessTypes.BuildActiveInstallationKey(projectId, installation.InstallationId);
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+        await using var projectLock = await ProjectRepositoryMutationLock.AcquireAsync(
+            dbContext,
+            projectId,
+            cancellationToken);
 
         var existing = await dbContext.AccessSources.SingleOrDefaultAsync(
             source => source.ActiveInstallationKey == activeInstallationKey,

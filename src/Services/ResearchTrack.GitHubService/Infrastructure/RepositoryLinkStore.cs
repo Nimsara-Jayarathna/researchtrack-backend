@@ -32,6 +32,10 @@ public sealed class RepositoryLinkStore : IRepositoryLinkStore
         CancellationToken cancellationToken)
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+        await using var projectLock = await ProjectRepositoryMutationLock.AcquireAsync(
+            dbContext,
+            projectId,
+            cancellationToken);
         await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
 
         var source = await dbContext.AccessSources
@@ -50,7 +54,7 @@ public sealed class RepositoryLinkStore : IRepositoryLinkStore
             throw Conflict("The GitHub access source is inactive.");
         }
         if (!string.Equals(source.AccessType, GitHubAccessTypes.PublicUrl, StringComparison.Ordinal)
-            && !string.Equals(source.AccessType, GitHubAccessTypes.GitHubApp, StringComparison.Ordinal))
+            && !GitHubAccessTypes.IsInstallationBacked(source.AccessType))
         {
             throw Conflict("The access source type is not supported by this linking flow.");
         }

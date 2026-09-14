@@ -26,7 +26,7 @@ public sealed class InstallationRepositoryStore : IInstallationRepositoryStore
             .AsNoTracking()
             .Where(source => source.Id == sourceId
                 && source.Active
-                && source.AccessType == GitHubAccessTypes.GitHubApp
+                && GitHubAccessTypes.IsInstallationBacked(source.AccessType)
                 && source.InstallationId != null)
             .Select(source => new InstallationAccessSourceSnapshot(
                 source.Id,
@@ -48,7 +48,7 @@ public sealed class InstallationRepositoryStore : IInstallationRepositoryStore
             .Where(source => source.ProjectId == projectId
                 && source.InstallationId == installationId
                 && source.Active
-                && source.AccessType == GitHubAccessTypes.GitHubApp)
+                && GitHubAccessTypes.IsInstallationBacked(source.AccessType))
             .Select(source => new InstallationAccessSourceSnapshot(
                 source.Id,
                 source.ProjectId,
@@ -68,7 +68,7 @@ public sealed class InstallationRepositoryStore : IInstallationRepositoryStore
         var sourceExists = await dbContext.AccessSources.AnyAsync(
             source => source.Id == sourceId
                 && source.Active
-                && source.AccessType == GitHubAccessTypes.GitHubApp,
+                && GitHubAccessTypes.IsInstallationBacked(source.AccessType),
             cancellationToken);
         if (!sourceExists)
         {

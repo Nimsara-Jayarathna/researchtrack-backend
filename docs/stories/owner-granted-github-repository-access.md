@@ -10,7 +10,7 @@ The request and active connection are separate records. Creating a request, rece
 
 - GitHub credentials remain between the repository owner, GitHub, and backend-only GitHub App clients.
 - The requester and browser never receive or store the owner's GitHub password, PAT, GitHub user token, installation token, App private key, or OAuth client secret.
-- Shareable request tokens are high-entropy, opaque, time-bounded, single-use bearer values. Persist only a cryptographic hash of each token.
+- Shareable request tokens are high-entropy, opaque, and time-bounded bearer values. Persist only a cryptographic hash of each token. Terminal or expired requests cannot be continued; GitHub installation state itself is strictly one-time.
 - Log the request identifier and safe lifecycle events, not raw request/state tokens, authorization codes, or credentials.
 - A GitHub callback is untrusted until its state, expiry, request lifecycle, installation ownership, and exact repository access are verified server-side.
 
@@ -61,30 +61,65 @@ GitHub authorization -> validate request -> verify exact repository
 
 1. Authenticate the requester and authorize membership/management for the Research Project using the existing Project Service authorization boundary.
 2. Parse and normalize the target `github.com/{owner}/{repository}` identity. Do not probe a private URL anonymously and call that authorization.
-3. Confirm that adding a connection is allowed under the current one-active-connection-per-project rule.
+3. Confirm that adding the requested repository is allowed under the existing repository-link rules. The current runtime supports multiple repository links per project subject to configured `MaxLinkedRepositories` / `MaxEnabledRepositories`; reject an exact repository already actively linked.
 4. Create `PENDING` request state, generate a high-entropy one-time token, persist only its hash, and return the shareable frontend URL plus expiry.
 5. When the owner opens the URL, hash and look up the token, validate status/expiry, and return only safe project/repository context.
-6. On continue, atomically reserve/advance the pending flow and generate the GitHub App setup/authorization URL bound to the request. Reuse the hardened App installation and GitHub user authorization checks established by SCRUM-15.
+6. On continue, atomically re-check the pending request and generate a one-time GitHub App setup state bound server-side to that request. Reuse the current SCRUM-15 App installation security contract described below.
 7. On callback, validate the ResearchTrack state before using GitHub's `installation_id`; recover the original project, requester, and requested repository from storage.
-8. Verify the installation with the ResearchTrack GitHub App identity and confirm the authorizing GitHub user may act on that installation according to the supported GitHub App flow.
+8. Verify the installation with the ResearchTrack GitHub App identity. GitHub enforces whether the person completing the App setup is permitted to install/configure the App; the current ResearchTrack runtime does not perform a second user-OAuth/PKCE proof.
 9. List or retrieve installation repositories with a short-lived installation token. Match the requested canonical owner/name, then confirm the stable repository ID and fetch current canonical URL/default branch from GitHub. A repository with a different owner/name is a failed outcome, even if it belongs to the same installation.
-10. In an idempotent transaction, re-check that the request is still pending and unexpired, enforce the project's single active repository constraint, persist the installation-backed access source and exact repository metadata/link, mark the request `COMPLETED`, and record consumption.
+10. In an idempotent transaction, re-check that the request is still pending and unexpired, enforce the existing configured project link/enabled limits plus exact-repository uniqueness, persist the installation-backed access source and exact repository metadata/link, mark the request `COMPLETED`, and record consumption.
 11. After durable completion, invoke the shared initial synchronization boundary once for the created link. A transactional outbox or an equivalently reliable handoff is preferred so a process failure cannot leave a completed link permanently unsynchronized.
 
-## API responsibilities
+## Repository-limit reconciliation
 
-The concrete route version should follow existing Gateway conventions. Compatibility aliases may remain, but the owner-granted contract needs the following behaviors:
+The story wording about one valid connection is reconciled with the current implemented architecture rather than used to change global behavior. `GitHub:RepositoryLinks:MaxLinkedRepositories` and `MaxEnabledRepositories` are the authoritative runtime capacity controls (currently 5/5 in committed configuration). `project_repository_links.ActiveRepositoryKey` prevents the same GitHub repository from being actively linked twice to one project, while `PrimaryProjectKey` permits only one primary link. An owner-grant request targets exactly one repository, but successful SCRUM-17 completion may coexist with other distinct links while those existing limits allow it.
 
-| Operation | Authorization | Result |
-| --- | --- | --- |
-| Create owner-granted request | Authenticated authorized project member | `201`; request reference/URL, `PENDING`, expiry, and safe requested-repository summary. |
-| Get member-visible request status | Authenticated authorized project member | Current lifecycle state and safe completion/failure summary. |
-| Validate public request | Opaque request token | Safe project/repository context, state, and expiry only. |
-| Continue to GitHub | Opaque request token | Backend-generated GitHub URL after atomic pending/expiry checks. |
-| GitHub setup/OAuth callback | GitHub redirect plus bound state | Server-side validation and safe redirect to the frontend result route. |
-| Get public result | Opaque result/request token | Backend-derived terminal or pending outcome; no credentials. |
+## Implemented API flow
 
-The create payload must include the requested repository URL or canonical full name in addition to the project ID. Existing project-only access-request contracts do not satisfy exact-repository binding.
+Both unversioned frontend-contract routes and `/api/v1` aliases are exposed by the GitHub Service/Gateway. The SCRUM-17 routes are:
+
+| Operation | Route | Authorization | Implemented result |
+| --- | --- | --- | --- |
+| Create owner-granted request | `POST /api/github/access-requests` | Authenticated `SupervisorOnly` plus Project Service `EnsureCanManageAsync` | `201`; request ID, project ID, normalized repository summary, `PENDING`, expiry, and shareable frontend request URL. |
+| Get member-visible request status | `GET /api/github/access-requests/{requestId}` | Authenticated `SupervisorOnly`; Project Service authorization plus initiating-user check | Current lifecycle state, safe requested-repository fields, expiry, and allow-listed failure code. |
+| Validate public owner link | `GET /api/github/access-requests/validate?token=...` | Anonymous bearer link | Safe requested-repository context, state, expiry, and allow-listed failure code. Malformed and unknown tokens share the same unavailable response. |
+| Continue to GitHub | `POST /api/github/access-requests/continue?token=...` | Anonymous bearer link | Request ID, expiry, and backend-generated canonical GitHub App installation URL after an atomic pending/expiry check and server-side request/state binding. |
+| GitHub App setup callback | `GET /api/github/access-source/install/callback` | Anonymous GitHub redirect carrying one-time ResearchTrack state | Validates persisted state/request context, verifies the App installation and exact requested repository, completes the owner request when safe, then redirects to the configured frontend result route. |
+
+The create JSON body is `{ projectId, repositoryUrl }`. A project-only request is intentionally not supported because the request must be bound to one exact normalized `owner/name` before the shareable URL is issued. The callback does not accept browser-supplied project or repository context.
+
+There is no separate SCRUM-17 public result API. The repository owner receives the callback result through `/github/access-updated`; the frontend renders requested-flow success without repository selection. If the original requester is signed in, the page may call the authenticated request-status endpoint by the callback-provided safe request ID to offer navigation back to the Research Project.
+
+
+## Relevant configuration
+
+SCRUM-17 reuses the existing GitHub App and repository-link configuration; no new credential setting was added. Relevant settings are:
+
+- `GitHub__AppId` / `GitHub__AppSlug` — GitHub App identity used for installation verification and the canonical install URL.
+- `GitHub__SetupCallbackUrl` — the registered callback URL; local HTTP is permitted only by the existing development validation rule.
+- `GitHub__FrontendReturnOrigin` — trusted frontend origin used to create the owner share URL and callback return URL. It is not taken from request input.
+- `GitHub__StateExpiryMinutes` — 1–30 minutes; the same short lifetime is used for the owner request and its installation state.
+- `GitHub__ClientId`, `GitHub__ClientSecret`, and `GitHub__PrivateKeyBase64` or `GitHub__PrivateKeyPath` — existing GitHub App credentials. They remain backend-only and are never copied into owner requests, responses, or logs.
+- `GitHub:RepositoryLinks:MaxLinkedRepositories` / `MaxEnabledRepositories` — current project repository-capacity rules, presently 5/5 in committed configuration. SCRUM-17 does not globally reduce these limits.
+
+Example environment files contain placeholders only; real App secrets must stay in deployment secret storage and must not be committed.
+
+## Frontend flow
+
+The existing repository integration UI is preserved. `Request Access` asks the ResearchTrack requester for a GitHub repository URL, validates/normalizes it with the existing frontend GitHub URL helper, sends `{ projectId, repositoryUrl }`, and displays the backend-generated share URL, requested repository, and expiry while keeping the existing copy-link interaction. The requester does not need to sign into GitHub for request creation.
+
+The anonymous `/github/request-access` page validates the token before enabling `Continue to GitHub`, displays only the fixed requested repository/status/expiry returned by the backend, and does not let the repository owner replace the target repository. The frontend additionally accepts only the canonical HTTPS `github.com/apps/{app}/installations/new?...` authorization URL returned by the backend.
+
+For `INSTALLATION_REQUESTED`, `/github/access-updated` is a terminal result experience; it does not open the unrestricted installation-repository selector. `INSTALLATION_DIRECT` retains the existing repository-selection behavior. The owner-request page is served with `no-store`/`no-referrer` protections and its Nginx access log is disabled so the bearer query token is not written to the frontend web-server access log.
+
+## Current callback security contract
+
+The current deployed SCRUM-15 runtime no longer performs a second GitHub user OAuth/PKCE callback after the GitHub App setup callback. The earlier implementation did contain that two-leg user-to-installation verification, but commit `fc856269` intentionally removed it from the active direct flow and made user-OAuth callbacks an explicit `unexpected_user_oauth` failure. The current supported direct-flow security boundary is therefore: short-lived one-time server-side ResearchTrack state first, followed by GitHub App identity verification of the returned installation.
+
+SCRUM-17 reuses that current contract rather than creating a parallel OAuth architecture: `INSTALLATION_REQUESTED` state is bound server-side to the persistent owner-grant request, the state is validated before `installation_id` is used, state/request are atomically pinned to one installation, and the installation is verified with the ResearchTrack GitHub App identity. If Sprint requirements later require restoring user-to-installation OAuth proof, it should be restored consistently for both direct and requested flows rather than only for SCRUM-17.
+
+For `INSTALLATION_REQUESTED`, callback processing now proceeds from the verified installation to an exact installation-repository lookup. Only after that authoritative owner/name match succeeds does the completion boundary persist the installation-backed source, repository metadata and project link and transition the request to `COMPLETED`.
 
 ## Exact repository verification
 
@@ -105,7 +140,7 @@ Perform the access check again inside, or immediately before, the completion tra
 - Repeated successful callbacks return the already-completed safe result and do not create another source, link, or initial-sync request.
 - Unknown, malformed, expired, failed, or consumed tokens cannot mutate the project connection.
 - Denial and verification failures use safe error codes and never overwrite an existing active connection.
-- Enforce the one-active-connection rule at both the service layer and database level where supported; handle uniqueness races as conflict/idempotent completion rather than duplicating links.
+- SCRUM-17 itself always targets one exact repository per request, but it does not change the project's global repository-count policy. Enforce the configured `MaxLinkedRepositories` / `MaxEnabledRepositories`, the existing active-repository uniqueness key, and the single-primary key; handle races as a deterministic conflict/idempotent completion rather than duplicating links.
 
 ## Failure outcomes
 
@@ -116,14 +151,25 @@ Perform the access check again inside, or immediately before, the completion tra
 | Callback state is malformed or does not match | Reject; fail only when the matching request can be safely identified | Unchanged |
 | Request lifetime elapses | `EXPIRED` | Unchanged |
 | Token/callback is replayed after completion | Return safe idempotent result or reject as consumed | No duplicate |
-| Project already has a different active connection | Conflict/failure | Existing connection preserved |
+| Exact requested repository is already actively linked | Conflict/failure | Existing connection preserved |
+| Configured project linked/enabled repository limit is reached | Conflict/failure | Existing connections preserved |
 | GitHub/dependency is temporarily unavailable | Keep pending when safely retryable, otherwise `FAILED` with safe code | Unchanged |
 
 ## Synchronization handoff
 
-Successful completion persists the verified GitHub repository ID, owner/full name, canonical URL, default branch, installation-backed source, and project link before requesting initial synchronization. Use the shared Story 11 synchronization path; this story must not create a second sync engine.
+Successful completion commits the verified GitHub repository ID, owner/full name, canonical URL, default branch, installation-backed source, project link, and terminal owner-request transition in one database transaction. Only the transaction that creates the link emits an `InitialRepositorySyncRequest`; an idempotent replay of an already-completed request emits no second logical initial handoff.
 
-If the deployed branch still uses a deferred `IInitialRepositorySyncRequester`, the access flow may record the handoff but must not claim that ingestion completed. Production completion of AC6 requires the real Story 11 requester/queue integration.
+After commit, completion invokes the existing shared `IInitialRepositorySyncRequester`, which is registered to Story 11's `RepositorySyncQueue`. The queue already de-duplicates a linked repository while it is queued/running. The link is durably created as active, enabled, and `PENDING` with no `LastSyncedAt`; therefore, if the process fails after the database commit but before the in-memory handoff survives, the existing `RepositoryScheduledSyncWorker` will rediscover and enqueue the unsynchronized link. If the immediate handoff throws, the link is marked `FAILED` for visibility and remains eligible for the existing scheduler's recovery path. This is the current reliable recovery mechanism; SCRUM-17 does not introduce a second sync engine or claim a transactional queue/outbox that the branch does not have.
+
+## Lifecycle hardening and sensitive logging
+
+- `PENDING` is the only mutable owner-request lifecycle state. `COMPLETED`, `FAILED`, and `EXPIRED` are immutable terminal states.
+- Expiry is materialized with conditional database updates. The installation-state/request binding transaction re-checks request expiry and, if the deadline has passed, atomically marks the request `EXPIRED` and consumes the one-time installation state before any installation can be bound.
+- Failure persistence accepts only the allow-listed, non-sensitive `GitHubRepositoryAccessFailureCodes`; raw GitHub provider errors are never persisted as request failure codes.
+- An already-`COMPLETED` request is considered an idempotent completion only when the replay matches the originally persisted installation and stable GitHub repository identity. A different installation/repository replay is rejected as `completion_inconsistent` without mutation.
+- Public bearer-token lookup intentionally gives malformed and unknown tokens the same generic unavailable response. A valid token for an elapsed `PENDING` request materializes `EXPIRED`; terminal tokens cannot pass the pending/continue guard. Token hashes, project secrets, and credentials are not returned.
+- Custom HTTP request logging records `Request.Path` rather than the query string. Because public owner-grant tokens and GitHub callback state/code currently travel as query parameters on established routes, Gateway YARP forwarding logs are set to `Warning` so the information-level proxy target URL cannot record those query values.
+- Application audit events may contain safe identifiers (`RequestId`, `ProjectId`, `InstallationId`, stable GitHub repository ID) plus allow-listed lifecycle/failure codes. They must never contain raw owner-grant tokens, raw ResearchTrack state, GitHub authorization codes, GitHub user/access/installation tokens, App JWTs, client secrets, or private keys.
 
 ## Acceptance criteria mapping
 
@@ -152,7 +198,15 @@ If the deployed branch still uses a deferred `IInitialRepositorySyncRequester`, 
 
 ## Manual QA
 
-Use a private test repository and a GitHub account that can administer the App installation. Verify the happy path, wrong-repository selection, denial, expiry, token tampering, callback replay, revoked access before completion, and an already-connected project. Inspect the GitHub Service database and logs to confirm one completed link/handoff and no stored or logged credentials.
+Use non-production GitHub App credentials and a disposable private repository. Recommended final QA sequence:
+
+1. As an authorized ResearchTrack supervisor/project manager, open the existing repository integration modal, select `Request Access`, enter `https://github.com/<owner>/<repository>`, generate the request, copy the share URL, and confirm the UI shows the normalized repository and expiry.
+2. Open the share URL in a signed-out/incognito browser. Confirm the page displays only the fixed repository/status/expiry and cannot edit the repository. Continue and confirm the redirect is the configured GitHub App installation page.
+3. Complete GitHub App authorization with an account that may administer the requested repository. Confirm the callback result says the exact requested repository was linked and does not show an unrestricted repository picker.
+4. Back in ResearchTrack, confirm one active repository link exists with GitHub's numeric repository ID, canonical URL/full name, and default branch, and confirm the existing Story 11 synchronization starts/records a sync attempt.
+5. Repeat with an installation that cannot access the requested repository; deny/cancel the GitHub flow; allow a request to expire; tamper with the owner token/state; replay the callback; and revoke repository access before completion. None of these cases may create or replace an active project connection.
+6. Test a project that already has another repository linked. Confirm a distinct repository may still complete while configured capacity remains, while an exact duplicate or capacity race fails without changing the existing connection.
+7. Inspect `github_repository_access_requests`, installation state, access-source/repository/link rows, application logs, Gateway logs, and frontend web-server logs. Confirm one logical successful completion/sync handoff and no raw owner token, raw ResearchTrack state, GitHub authorization code/token, App JWT, client secret, or private key is stored or logged.
 
 ## Dependencies and exclusions
 
