@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace ResearchTrack.GitHubService.Contracts;
 
 public sealed record CreateGitHubAccessRequestRequest(Guid ProjectId, string OwnerLogin);
@@ -34,7 +36,7 @@ public sealed record GitHubAccessRequestValidationResponse(
 
 public sealed record GitHubAccessRequestContinueResponse(
     Guid ProjectId,
-    string GitHubAuthorizeUrl);
+    [property: JsonPropertyName("githubAuthorizeUrl")] string GitHubAuthorizeUrl);
 
 public sealed record GitHubAccessUpdatedSummaryResponse(
     Guid ProjectId,
