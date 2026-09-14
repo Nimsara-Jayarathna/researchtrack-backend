@@ -348,6 +348,8 @@ GitHub__SyncIntervalMinutes
 
 For SCRUM-15 GitHub App registration, least-privilege permissions, callback configuration, and manual QA, see [`docs/stories/SCRUM-15-connect-authorized-github-app.md`](docs/stories/SCRUM-15-connect-authorized-github-app.md).
 
+For the owner-granted, exact-repository access-request contract—including pending/completed/failed/expired states, time-bounded one-time links, callback recovery, exact installation verification, idempotent completion, and the Story 11 synchronization handoff—see [`docs/stories/owner-granted-github-repository-access.md`](docs/stories/owner-granted-github-repository-access.md). This request is not an active repository connection, and a private repository URL is not proof of access.
+
 ### Jira
 
 ```text
