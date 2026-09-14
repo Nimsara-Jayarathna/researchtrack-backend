@@ -48,7 +48,6 @@ public sealed class InstallationAccessSourceStore : IInstallationAccessSourceSto
             OwnerType = installation.OwnerType,
             AccessType = GitHubAccessTypes.GitHubApp,
             Active = true,
-            ActiveRepositoryKey = null,
             ActiveInstallationKey = activeInstallationKey,
             CreatedAt = now,
             UpdatedAt = now

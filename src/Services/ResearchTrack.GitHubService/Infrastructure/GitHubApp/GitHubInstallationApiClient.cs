@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Text.Json;
 using ResearchTrack.BuildingBlocks.Api.Constants;
 using ResearchTrack.BuildingBlocks.Api.Exceptions;
+using ResearchTrack.GitHubService.Infrastructure;
 
 namespace ResearchTrack.GitHubService.Infrastructure.GitHubApp;
 
@@ -12,7 +13,7 @@ public sealed class GitHubInstallationApiClient : IGitHubInstallationApiClient
 
     public GitHubInstallationApiClient(HttpClient httpClient)
     {
-        if (httpClient.BaseAddress != GitHubPublicRepositoryClient.TrustedBaseAddress)
+        if (httpClient.BaseAddress != GitHubApiDefaults.TrustedBaseAddress)
         {
             throw new InvalidOperationException("The GitHub installation client must use the trusted GitHub API base address.");
         }

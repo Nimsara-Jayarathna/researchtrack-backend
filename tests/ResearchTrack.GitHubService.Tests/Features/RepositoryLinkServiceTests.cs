@@ -198,7 +198,7 @@ public sealed class RepositoryLinkServiceTests
         [new ProjectRepositoryLinkResponse(
             LinkId,
             SourceId,
-            "PUBLIC_URL",
+            "INSTALLATION_DIRECT",
             RepositoryId,
             1296269,
             "openai/example",

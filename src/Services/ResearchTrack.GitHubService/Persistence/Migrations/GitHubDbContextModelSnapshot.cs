@@ -36,10 +36,6 @@ namespace ResearchTrack.GitHubService.Persistence.Migrations
                         .HasMaxLength(128)
                         .HasColumnType("varchar(128)");
 
-                    b.Property<string>("ActiveRepositoryKey")
-                        .HasMaxLength(128)
-                        .HasColumnType("varchar(128)");
-
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime(6)");
 
@@ -70,10 +66,6 @@ namespace ResearchTrack.GitHubService.Persistence.Migrations
                     b.HasIndex("ActiveInstallationKey")
                         .IsUnique()
                         .HasDatabaseName("ux_github_access_sources_active_installation");
-
-                    b.HasIndex("ActiveRepositoryKey")
-                        .IsUnique()
-                        .HasDatabaseName("ux_github_access_sources_active_repository");
 
                     b.HasIndex("ProjectId")
                         .HasDatabaseName("ix_github_access_sources_project_id");
