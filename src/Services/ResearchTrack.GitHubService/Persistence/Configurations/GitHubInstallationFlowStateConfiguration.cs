@@ -15,6 +15,7 @@ public sealed class GitHubInstallationFlowStateConfiguration
         builder.Property(state => state.StateHash).HasMaxLength(64).IsRequired();
         builder.Property(state => state.ProjectId).IsRequired();
         builder.Property(state => state.InitiatingUserId).IsRequired();
+        builder.Property(state => state.AccessRequestId);
         builder.Property(state => state.FlowType).HasMaxLength(32).IsRequired();
         builder.Property(state => state.ReturnPath).HasMaxLength(512).IsRequired();
         builder.Property(state => state.CreatedAt).IsRequired();
@@ -29,5 +30,7 @@ public sealed class GitHubInstallationFlowStateConfiguration
             .HasDatabaseName("ix_github_installation_flow_states_expires_at");
         builder.HasIndex(state => new { state.ProjectId, state.InitiatingUserId })
             .HasDatabaseName("ix_github_installation_flow_states_project_user");
+        builder.HasIndex(state => state.AccessRequestId)
+            .HasDatabaseName("ix_github_installation_flow_states_access_request");
     }
 }

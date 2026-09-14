@@ -20,14 +20,19 @@ public sealed class InstallationAccessSourceStore : IInstallationAccessSourceSto
         Guid projectId,
         Guid userId,
         GitHubInstallationInfo installation,
+        string accessType,
         DateTime now,
         CancellationToken cancellationToken)
     {
-        var activeInstallationKey = $"{projectId:N}:{GitHubAccessTypes.GitHubApp}:{installation.InstallationId}";
+        if (!GitHubAccessTypes.IsGitHubAppBacked(accessType))
+        {
+            throw new ArgumentOutOfRangeException(nameof(accessType));
+        }
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-
         var existing = await dbContext.AccessSources.SingleOrDefaultAsync(
-            source => source.ActiveInstallationKey == activeInstallationKey,
+            source => source.ProjectId == projectId
+                && source.InstallationId == installation.InstallationId
+                && source.Active,
             cancellationToken);
         if (existing is not null)
         {
@@ -38,6 +43,7 @@ public sealed class InstallationAccessSourceStore : IInstallationAccessSourceSto
             return existing.Id;
         }
 
+        var activeInstallationKey = $"{projectId:N}:GITHUB_APP:{installation.InstallationId}";
         var source = new GitHubAccessSource
         {
             Id = Guid.NewGuid(),
@@ -46,7 +52,7 @@ public sealed class InstallationAccessSourceStore : IInstallationAccessSourceSto
             InstallationId = installation.InstallationId,
             OwnerLogin = installation.OwnerLogin,
             OwnerType = installation.OwnerType,
-            AccessType = GitHubAccessTypes.GitHubApp,
+            AccessType = accessType,
             Active = true,
             ActiveInstallationKey = activeInstallationKey,
             CreatedAt = now,
@@ -60,17 +66,27 @@ public sealed class InstallationAccessSourceStore : IInstallationAccessSourceSto
         }
         catch (DbUpdateException exception) when (IsDuplicateKey(exception))
         {
-            throw DuplicateInstallationSource(exception);
-        }
+            // Another callback may have completed the same installation between
+            // our initial read and insert. Treat that race as idempotent.
+            dbContext.ChangeTracker.Clear();
+            var raced = await dbContext.AccessSources.AsNoTracking().SingleOrDefaultAsync(
+                item => item.ProjectId == projectId
+                    && item.InstallationId == installation.InstallationId
+                    && item.Active,
+                cancellationToken);
+            if (raced is not null)
+            {
+                return raced.Id;
+            }
 
+            throw new ApiException(
+                StatusCodes.Status409Conflict,
+                ErrorCodes.Conflict,
+                "An active GitHub App installation source already exists for this project.",
+                innerException: exception);
+        }
         return source.Id;
     }
-
-    private static ApiException DuplicateInstallationSource(Exception? inner = null) => new(
-        StatusCodes.Status409Conflict,
-        ErrorCodes.Conflict,
-        "An active GitHub App installation source already exists for this project.",
-        innerException: inner);
 
     private static bool IsDuplicateKey(DbUpdateException exception)
     {
@@ -82,7 +98,6 @@ public sealed class InstallationAccessSourceStore : IInstallationAccessSourceSto
                 return true;
             }
         }
-
         return false;
     }
 }

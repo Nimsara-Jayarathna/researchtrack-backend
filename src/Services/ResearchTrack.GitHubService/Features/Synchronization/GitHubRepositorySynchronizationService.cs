@@ -41,7 +41,10 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
         }
 
         var runId = Guid.NewGuid();
-        await MarkStartedAsync(syncContext.Link, runId, trigger, cancellationToken);
+        if (!await TryMarkStartedAsync(syncContext.Link, runId, trigger, cancellationToken))
+        {
+            return;
+        }
 
         try
         {
@@ -183,7 +186,7 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
         return new SyncContext(link, source);
     }
 
-    private async Task MarkStartedAsync(
+    private async Task<bool> TryMarkStartedAsync(
         ProjectRepositoryLink link,
         Guid runId,
         string trigger,
@@ -191,13 +194,23 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
     {
         var now = _timeProvider.GetUtcNow().UtcDateTime;
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-        var trackedLink = await dbContext.ProjectRepositoryLinks
-            .SingleAsync(item => item.Id == link.Id, cancellationToken);
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
 
-        trackedLink.SyncStatus = GitHubSyncStatuses.InProgress;
-        trackedLink.LastSyncStartedAt = now;
-        trackedLink.LastSyncError = null;
-        trackedLink.UpdatedAt = now;
+        var affected = await dbContext.ProjectRepositoryLinks
+            .Where(item => item.Id == link.Id
+                && item.Active
+                && item.Enabled
+                && item.SyncStatus != GitHubSyncStatuses.InProgress)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(item => item.SyncStatus, GitHubSyncStatuses.InProgress)
+                .SetProperty(item => item.LastSyncStartedAt, now)
+                .SetProperty(item => item.LastSyncError, (string?)null)
+                .SetProperty(item => item.UpdatedAt, now), cancellationToken);
+        if (affected != 1)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return false;
+        }
 
         dbContext.SyncRuns.Add(new GitHubSyncRun
         {
@@ -208,8 +221,9 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
             Status = GitHubSyncRunStatuses.Running,
             StartedAt = now
         });
-
         await dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return true;
     }
 
     private async Task EnrichNewCommitsAsync(
