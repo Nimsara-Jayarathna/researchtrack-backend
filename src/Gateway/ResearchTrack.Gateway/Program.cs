@@ -1,3 +1,4 @@
+using Prometheus;
 using System.Threading.RateLimiting;
 using ResearchTrack.BuildingBlocks.Api.Constants;
 using ResearchTrack.BuildingBlocks.Api.Extensions;
@@ -84,10 +85,12 @@ builder.Services.AddRateLimiter(options =>
 });
 
 var app = builder.Build();
+app.UseHttpMetrics();
 app.UseResearchTrackApi();
 app.UseCors("frontend");
 app.UseRateLimiter();
 app.MapReverseProxy();
+app.MapMetrics();
 app.Run();
 
 public partial class Program;

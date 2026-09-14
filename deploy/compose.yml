@@ -101,6 +101,17 @@ services:
     mem_limit: ${SUBMISSION_MEMORY_LIMIT:-320m}
     cpus: ${SUBMISSION_CPU_LIMIT:-0.40}
 
+  prometheus:
+    image: prom/prometheus:latest
+    restart: unless-stopped
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    networks:
+      backend: {}
+    mem_limit: ${PROMETHEUS_MEMORY_LIMIT:-256m}
+    cpus: ${PROMETHEUS_CPU_LIMIT:-0.25}
+
   mysql:
     image: mysql:8.4
     restart: unless-stopped
@@ -131,6 +142,7 @@ services:
 
 volumes:
   mysql-data:
+  prometheus-data:
 
 networks:
   edge:
