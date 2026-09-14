@@ -68,6 +68,46 @@ for service in "${services[@]}"; do
   echo "$service is healthy and ready."
 done
 
+probe_container_id="$("${compose[@]}" ps -a -q gateway)"
+[[ -n "$probe_container_id" ]] || { echo "Cannot run observability HTTP checks because gateway container was not found." >&2; exit 1; }
+
+wait_for_observability_http() {
+  local service="$1"
+  local url="$2"
+  local container_id="$3"
+  local ready=false
+
+  for attempt in $(seq 1 35); do
+    running="$(docker inspect --format='{{.State.Running}}' "$container_id" 2>/dev/null || true)"
+    if [[ "$running" != "true" ]]; then
+      echo "$service container exists but has stopped." >&2
+      echo
+      echo "Container status:"
+      docker inspect \
+        --format='Status={{.State.Status}} ExitCode={{.State.ExitCode}} Error={{.State.Error}}' \
+        "$container_id" || true
+
+      echo
+      echo "Last 200 log lines:"
+      docker logs --tail 200 "$container_id" || true
+      exit 1
+    fi
+
+    if docker exec "$probe_container_id" curl -fsS "$url" >/dev/null; then
+      ready=true
+      break
+    fi
+
+    sleep 2
+  done
+
+  [[ "$ready" == "true" ]] || {
+    echo "$service is running but its HTTP health check did not become ready: $url" >&2
+    docker logs --tail 200 "$container_id" || true
+    exit 1
+  }
+}
+
 for service in "${observability_services[@]}"; do
   echo "Checking $service..."
 
@@ -96,7 +136,32 @@ for service in "${observability_services[@]}"; do
     exit 1
   fi
 
-  echo "$service is running."
+  case "$service" in
+    prometheus)
+      wait_for_observability_http "$service" "http://prometheus:9090/-/ready" "$container_id"
+      echo "$service is running and ready."
+      ;;
+    grafana)
+      wait_for_observability_http "$service" "http://grafana:3000/api/health" "$container_id"
+
+      grafana_admin_user="$(docker exec "$container_id" printenv GF_SECURITY_ADMIN_USER 2>/dev/null || true)"
+      grafana_admin_password="$(docker exec "$container_id" printenv GF_SECURITY_ADMIN_PASSWORD 2>/dev/null || true)"
+      if [[ -z "$grafana_admin_user" || -z "$grafana_admin_password" ]]; then
+        echo "Cannot verify Grafana datasource because Grafana admin credentials are missing from the container environment." >&2
+        exit 1
+      fi
+
+      if ! docker exec "$probe_container_id" sh -c \
+        'curl -fsS -u "$1:$2" http://grafana:3000/api/datasources/uid/prometheus >/dev/null' \
+        sh "$grafana_admin_user" "$grafana_admin_password"; then
+        echo "Grafana is running but the provisioned Prometheus datasource with UID 'prometheus' is not available." >&2
+        docker logs --tail 200 "$container_id" || true
+        exit 1
+      fi
+
+      echo "$service is running, healthy, and has the Prometheus datasource."
+      ;;
+  esac
 done
 
 echo "All ResearchTrack backend and observability services are healthy."

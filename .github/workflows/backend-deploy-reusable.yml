@@ -229,8 +229,42 @@ jobs:
             "REMOTE='$remote' bash -s" <<'REMOTE_SCRIPT'
           set -euo pipefail
 
-          tar -xzf "$REMOTE/researchtrack-deploy.tgz" -C "$REMOTE"
+          deploy_next="$REMOTE/deploy.next"
+
+          rm -rf "$deploy_next"
+          mkdir -p "$deploy_next"
+          tar -xzf "$REMOTE/researchtrack-deploy.tgz" -C "$deploy_next"
+
+          validate_deploy_payload() {
+            local root="$1" path
+            local required_files=(
+              compose.yml
+              monitoring/prometheus.yml
+              monitoring/grafana/provisioning/datasources/prometheus.yml
+              monitoring/grafana/provisioning/dashboards/dashboards.yml
+              monitoring/grafana/provisioning/dashboards/json/researchtrack-overview.json
+              mysql/reconcile-databases.sh
+              scripts/deploy-stack.sh
+              scripts/verify-health.sh
+            )
+
+            for path in "${required_files[@]}"; do
+              if [[ ! -f "$root/$path" ]]; then
+                echo "Deployment archive is missing required file or path is not a regular file: $path" >&2
+                exit 1
+              fi
+            done
+          }
+          validate_deploy_payload "$deploy_next"
+
           chmod 700 "$REMOTE"
+          rm -rf "$REMOTE/compose.yml" "$REMOTE/monitoring" "$REMOTE/scripts" "$REMOTE/mysql"
+          mv "$deploy_next/compose.yml" "$REMOTE/compose.yml"
+          mv "$deploy_next/monitoring" "$REMOTE/monitoring"
+          mv "$deploy_next/scripts" "$REMOTE/scripts"
+          mv "$deploy_next/mysql" "$REMOTE/mysql"
+          rm -rf "$deploy_next"
+
           chmod 700 "$REMOTE/mysql"
           chmod 700 "$REMOTE/mysql/reconcile-databases.sh"
           chmod 700 "$REMOTE/scripts"
