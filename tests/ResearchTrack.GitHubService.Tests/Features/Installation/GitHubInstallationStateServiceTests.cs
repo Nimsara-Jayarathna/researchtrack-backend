@@ -221,7 +221,8 @@ public sealed class GitHubInstallationStateServiceTests
             "/tmp/test.pem",
             new Uri("https://api.example.test/api/github/access-source/install/callback"),
             new Uri("https://app.example.test/"),
-            TimeSpan.FromMinutes(10)),
+            TimeSpan.FromMinutes(10),
+            TimeSpan.FromHours(24)),
         new FixedTimeProvider(now));
 
     private sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider
@@ -284,6 +285,7 @@ public sealed class GitHubInstallationStateServiceTests
                 State.InitiatingUserId,
                 State.FlowType,
                 State.ReturnPath,
+                State.AccessRequestId,
                 State.PendingInstallationId,
                 now));
         }

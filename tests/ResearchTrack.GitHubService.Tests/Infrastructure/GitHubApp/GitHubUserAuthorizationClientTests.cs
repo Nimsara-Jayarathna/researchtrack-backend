@@ -41,7 +41,9 @@ public sealed class GitHubUserAuthorizationClientTests
     private static GitHubAppOptions Options() => new(
         12345, "researchtrack-test", "Iv1.test-client", "test-client-secret", "/tmp/key.pem",
         new Uri("https://api.example.test/api/github/access-source/install/callback"),
-        new Uri("https://app.example.test/"), TimeSpan.FromMinutes(10));
+        new Uri("https://app.example.test/"),
+        TimeSpan.FromMinutes(10),
+        TimeSpan.FromHours(24));
 
     private sealed class CapturingHandler(HttpStatusCode status, string content) : HttpMessageHandler
     {

@@ -74,9 +74,111 @@ namespace ResearchTrack.GitHubService.Persistence.Migrations
                 });
 
 
+            modelBuilder.Entity("ResearchTrack.GitHubService.Domain.GitHubAccessRequest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("char(36)");
+
+                    b.Property<DateTime?>("AcknowledgedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<DateTime?>("AuthorizationStartedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("ErrorCode")
+                        .HasMaxLength(128)
+                        .HasColumnType("varchar(128)");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<long?>("InstallationId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("PendingProjectKey")
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("char(36)");
+
+                    b.Property<string>("ProjectTitle")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<string>("TargetOwnerLogin")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.Property<Guid>("RequestedByUserId")
+                        .HasColumnType("char(36)");
+
+                    b.Property<string>("ResultNonce")
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<string>("ResultTokenHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<DateTime?>("RevokedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<Guid?>("SourceId")
+                        .HasColumnType("char(36)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<string>("TokenNonce")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExpiresAt")
+                        .HasDatabaseName("ix_github_access_requests_expires_at");
+
+                    b.HasIndex("PendingProjectKey")
+                        .IsUnique()
+                        .HasDatabaseName("ux_github_access_requests_pending_project");
+
+                    b.HasIndex("ResultTokenHash")
+                        .IsUnique()
+                        .HasDatabaseName("ux_github_access_requests_result_token_hash");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique()
+                        .HasDatabaseName("ux_github_access_requests_token_hash");
+
+                    b.HasIndex("ProjectId", "Status")
+                        .HasDatabaseName("ix_github_access_requests_project_status");
+
+                    b.ToTable("github_access_requests", (string)null);
+                });
+
             modelBuilder.Entity("ResearchTrack.GitHubService.Domain.GitHubInstallationFlowState", b =>
                 {
                     b.Property<Guid>("Id")
+                        .HasColumnType("char(36)");
+
+                    b.Property<Guid?>("AccessRequestId")
                         .HasColumnType("char(36)");
 
                     b.Property<DateTime?>("AuthorizationStartedAt")
@@ -116,6 +218,9 @@ namespace ResearchTrack.GitHubService.Persistence.Migrations
                         .HasColumnType("varchar(64)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("AccessRequestId")
+                        .HasDatabaseName("ix_github_installation_flow_states_access_request");
 
                     b.HasIndex("ExpiresAt")
                         .HasDatabaseName("ix_github_installation_flow_states_expires_at");
@@ -196,10 +301,6 @@ namespace ResearchTrack.GitHubService.Persistence.Migrations
                     b.Property<bool>("Active")
                         .HasColumnType("tinyint(1)");
 
-                    b.Property<string>("ActiveRepositoryKey")
-                        .HasMaxLength(96)
-                        .HasColumnType("varchar(96)");
-
                     b.Property<string>("CustomName")
                         .HasMaxLength(255)
                         .HasColumnType("varchar(255)");
@@ -221,6 +322,20 @@ namespace ResearchTrack.GitHubService.Persistence.Migrations
 
                     b.Property<Guid>("GitHubRepositoryId")
                         .HasColumnType("char(36)");
+
+                    b.Property<DateTime?>("LastFailedSyncAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("LastKnownHeadSha")
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<DateTime?>("LastSyncStartedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("LastSyncError")
+                        .HasMaxLength(2048)
+                        .HasColumnType("varchar(2048)");
 
                     b.Property<DateTime?>("LastSyncedAt")
                         .HasColumnType("datetime(6)");
@@ -268,10 +383,6 @@ namespace ResearchTrack.GitHubService.Persistence.Migrations
                         .HasColumnType("varchar(2048)");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("ActiveRepositoryKey")
-                        .IsUnique()
-                        .HasDatabaseName("ux_project_repository_links_active_repository");
 
                     b.HasIndex("GitHubRepositoryId");
 

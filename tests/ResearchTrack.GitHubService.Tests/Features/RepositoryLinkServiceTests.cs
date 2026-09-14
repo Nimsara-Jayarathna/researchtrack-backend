@@ -155,6 +155,42 @@ public sealed class RepositoryLinkServiceTests
     }
 
     [Fact]
+    public async Task Enabling_disabled_repository_queues_synchronization_once_when_state_changes()
+    {
+        var store = new StubStore([]) { EnableChanged = true };
+        var sync = new StubSyncRequester([]);
+        var queue = new StubSyncQueue();
+        var service = CreateService(new StubAuthorizationClient(), store, sync, queue: queue);
+
+        var response = await service.SetEnabledAsync(
+            UserId,
+            LinkId,
+            true,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, queue.EnqueueCallCount);
+        Assert.Equal(LinkId, queue.LastItem?.LinkedRepositoryId);
+        Assert.Equal("PENDING", Assert.Single(response.Repositories).SyncStatus);
+    }
+
+    [Fact]
+    public async Task Repeating_enable_for_already_enabled_repository_does_not_queue_duplicate_sync()
+    {
+        var store = new StubStore([]) { EnableChanged = false };
+        var sync = new StubSyncRequester([]);
+        var queue = new StubSyncQueue();
+        var service = CreateService(new StubAuthorizationClient(), store, sync, queue: queue);
+
+        await service.SetEnabledAsync(
+            UserId,
+            LinkId,
+            true,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(0, queue.EnqueueCallCount);
+    }
+
+    [Fact]
     public async Task Project_read_authorizes_and_returns_persisted_state_without_sync()
     {
         var authorization = new StubAuthorizationClient();
@@ -177,11 +213,13 @@ public sealed class RepositoryLinkServiceTests
         IProjectAuthorizationClient authorization,
         IRepositoryLinkStore store,
         IInitialRepositorySyncRequester sync,
-        IGitHubInstallationRepositoryService? installationRepositoryService = null) => new(
+        IGitHubInstallationRepositoryService? installationRepositoryService = null,
+        StubSyncQueue? queue = null) => new(
             authorization,
             store,
             installationRepositoryService ?? new StubInstallationRepositoryService(),
             sync,
+            queue ?? new StubSyncQueue(),
             new FixedTimeProvider(new DateTimeOffset(2026, 9, 8, 12, 0, 0, TimeSpan.Zero)),
             NullLogger<RepositoryLinkService>.Instance);
 
@@ -231,6 +269,7 @@ public sealed class RepositoryLinkServiceTests
         public int CreateCallCount { get; private set; }
         public int MarkFailedCallCount { get; private set; }
         public int GetProjectCallCount { get; private set; }
+        public bool EnableChanged { get; init; } = true;
 
         public Task<RepositoryLinkPersistenceResult> CreateLinksAsync(
             Guid projectId,
@@ -267,6 +306,23 @@ public sealed class RepositoryLinkServiceTests
             GetProjectCallCount++;
             return Task.FromResult(Response("FAILED"));
         }
+
+        public Task<Guid?> GetLinkProjectIdAsync(Guid linkedRepositoryId, CancellationToken cancellationToken) =>
+            Task.FromResult<Guid?>(ProjectId);
+        public Task<Guid?> GetSourceProjectIdAsync(Guid sourceId, CancellationToken cancellationToken) =>
+            Task.FromResult<Guid?>(ProjectId);
+        public Task<RepositoryEnablementPersistenceResult> SetEnabledAsync(Guid linkedRepositoryId, bool enabled, DateTime now, CancellationToken cancellationToken) =>
+            Task.FromResult(new RepositoryEnablementPersistenceResult(Response(enabled ? "PENDING" : "DISABLED"), EnableChanged, enabled));
+        public Task<ProjectGitHubRepositoriesResponse> UnlinkAsync(Guid linkedRepositoryId, DateTime now, CancellationToken cancellationToken) =>
+            Task.FromResult(new ProjectGitHubRepositoriesResponse(ProjectId, 5, 5, [], []));
+        public Task<ProjectGitHubRepositoriesResponse> SelectPrimaryAsync(Guid linkedRepositoryId, DateTime now, CancellationToken cancellationToken) =>
+            Task.FromResult(Response("SUCCESS"));
+        public Task<ProjectGitHubRepositoriesResponse> UpdateDisplayNameAsync(Guid linkedRepositoryId, string? customName, DateTime now, CancellationToken cancellationToken) =>
+            Task.FromResult(Response("SUCCESS"));
+        public Task<ProjectGitHubRepositoriesResponse> DisconnectSourceAsync(Guid sourceId, DateTime now, CancellationToken cancellationToken) =>
+            Task.FromResult(new ProjectGitHubRepositoriesResponse(ProjectId, 5, 5, [], []));
+        public Task PrepareManualSyncAsync(Guid projectId, Guid linkedRepositoryId, DateTime now, CancellationToken cancellationToken) =>
+            Task.CompletedTask;
     }
 
     private sealed class StubInstallationRepositoryService : IGitHubInstallationRepositoryService
@@ -326,6 +382,25 @@ public sealed class RepositoryLinkServiceTests
             order.Add("sync");
             return Failure is null ? Task.CompletedTask : Task.FromException(Failure);
         }
+    }
+
+    private sealed class StubSyncQueue : IRepositorySyncQueue
+    {
+        public int EnqueueCallCount { get; private set; }
+        public RepositorySyncWorkItem? LastItem { get; private set; }
+
+        public ValueTask EnqueueAsync(RepositorySyncWorkItem item, CancellationToken cancellationToken)
+        {
+            EnqueueCallCount++;
+            LastItem = item;
+            return ValueTask.CompletedTask;
+        }
+        public async IAsyncEnumerable<RepositorySyncWorkItem> ReadAllAsync([System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            await Task.CompletedTask;
+            yield break;
+        }
+        public void Complete(Guid linkedRepositoryId) { }
     }
 
     private sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider

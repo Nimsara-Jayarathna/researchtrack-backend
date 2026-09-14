@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using ResearchTrack.BuildingBlocks.Api.Constants;
 using ResearchTrack.BuildingBlocks.Api.Exceptions;
 using ResearchTrack.GitHubService.Contracts;
+using ResearchTrack.GitHubService.Domain;
 using ResearchTrack.GitHubService.Features.Installation;
 using ResearchTrack.GitHubService.Infrastructure;
 using ResearchTrack.GitHubService.Infrastructure.GitHubApp;
@@ -346,7 +347,7 @@ public sealed class GitHubInstallationRepositoryServiceTests
     private sealed class StubStore : IInstallationRepositoryStore
     {
         public InstallationAccessSourceSnapshot? Source { get; init; } =
-            new(SourceId, ProjectId, 777, "org", "ORG");
+            new(SourceId, ProjectId, 777, "org", "ORG", GitHubAccessTypes.InstallationDirect);
         public InstallationRepositorySelection? Selection { get; init; } =
             new(RepositoryId, 9001);
         public int UpsertAvailableCallCount { get; private set; }
