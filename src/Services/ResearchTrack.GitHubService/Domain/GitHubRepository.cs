@@ -10,6 +10,8 @@ public sealed class GitHubRepository
     public required string OwnerLogin { get; set; }
     public string? DefaultBranch { get; set; }
     public required string Url { get; set; }
+    public bool Available { get; set; }
+    public DateTime? LastSeenAt { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 }

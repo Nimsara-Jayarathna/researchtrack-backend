@@ -346,11 +346,19 @@ GitHub__AccessRequestExpiryHours
 GitHub__RepositoryLinks__MaxLinkedRepositories
 GitHub__RepositoryLinks__MaxEnabledRepositories
 GitHub__WebhookSecret
+GitHub__Webhook__MaxPayloadBytes
+GitHub__Webhook__MaxAttempts
+GitHub__Webhook__ProcessingLeaseSeconds
+GitHub__Webhook__PollIntervalSeconds
 ```
 
 `GitHub__RepositoryLinks__MaxLinkedRepositories` and `GitHub__RepositoryLinks__MaxEnabledRepositories` are required runtime values from the GitHub service environment. There is no appsettings fallback; startup fails when either is missing/invalid or when the enabled limit exceeds the linked limit.
 
 GitHub synchronization is webhook-driven with manual sync/reconciliation available to supervisors. The GitHub service does not use a periodic cron/scheduled repository synchronization interval.
+
+The webhook receiver is `POST /api/github/webhooks` (also available under `/api/v1/github/webhooks`). It is intentionally anonymous at the ResearchTrack authentication layer because GitHub authenticates deliveries using `X-Hub-Signature-256`. ResearchTrack validates HMAC-SHA256 over the exact raw request body using `GitHub__WebhookSecret`, deduplicates `X-GitHub-Delivery`, persists the delivery before returning `202 Accepted`, and processes it asynchronously from the durable webhook inbox. Failed transient deliveries use bounded exponential retry and stale `PROCESSING` leases are recovered after service restart. `GitHub__Webhook__PollIntervalSeconds` defaults to 5 seconds and provides a bounded durable-inbox poll so webhook work persisted by another service instance is still discovered even though the in-process wake signal is local to one instance.
+
+Configure the GitHub App webhook URL to the public API route and subscribe to `push`, `pull_request`, `pull_request_review`, `pull_request_review_comment`, and `repository`. GitHub App lifecycle deliveries `installation` and `installation_repositories` are also handled. Push events synchronize only the linked default branch. Repository removal, installation suspension, and installation deletion preserve ResearchTrack history while blocking synchronization until GitHub access is restored. Unknown webhook events are acknowledged and marked ignored instead of failing the receiver.
 
 For SCRUM-15 GitHub App registration, least-privilege permissions, callback configuration, and manual QA, see [`docs/stories/SCRUM-15-connect-authorized-github-app.md`](docs/stories/SCRUM-15-connect-authorized-github-app.md).
 
