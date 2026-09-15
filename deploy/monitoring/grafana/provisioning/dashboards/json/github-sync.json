@@ -25,7 +25,7 @@
       "datasource": { "type": "prometheus", "uid": "Prometheus" },
       "targets": [
         {
-          "expr": "sum(rate(github_sync_runs_total{outcome=\"success\"}[5m])) / clamp_min(sum(rate(github_sync_runs_total[5m])), 1e-9)",
+          "expr": "sum(rate(github_sync_runs_total{outcome=\"completed\"}[5m])) / clamp_min(sum(rate(github_sync_runs_total{outcome=~\"completed|cancelled|failed\"}[5m])), 1e-9)",
           "legendFormat": "success ratio"
         }
       ],
