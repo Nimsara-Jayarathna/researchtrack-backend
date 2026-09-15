@@ -12,7 +12,7 @@ public sealed class GitHubAppClientTests
     public async Task Installation_metadata_is_verified_with_app_jwt()
     {
         var handler = new StubHandler(HttpStatusCode.OK, """
-            {"id":98765,"account":{"login":"openai","type":"Organization"}}
+            {"id":98765,"account":{"login":"openai","type":"Organization"},"permissions":{"metadata":"read","contents":"read","pull_requests":"read"}}
             """);
         var client = new GitHubAppClient(
             new HttpClient(handler) { BaseAddress = new Uri("https://api.github.com/") },
@@ -25,6 +25,8 @@ public sealed class GitHubAppClientTests
         Assert.Equal(98765, installation.InstallationId);
         Assert.Equal("openai", installation.OwnerLogin);
         Assert.Equal("ORG", installation.OwnerType);
+        Assert.Equal("read", installation.Permissions!["contents"]);
+        Assert.Equal("read", installation.Permissions!["pull_requests"]);
         Assert.Equal("Bearer", handler.AuthorizationScheme);
         Assert.Equal("app-jwt", handler.AuthorizationParameter);
         Assert.Equal("https://api.github.com/app/installations/98765", handler.LastRequestUri?.AbsoluteUri);

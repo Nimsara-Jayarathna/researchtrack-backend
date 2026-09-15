@@ -59,16 +59,29 @@ public sealed class RepositoryLinkStore : IRepositoryLinkStore
             .Select(item => item.GitHubRepositoryId)
             .ToArray();
 
-        var selectedRepositories = await dbContext.Repositories
-            .Where(repository => repository.SourceId == sourceId
-                && requestedIds.Contains(repository.Id))
+        // MySql.EntityFrameworkCore 10 can fail while parameterizing a multi-value
+        // Guid.Contains(...) predicate inside this serializable transaction. The
+        // installation inventory is already scoped by source and is intentionally
+        // small enough to materialize safely, so load the source inventory with a
+        // simple translatable predicate and resolve the requested ids in memory.
+        // This also preserves the request order for deterministic primary fallback.
+        var sourceRepositories = await dbContext.Repositories
+            .AsNoTracking()
+            .Where(repository => repository.SourceId == sourceId)
             .ToListAsync(cancellationToken);
-        if (selectedRepositories.Count != requestedIds.Length)
+        var sourceRepositoriesById = sourceRepositories.ToDictionary(repository => repository.Id);
+        var selectedRepositories = new List<GitHubRepository>(requestedIds.Length);
+        foreach (var requestedId in requestedIds)
         {
-            throw new ApiException(
-                StatusCodes.Status404NotFound,
-                ErrorCodes.NotFound,
-                "One or more selected repositories were not verified for this GitHub App access source.");
+            if (!sourceRepositoriesById.TryGetValue(requestedId, out var repository))
+            {
+                throw new ApiException(
+                    StatusCodes.Status404NotFound,
+                    ErrorCodes.NotFound,
+                    "One or more selected repositories were not verified for this GitHub App access source.");
+            }
+
+            selectedRepositories.Add(repository);
         }
 
         var existingLinks = await dbContext.ProjectRepositoryLinks

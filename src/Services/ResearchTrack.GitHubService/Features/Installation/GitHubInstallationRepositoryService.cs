@@ -212,31 +212,36 @@ public sealed class GitHubInstallationRepositoryService : IGitHubInstallationRep
         // Defense in depth: linking already authorizes in RepositoryLinkService.
         await _projectAuthorization.EnsureCanManageAsync(projectId, cancellationToken);
 
-        if (string.Equals(source.AccessType, GitHubAccessTypes.InstallationDirect, StringComparison.Ordinal)
-            && repositories.Count != 1)
-        {
-            throw new ApiValidationException([
-                new ApiFieldError(
-                    "repositories",
-                    ["Select exactly one repository for the direct GitHub App connection flow."])
-            ]);
-        }
-
-        // Token creation proves the installation is currently accessible by this GitHub App.
-        // Direct and requested authorization deliberately share this verification pipeline.
-        var token = await _gitHubAppClient.CreateInstallationTokenAsync(
-            source.InstallationId,
-            cancellationToken);
-
+        // Reject stale/tampered local selections before minting an installation
+        // token or making repository API calls. Both direct and requested GitHub
+        // App flows intentionally use the same multi-repository verification path.
+        var storedSelections = new List<InstallationRepositorySelection>(repositories.Count);
         foreach (var selection in repositories)
         {
-            var storedSelection = await _store.GetSelectionAsync(
+            var stored = await _store.GetSelectionAsync(
                 sourceId,
                 selection.GitHubRepositoryId,
                 cancellationToken)
                 ?? throw NotFound(
                     "The selected repository was not offered by this GitHub App access source.");
+            storedSelections.Add(stored);
+        }
 
+        // Repository metadata access alone is not enough for ResearchTrack synchronization.
+        // Fail before persistence with an actionable error if the installed App has not
+        // been granted the read-only permissions required by commits and pull requests.
+        var installation = await _gitHubAppClient.GetInstallationAsync(
+            source.InstallationId,
+            cancellationToken);
+        GitHubAppPermissionRequirements.EnsureSynchronizationReadPermissions(installation);
+
+        // Token creation proves the installation is currently accessible by this GitHub App.
+        var token = await _gitHubAppClient.CreateInstallationTokenAsync(
+            source.InstallationId,
+            cancellationToken);
+
+        foreach (var storedSelection in storedSelections)
+        {
             var authoritative = await GetAccessibleRepositoryAsync(
                 token,
                 storedSelection.GitHubRepositoryId,

@@ -41,7 +41,6 @@ public static class GitHubFeatureExtensions
         services.AddSingleton<IRepositorySyncQueue>(provider => provider.GetRequiredService<RepositorySyncQueue>());
         services.AddSingleton<IInitialRepositorySyncRequester>(provider => provider.GetRequiredService<RepositorySyncQueue>());
         services.AddHostedService<RepositorySyncWorker>();
-        services.AddHostedService<RepositoryScheduledSyncWorker>();
         services.AddScoped<IGitHubRepositorySynchronizationService, GitHubRepositorySynchronizationService>();
         services.AddSingleton<IGitHubInstallationTokenProvider, GitHubInstallationTokenProvider>();
 
