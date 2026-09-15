@@ -1,6 +1,7 @@
 namespace ResearchTrack.ProjectService.Contracts;
 
 public sealed record UpdateProjectMilestoneRequest(
-    string Title,
+    string? Title,
     string? Description,
-    DateOnly DueDate);
+    DateOnly? DueDate,
+    string? Status);
