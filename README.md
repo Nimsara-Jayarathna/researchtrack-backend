@@ -343,9 +343,14 @@ GitHub__SetupCallbackUrl
 GitHub__FrontendReturnOrigin
 GitHub__StateExpiryMinutes
 GitHub__AccessRequestExpiryHours
+GitHub__RepositoryLinks__MaxLinkedRepositories
+GitHub__RepositoryLinks__MaxEnabledRepositories
 GitHub__WebhookSecret
-GitHub__SyncIntervalMinutes
 ```
+
+`GitHub__RepositoryLinks__MaxLinkedRepositories` and `GitHub__RepositoryLinks__MaxEnabledRepositories` are required runtime values from the GitHub service environment. There is no appsettings fallback; startup fails when either is missing/invalid or when the enabled limit exceeds the linked limit.
+
+GitHub synchronization is webhook-driven with manual sync/reconciliation available to supervisors. The GitHub service does not use a periodic cron/scheduled repository synchronization interval.
 
 For SCRUM-15 GitHub App registration, least-privilege permissions, callback configuration, and manual QA, see [`docs/stories/SCRUM-15-connect-authorized-github-app.md`](docs/stories/SCRUM-15-connect-authorized-github-app.md).
 

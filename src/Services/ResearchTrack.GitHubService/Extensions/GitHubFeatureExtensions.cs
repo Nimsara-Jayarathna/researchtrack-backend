@@ -15,7 +15,7 @@ public static class GitHubFeatureExtensions
         IConfiguration configuration)
     {
         var projectBaseUrl = RequireAbsoluteUri(configuration, "Services:Project:BaseUrl");
-        var linkOptions = GetRepositoryLinkOptions(configuration);
+        var linkOptions = GitHubRepositoryLinkOptionsFactory.Create(configuration);
 
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton(linkOptions);
@@ -128,17 +128,4 @@ public static class GitHubFeatureExtensions
     private static Uri EnsureTrailingSlash(Uri value) => new(
         value.ToString().TrimEnd('/') + "/",
         UriKind.Absolute);
-
-    private static GitHubRepositoryLinkOptions GetRepositoryLinkOptions(IConfiguration configuration)
-    {
-        var linked = configuration.GetValue<int>("GitHub:RepositoryLinks:MaxLinkedRepositories");
-        var enabled = configuration.GetValue<int>("GitHub:RepositoryLinks:MaxEnabledRepositories");
-        if (linked < 1 || enabled < 1 || enabled > linked)
-        {
-            throw new InvalidOperationException(
-                "GitHub repository limits must be positive and enabled repositories cannot exceed linked repositories.");
-        }
-
-        return new GitHubRepositoryLinkOptions(linked, enabled);
-    }
 }

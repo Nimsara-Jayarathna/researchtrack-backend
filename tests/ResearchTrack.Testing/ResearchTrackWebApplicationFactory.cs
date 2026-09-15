@@ -141,6 +141,10 @@ public sealed class ResearchTrackWebApplicationFactory<TProgram> : WebApplicatio
             // Cookie
             ["Cookie:Secure"] = "false",
 
+            // GitHub repository limits are required runtime configuration.
+            ["GitHub:RepositoryLinks:MaxLinkedRepositories"] = "5",
+            ["GitHub:RepositoryLinks:MaxEnabledRepositories"] = "5",
+
             // Services
             ["Services:Auth:BaseUrl"] = "http://localhost:5101/",
             ["Services:Project:BaseUrl"] = "http://localhost:5102/"
