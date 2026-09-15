@@ -21,6 +21,7 @@ public sealed class GitHubDbContext : DbContext
     public DbSet<GitHubPullRequestReview> PullRequestReviews => Set<GitHubPullRequestReview>();
     public DbSet<GitHubBranch> Branches => Set<GitHubBranch>();
     public DbSet<GitHubSyncRun> SyncRuns => Set<GitHubSyncRun>();
+    public DbSet<GitHubWebhookDelivery> WebhookDeliveries => Set<GitHubWebhookDelivery>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
