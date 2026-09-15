@@ -50,6 +50,10 @@ public sealed class RepositoryLinkStore : IRepositoryLinkStore
         {
             throw Conflict("The GitHub access source is inactive.");
         }
+        if (!string.Equals(source.ConnectionStatus, GitHubConnectionStatuses.Connected, StringComparison.Ordinal))
+        {
+            throw Conflict("The GitHub App installation is not currently connected.");
+        }
         if (!GitHubAccessTypes.IsGitHubAppBacked(source.AccessType))
         {
             throw Conflict("The access source is not backed by the ResearchTrack GitHub App.");
@@ -73,12 +77,13 @@ public sealed class RepositoryLinkStore : IRepositoryLinkStore
         var selectedRepositories = new List<GitHubRepository>(requestedIds.Length);
         foreach (var requestedId in requestedIds)
         {
-            if (!sourceRepositoriesById.TryGetValue(requestedId, out var repository))
+            if (!sourceRepositoriesById.TryGetValue(requestedId, out var repository)
+                || !repository.Available)
             {
                 throw new ApiException(
                     StatusCodes.Status404NotFound,
                     ErrorCodes.NotFound,
-                    "One or more selected repositories were not verified for this GitHub App access source.");
+                    "One or more selected repositories are no longer available to this GitHub App installation.");
             }
 
             selectedRepositories.Add(repository);
@@ -246,6 +251,23 @@ public async Task<RepositoryEnablementPersistenceResult> SetEnabledAsync(
     }
     if (enabled)
     {
+        var access = await (
+            from source in db.AccessSources.AsNoTracking()
+            join repository in db.Repositories.AsNoTracking() on source.Id equals repository.SourceId
+            where source.Id == link.SourceId && repository.Id == link.GitHubRepositoryId
+            select new { source.Active, source.ConnectionStatus, repository.Available })
+            .SingleOrDefaultAsync(cancellationToken);
+        if (access is null
+            || !access.Active
+            || !string.Equals(access.ConnectionStatus, GitHubConnectionStatuses.Connected, StringComparison.Ordinal))
+        {
+            throw Conflict("The GitHub App installation is not currently connected.");
+        }
+        if (!access.Available)
+        {
+            throw Conflict("The GitHub App no longer has access to this repository.");
+        }
+
         var enabledCount = await db.ProjectRepositoryLinks.CountAsync(
             item => item.ProjectId == link.ProjectId && item.Active && item.Enabled,
             cancellationToken);
@@ -306,6 +328,19 @@ public async Task<ProjectGitHubRepositoriesResponse> SelectPrimaryAsync(
     await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
     var selected = await RequireActiveLinkAsync(db, linkedRepositoryId, cancellationToken);
     if (!selected.Enabled) throw Conflict("A disabled repository cannot be selected as primary.");
+    var access = await (
+        from source in db.AccessSources.AsNoTracking()
+        join repository in db.Repositories.AsNoTracking() on source.Id equals repository.SourceId
+        where source.Id == selected.SourceId && repository.Id == selected.GitHubRepositoryId
+        select new { source.Active, source.ConnectionStatus, repository.Available })
+        .SingleOrDefaultAsync(cancellationToken);
+    if (access is null
+        || !access.Active
+        || !string.Equals(access.ConnectionStatus, GitHubConnectionStatuses.Connected, StringComparison.Ordinal)
+        || !access.Available)
+    {
+        throw Conflict("A repository without active GitHub App access cannot be selected as primary.");
+    }
     var current = await db.ProjectRepositoryLinks
         .Where(link => link.ProjectId == selected.ProjectId && link.Active && link.Primary && link.Id != selected.Id)
         .ToListAsync(cancellationToken);
@@ -373,6 +408,41 @@ public async Task PrepareManualSyncAsync(
     Guid projectId, Guid linkedRepositoryId, DateTime now, CancellationToken cancellationToken)
 {
     await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+    var state = await (
+        from link in db.ProjectRepositoryLinks.AsNoTracking()
+        join source in db.AccessSources.AsNoTracking() on link.SourceId equals source.Id
+        join repository in db.Repositories.AsNoTracking() on link.GitHubRepositoryId equals repository.Id
+        where link.Id == linkedRepositoryId
+            && link.ProjectId == projectId
+            && link.Active
+        select new
+        {
+            link.Enabled,
+            link.SyncStatus,
+            SourceActive = source.Active,
+            source.ConnectionStatus,
+            RepositoryAvailable = repository.Available
+        }).SingleOrDefaultAsync(cancellationToken)
+        ?? throw new ApiException(StatusCodes.Status404NotFound, ErrorCodes.NotFound, "The linked GitHub repository was not found for this project.");
+
+    if (!state.Enabled)
+    {
+        throw Conflict("A disabled repository cannot be synchronized.");
+    }
+    if (!state.SourceActive || !string.Equals(state.ConnectionStatus, GitHubConnectionStatuses.Connected, StringComparison.Ordinal))
+    {
+        throw Conflict("The GitHub App installation is not currently connected.");
+    }
+    if (!state.RepositoryAvailable)
+    {
+        throw Conflict("The GitHub App no longer has access to this repository.");
+    }
+    if (string.Equals(state.SyncStatus, GitHubSyncStatuses.InProgress, StringComparison.Ordinal)
+        || string.Equals(state.SyncStatus, GitHubSyncStatuses.Pending, StringComparison.Ordinal))
+    {
+        throw Conflict("Repository synchronization is already queued or in progress.");
+    }
+
     var affected = await db.ProjectRepositoryLinks
         .Where(item => item.Id == linkedRepositoryId
             && item.ProjectId == projectId
@@ -383,19 +453,10 @@ public async Task PrepareManualSyncAsync(
         .ExecuteUpdateAsync(setters => setters
             .SetProperty(item => item.SyncStatus, GitHubSyncStatuses.Pending)
             .SetProperty(item => item.UpdatedAt, now), cancellationToken);
-    if (affected == 1)
+    if (affected != 1)
     {
-        return;
+        throw Conflict("Repository synchronization state changed. Refresh and try again.");
     }
-
-    var link = await db.ProjectRepositoryLinks.AsNoTracking().SingleOrDefaultAsync(
-        item => item.Id == linkedRepositoryId && item.ProjectId == projectId && item.Active,
-        cancellationToken) ?? throw new ApiException(StatusCodes.Status404NotFound, ErrorCodes.NotFound, "The linked GitHub repository was not found for this project.");
-    if (!link.Enabled)
-    {
-        throw Conflict("A disabled repository cannot be synchronized.");
-    }
-    throw Conflict("Repository synchronization is already queued or in progress.");
 }
 
 private static async Task<ProjectRepositoryLink> RequireActiveLinkAsync(
@@ -463,33 +524,43 @@ private static async Task PromotePrimaryAsync(
                 source.OwnerLogin,
                 source.OwnerType,
                 source.AccessType,
+                source.ConnectionStatus,
                 source.Active,
                 AsUtc(source.CreatedAt)))
             .ToList();
-        var linkEntities = await dbContext.ProjectRepositoryLinks
-            .AsNoTracking()
-            .Where(link => link.ProjectId == projectId && link.Active)
-            .OrderByDescending(link => link.Primary)
-            .ThenBy(link => link.LinkedAt)
-            .ToListAsync(cancellationToken);
-        var links = linkEntities
-            .Select(link => new ProjectRepositoryLinkResponse(
-                link.Id,
-                link.SourceId,
-                link.AccessType,
-                link.GitHubRepositoryId,
-                link.GitHubRepoId,
-                link.FullName,
-                link.Name,
-                link.CustomName,
-                link.OwnerLogin,
-                link.DefaultBranch,
-                link.Url,
-                link.Primary,
-                link.Enabled,
-                AsUtc(link.LinkedAt),
-                link.LastSyncedAt.HasValue ? AsUtc(link.LastSyncedAt.Value) : null,
-                link.SyncStatus))
+        var linkRows = await (
+            from link in dbContext.ProjectRepositoryLinks.AsNoTracking()
+            join repository in dbContext.Repositories.AsNoTracking()
+                on link.GitHubRepositoryId equals repository.Id
+            join source in dbContext.AccessSources.AsNoTracking()
+                on link.SourceId equals source.Id
+            where link.ProjectId == projectId && link.Active
+            orderby link.Primary descending, link.LinkedAt
+            select new
+            {
+                Link = link,
+                RepositoryAvailable = repository.Available,
+                SourceConnectionStatus = source.ConnectionStatus
+            }).ToListAsync(cancellationToken);
+        var links = linkRows
+            .Select(row => new ProjectRepositoryLinkResponse(
+                row.Link.Id,
+                row.Link.SourceId,
+                row.Link.AccessType,
+                row.Link.GitHubRepositoryId,
+                row.Link.GitHubRepoId,
+                row.Link.FullName,
+                row.Link.Name,
+                row.Link.CustomName,
+                row.Link.OwnerLogin,
+                row.Link.DefaultBranch,
+                row.Link.Url,
+                row.Link.Primary,
+                row.Link.Enabled,
+                AsUtc(row.Link.LinkedAt),
+                row.Link.LastSyncedAt.HasValue ? AsUtc(row.Link.LastSyncedAt.Value) : null,
+                row.Link.SyncStatus,
+                ResolveAccessStatus(row.SourceConnectionStatus, row.RepositoryAvailable)))
             .ToList();
 
         return new ProjectGitHubRepositoriesResponse(
@@ -500,6 +571,15 @@ private static async Task PromotePrimaryAsync(
             sources,
             links);
     }
+
+    private static string ResolveAccessStatus(string connectionStatus, bool repositoryAvailable) =>
+        connectionStatus switch
+        {
+            GitHubConnectionStatuses.Suspended => GitHubRepositoryAccessStatuses.InstallationSuspended,
+            GitHubConnectionStatuses.Removed => GitHubRepositoryAccessStatuses.InstallationRemoved,
+            _ when !repositoryAvailable => GitHubRepositoryAccessStatuses.RepositoryAccessRevoked,
+            _ => GitHubRepositoryAccessStatuses.Available
+        };
 
     private static DateTime AsUtc(DateTime value) =>
         value.Kind == DateTimeKind.Utc ? value : DateTime.SpecifyKind(value, DateTimeKind.Utc);

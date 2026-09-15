@@ -43,6 +43,8 @@ public sealed class InstallationAccessSourceStore : IInstallationAccessSourceSto
             // or Direct Connect must update the origin so repository-selection
             // rules cannot be left behind from an older flow.
             existing.AccessType = accessType;
+            existing.ConnectionStatus = GitHubConnectionStatuses.Connected;
+            existing.ActiveInstallationKey = $"{projectId:N}:GITHUB_APP:{installation.InstallationId}";
             existing.UpdatedAt = now;
             await dbContext.SaveChangesAsync(cancellationToken);
             return existing.Id;
@@ -58,6 +60,7 @@ public sealed class InstallationAccessSourceStore : IInstallationAccessSourceSto
             OwnerLogin = installation.OwnerLogin,
             OwnerType = installation.OwnerType,
             AccessType = accessType,
+            ConnectionStatus = GitHubConnectionStatuses.Connected,
             Active = true,
             ActiveInstallationKey = activeInstallationKey,
             CreatedAt = now,

@@ -9,6 +9,19 @@ public static class GitHubAppPermissionRequirements
     public const string Contents = "contents";
     public const string PullRequests = "pull_requests";
 
+    public static void EnsureInstallationActive(GitHubInstallationInfo installation)
+    {
+        if (!installation.Suspended)
+        {
+            return;
+        }
+
+        throw new ApiException(
+            StatusCodes.Status409Conflict,
+            ErrorCodes.Conflict,
+            "The ResearchTrack GitHub App installation is suspended. Unsuspend the installation in GitHub before refreshing or synchronizing repositories.");
+    }
+
     public static void EnsureSynchronizationReadPermissions(GitHubInstallationInfo installation)
     {
         // Test doubles created before permission-aware installation metadata may

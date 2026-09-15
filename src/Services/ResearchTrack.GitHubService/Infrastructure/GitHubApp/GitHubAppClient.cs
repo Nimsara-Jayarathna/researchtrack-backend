@@ -70,7 +70,8 @@ public sealed class GitHubAppClient : IGitHubAppClient
             payload.Id,
             payload.Account.Login,
             ownerType,
-            new Dictionary<string, string>(payload.Permissions, StringComparer.OrdinalIgnoreCase));
+            new Dictionary<string, string>(payload.Permissions, StringComparer.OrdinalIgnoreCase),
+            payload.SuspendedAt.HasValue);
     }
 
     public async Task<GitHubInstallationToken> CreateInstallationTokenAsync(
@@ -143,7 +144,8 @@ public sealed class GitHubAppClient : IGitHubAppClient
     private sealed record InstallationResponse(
         long Id,
         InstallationAccount Account,
-        [property: JsonPropertyName("permissions")] Dictionary<string, string>? Permissions);
+        [property: JsonPropertyName("permissions")] Dictionary<string, string>? Permissions,
+        [property: JsonPropertyName("suspended_at")] DateTimeOffset? SuspendedAt);
 
     private sealed record InstallationAccount(string Login, string Type);
 }
