@@ -20,14 +20,23 @@ public sealed class RepositorySyncWorker : BackgroundService
     {
         await foreach (var workItem in _queue.ReadAllAsync(stoppingToken))
         {
+            _queue.MarkRunning(workItem.LinkedRepositoryId);
             try
             {
                 using var scope = _scopeFactory.CreateScope();
                 var service = scope.ServiceProvider.GetRequiredService<IGitHubRepositorySynchronizationService>();
-                await service.SynchronizeAsync(
+                var outcome = await service.SynchronizeAsync(
                     workItem.LinkedRepositoryId,
                     workItem.Trigger,
                     stoppingToken);
+                if (outcome == GitHubSynchronizationOutcome.AlreadyRunning)
+                {
+                    // Another synchronization path (for example the durable
+                    // webhook worker) owns this repository right now. Ask the
+                    // coalescing queue for one follow-up pass instead of silently
+                    // losing this manual/initial reconciliation request.
+                    await _queue.EnqueueAsync(workItem, stoppingToken);
+                }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -43,7 +52,7 @@ public sealed class RepositorySyncWorker : BackgroundService
             }
             finally
             {
-                _queue.Complete(workItem.LinkedRepositoryId);
+                await _queue.CompleteAsync(workItem.LinkedRepositoryId, stoppingToken);
             }
         }
     }

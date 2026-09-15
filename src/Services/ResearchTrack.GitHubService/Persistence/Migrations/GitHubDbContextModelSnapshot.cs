@@ -29,6 +29,11 @@ namespace ResearchTrack.GitHubService.Persistence.Migrations
                         .HasMaxLength(32)
                         .HasColumnType("varchar(32)");
 
+                    b.Property<string>("ConnectionStatus")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)");
+
                     b.Property<bool>("Active")
                         .HasColumnType("tinyint(1)");
 
@@ -240,6 +245,9 @@ namespace ResearchTrack.GitHubService.Persistence.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("char(36)");
 
+                    b.Property<bool>("Available")
+                        .HasColumnType("tinyint(1)");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime(6)");
 
@@ -254,6 +262,9 @@ namespace ResearchTrack.GitHubService.Persistence.Migrations
 
                     b.Property<long>("GitHubRepositoryId")
                         .HasColumnType("bigint");
+
+                    b.Property<DateTime?>("LastSeenAt")
+                        .HasColumnType("datetime(6)");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -286,6 +297,82 @@ namespace ResearchTrack.GitHubService.Persistence.Migrations
                         .HasDatabaseName("ux_github_repositories_source_github_id");
 
                     b.ToTable("github_repositories", (string)null);
+                });
+
+            modelBuilder.Entity("ResearchTrack.GitHubService.Domain.GitHubWebhookDelivery", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("char(36)");
+
+                    b.Property<string>("Action")
+                        .HasMaxLength(128)
+                        .HasColumnType("varchar(128)");
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("int");
+
+                    b.Property<string>("DeliveryId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("varchar(128)");
+
+                    b.Property<string>("EventType")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<long?>("GitHubRepositoryId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("InstallationId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(2048)
+                        .HasColumnType("varchar(2048)");
+
+                    b.Property<DateTime?>("NextAttemptAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("PayloadJson")
+                        .IsRequired()
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("PayloadSha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<DateTime?>("ProcessedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<DateTime?>("ProcessingStartedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<DateTime>("ReceivedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DeliveryId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_github_webhook_deliveries_delivery_id");
+
+                    b.HasIndex("ReceivedAt")
+                        .HasDatabaseName("ix_github_webhook_deliveries_received_at");
+
+                    b.HasIndex("Status", "NextAttemptAt")
+                        .HasDatabaseName("ix_github_webhook_deliveries_status_next_attempt");
+
+                    b.ToTable("github_webhook_deliveries", (string)null);
                 });
 
             modelBuilder.Entity("ResearchTrack.GitHubService.Domain.ProjectRepositoryLink", b =>

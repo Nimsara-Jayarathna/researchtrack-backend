@@ -17,6 +17,7 @@ public sealed record GitHubAccessSourceResponse(
     string OwnerLogin,
     string OwnerType,
     string AccessType,
+    string ConnectionStatus,
     bool Active,
     DateTime CreatedAt);
 
@@ -36,4 +37,5 @@ public sealed record ProjectRepositoryLinkResponse(
     bool Enabled,
     DateTime LinkedAt,
     DateTime? LastSyncedAt,
-    string? SyncStatus);
+    string? SyncStatus,
+    string AccessStatus);

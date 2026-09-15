@@ -144,6 +144,10 @@ public sealed class ResearchTrackWebApplicationFactory<TProgram> : WebApplicatio
             // GitHub repository limits are required runtime configuration.
             ["GitHub:RepositoryLinks:MaxLinkedRepositories"] = "5",
             ["GitHub:RepositoryLinks:MaxEnabledRepositories"] = "5",
+            ["GitHub:WebhookSecret"] = "test-webhook-secret-that-is-at-least-32-characters-long",
+            ["GitHub:Webhook:MaxPayloadBytes"] = "1048576",
+            ["GitHub:Webhook:MaxAttempts"] = "5",
+            ["GitHub:Webhook:ProcessingLeaseSeconds"] = "300",
 
             // Services
             ["Services:Auth:BaseUrl"] = "http://localhost:5101/",

@@ -77,6 +77,8 @@ builder.Services.AddRateLimiter(options =>
             "/api/v1/auth/refresh" => ("auth-refresh", 30),
             "/api/v1/auth/forgot-password" => ("auth-forgot-password", 5),
             "/api/v1/auth/reset-password" => ("auth-reset-password", 10),
+            "/api/github/webhooks" => ("github-webhooks", 600),
+            "/api/v1/github/webhooks" => ("github-webhooks", 600),
             _ => ("general", 120)
         };
 

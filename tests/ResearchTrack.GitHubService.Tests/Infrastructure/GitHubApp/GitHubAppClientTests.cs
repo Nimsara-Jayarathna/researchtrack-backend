@@ -33,6 +33,23 @@ public sealed class GitHubAppClientTests
     }
 
     [Fact]
+    public async Task Installation_metadata_reports_suspension_state()
+    {
+        var handler = new StubHandler(HttpStatusCode.OK, """
+            {"id":98765,"account":{"login":"openai","type":"Organization"},"permissions":{"metadata":"read","contents":"read","pull_requests":"read"},"suspended_at":"2026-09-15T04:30:00Z"}
+            """);
+        var client = new GitHubAppClient(
+            new HttpClient(handler) { BaseAddress = new Uri("https://api.github.com/") },
+            new StubJwtProvider());
+
+        var installation = await client.GetInstallationAsync(
+            98765,
+            TestContext.Current.CancellationToken);
+
+        Assert.True(installation.Suspended);
+    }
+
+    [Fact]
     public async Task Installation_token_is_requested_with_app_jwt_and_kept_server_side()
     {
         var handler = new StubHandler(HttpStatusCode.Created, """

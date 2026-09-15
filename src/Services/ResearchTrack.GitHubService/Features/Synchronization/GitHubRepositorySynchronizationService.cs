@@ -33,21 +33,24 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
         _logger = logger;
     }
 
-    public async Task SynchronizeAsync(
+    public async Task<GitHubSynchronizationOutcome> SynchronizeAsync(
         Guid linkedRepositoryId,
         string trigger,
         CancellationToken cancellationToken)
     {
         var syncContext = await LoadSyncContextAsync(linkedRepositoryId, cancellationToken);
-        if (!syncContext.Link.Active || !syncContext.Link.Enabled)
+        if (!syncContext.Link.Active
+            || !syncContext.Link.Enabled
+            || !string.Equals(syncContext.Source.ConnectionStatus, GitHubConnectionStatuses.Connected, StringComparison.Ordinal)
+            || !syncContext.Repository.Available)
         {
-            return;
+            return GitHubSynchronizationOutcome.SkippedUnavailable;
         }
 
         var runId = Guid.NewGuid();
         if (!await TryMarkStartedAsync(syncContext.Link, runId, trigger, cancellationToken))
         {
-            return;
+            return GitHubSynchronizationOutcome.AlreadyRunning;
         }
 
         try
@@ -63,6 +66,7 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
             var installation = await _gitHubAppClient.GetInstallationAsync(
                 installationId,
                 cancellationToken);
+            GitHubAppPermissionRequirements.EnsureInstallationActive(installation);
             GitHubAppPermissionRequirements.EnsureSynchronizationReadPermissions(installation);
 
             var token = await _tokenProvider.GetTokenAsync(installationId, cancellationToken);
@@ -140,6 +144,7 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
                 commits.Count,
                 contributors.Count,
                 pullRequests.Count);
+            return GitHubSynchronizationOutcome.Completed;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -193,7 +198,15 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
                 ErrorCodes.NotFound,
                 "The GitHub access source is no longer active.");
 
-        return new SyncContext(link, source);
+        var repository = await dbContext.Repositories
+            .AsNoTracking()
+            .SingleOrDefaultAsync(item => item.Id == link.GitHubRepositoryId, cancellationToken)
+            ?? throw new ApiException(
+                StatusCodes.Status404NotFound,
+                ErrorCodes.NotFound,
+                "The GitHub repository inventory record was not found.");
+
+        return new SyncContext(link, source, repository);
     }
 
     private async Task<bool> TryMarkStartedAsync(
@@ -716,7 +729,7 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
     private static string Truncate(string value, int maxLength) =>
         value.Length <= maxLength ? value : value[..maxLength];
 
-    private sealed record SyncContext(ProjectRepositoryLink Link, GitHubAccessSource Source);
+    private sealed record SyncContext(ProjectRepositoryLink Link, GitHubAccessSource Source, GitHubRepository Repository);
 
     private sealed record ContributorMetrics(
         int CommitCount,

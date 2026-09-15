@@ -7,6 +7,22 @@ namespace ResearchTrack.GitHubService.Tests.Infrastructure.GitHubApp;
 public sealed class GitHubAppPermissionRequirementsTests
 {
     [Fact]
+    public void EnsureInstallationActive_rejects_suspended_installation()
+    {
+        var installation = new GitHubInstallationInfo(
+            10,
+            "openai",
+            "ORG",
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
+            Suspended: true);
+
+        var exception = Assert.Throws<ResearchTrack.BuildingBlocks.Api.Exceptions.ApiException>(() =>
+            GitHubAppPermissionRequirements.EnsureInstallationActive(installation));
+
+        Assert.Equal(StatusCodes.Status409Conflict, exception.StatusCode);
+    }
+
+    [Fact]
     public void Read_permissions_allow_synchronization()
     {
         var installation = new GitHubInstallationInfo(

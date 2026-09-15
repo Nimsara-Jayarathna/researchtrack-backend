@@ -250,7 +250,8 @@ public sealed class RepositoryLinkServiceTests
             true,
             new DateTime(2026, 9, 8, 12, 0, 0, DateTimeKind.Utc),
             null,
-            status)]);
+            status,
+            "AVAILABLE")]);
 
     private sealed class StubAuthorizationClient : IProjectAuthorizationClient
     {

@@ -79,6 +79,12 @@ public sealed class InstallationRepositoryStore : IInstallationRepositoryStore
             .Where(repository => repository.SourceId == sourceId)
             .ToDictionaryAsync(repository => repository.GitHubRepositoryId, cancellationToken);
 
+        foreach (var repository in existing.Values)
+        {
+            repository.Available = false;
+            repository.UpdatedAt = now;
+        }
+
         var selectedEntities = new List<GitHubRepository>(repositories.Count);
         foreach (var repository in repositories)
         {
@@ -94,6 +100,8 @@ public sealed class InstallationRepositoryStore : IInstallationRepositoryStore
                     OwnerLogin = repository.OwnerLogin,
                     DefaultBranch = repository.DefaultBranch,
                     Url = repository.HtmlUrl,
+                    Available = true,
+                    LastSeenAt = now,
                     CreatedAt = now,
                     UpdatedAt = now
                 };
@@ -106,6 +114,24 @@ public sealed class InstallationRepositoryStore : IInstallationRepositoryStore
             }
 
             selectedEntities.Add(entity);
+        }
+
+        var activeLinks = await dbContext.ProjectRepositoryLinks
+            .Where(link => link.SourceId == sourceId && link.Active)
+            .ToListAsync(cancellationToken);
+        var repositoryByEntityId = existing.Values.ToDictionary(repository => repository.Id);
+        foreach (var link in activeLinks)
+        {
+            if (!repositoryByEntityId.TryGetValue(link.GitHubRepositoryId, out var repository))
+            {
+                continue;
+            }
+            link.FullName = repository.FullName;
+            link.Name = repository.Name;
+            link.OwnerLogin = repository.OwnerLogin;
+            link.DefaultBranch = repository.DefaultBranch;
+            link.Url = repository.Url;
+            link.UpdatedAt = now;
         }
 
         try
@@ -143,7 +169,7 @@ public sealed class InstallationRepositoryStore : IInstallationRepositoryStore
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
         return await dbContext.Repositories
             .AsNoTracking()
-            .Where(repository => repository.SourceId == sourceId && repository.Id == repositoryId)
+            .Where(repository => repository.SourceId == sourceId && repository.Id == repositoryId && repository.Available)
             .Select(repository => new InstallationRepositorySelection(
                 repository.Id,
                 repository.GitHubRepositoryId))
@@ -173,6 +199,8 @@ public sealed class InstallationRepositoryStore : IInstallationRepositoryStore
                 OwnerLogin = repository.OwnerLogin,
                 DefaultBranch = repository.DefaultBranch,
                 Url = repository.HtmlUrl,
+                Available = true,
+                LastSeenAt = now,
                 CreatedAt = now,
                 UpdatedAt = now
             };
@@ -192,6 +220,7 @@ public sealed class InstallationRepositoryStore : IInstallationRepositoryStore
         IQueryable<GitHubAccessSource> sources) =>
         sources.Where(source =>
             source.Active
+            && source.ConnectionStatus == GitHubConnectionStatuses.Connected
             && source.InstallationId != null
             && (source.AccessType == GitHubAccessTypes.InstallationDirect
                 || source.AccessType == GitHubAccessTypes.InstallationRequested));
@@ -206,6 +235,8 @@ public sealed class InstallationRepositoryStore : IInstallationRepositoryStore
         entity.OwnerLogin = repository.OwnerLogin;
         entity.DefaultBranch = repository.DefaultBranch;
         entity.Url = repository.HtmlUrl;
+        entity.Available = true;
+        entity.LastSeenAt = now;
         entity.UpdatedAt = now;
     }
 

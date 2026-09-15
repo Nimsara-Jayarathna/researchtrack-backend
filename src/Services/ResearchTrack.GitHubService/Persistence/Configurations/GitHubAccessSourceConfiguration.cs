@@ -16,6 +16,7 @@ public sealed class GitHubAccessSourceConfiguration : IEntityTypeConfiguration<G
         builder.Property(source => source.OwnerLogin).HasMaxLength(255).IsRequired();
         builder.Property(source => source.OwnerType).HasMaxLength(32).IsRequired();
         builder.Property(source => source.AccessType).HasMaxLength(32).IsRequired();
+        builder.Property(source => source.ConnectionStatus).HasMaxLength(32).IsRequired();
         builder.Property(source => source.Active).IsRequired();
         builder.Property(source => source.ActiveInstallationKey).HasMaxLength(128);
         builder.Property(source => source.CreatedAt).IsRequired();

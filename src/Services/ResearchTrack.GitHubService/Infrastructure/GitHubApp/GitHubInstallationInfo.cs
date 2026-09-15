@@ -4,4 +4,5 @@ public sealed record GitHubInstallationInfo(
     long InstallationId,
     string OwnerLogin,
     string OwnerType,
-    IReadOnlyDictionary<string, string>? Permissions = null);
+    IReadOnlyDictionary<string, string>? Permissions = null,
+    bool Suspended = false);

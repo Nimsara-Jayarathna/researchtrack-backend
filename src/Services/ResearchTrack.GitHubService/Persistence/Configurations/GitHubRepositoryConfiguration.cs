@@ -17,6 +17,8 @@ public sealed class GitHubRepositoryConfiguration : IEntityTypeConfiguration<Git
         builder.Property(repository => repository.OwnerLogin).HasMaxLength(255).IsRequired();
         builder.Property(repository => repository.DefaultBranch).HasMaxLength(255);
         builder.Property(repository => repository.Url).HasMaxLength(2048).IsRequired();
+        builder.Property(repository => repository.Available).IsRequired();
+        builder.Property(repository => repository.LastSeenAt);
         builder.Property(repository => repository.CreatedAt).IsRequired();
         builder.Property(repository => repository.UpdatedAt).IsRequired();
 
