@@ -12,6 +12,7 @@ public sealed class GitHubInstallationFlowService : IGitHubInstallationFlowServi
 {
     private readonly IProjectAuthorizationClient _projectAuthorization;
     private readonly IGitHubInstallationStateService _stateService;
+    private readonly IGitHubAccessRequestService _accessRequests;
     private readonly IGitHubAppClient _gitHubAppClient;
     private readonly IInstallationAccessSourceStore _accessSourceStore;
     private readonly GitHubAppOptions _options;
@@ -21,6 +22,7 @@ public sealed class GitHubInstallationFlowService : IGitHubInstallationFlowServi
     public GitHubInstallationFlowService(
         IProjectAuthorizationClient projectAuthorization,
         IGitHubInstallationStateService stateService,
+        IGitHubAccessRequestService accessRequests,
         IGitHubAppClient gitHubAppClient,
         IInstallationAccessSourceStore accessSourceStore,
         GitHubAppOptions options,
@@ -29,6 +31,7 @@ public sealed class GitHubInstallationFlowService : IGitHubInstallationFlowServi
     {
         _projectAuthorization = projectAuthorization;
         _stateService = stateService;
+        _accessRequests = accessRequests;
         _gitHubAppClient = gitHubAppClient;
         _accessSourceStore = accessSourceStore;
         _options = options;
@@ -43,40 +46,52 @@ public sealed class GitHubInstallationFlowService : IGitHubInstallationFlowServi
     {
         if (!string.IsNullOrWhiteSpace(request.RequestToken))
         {
-            throw new ApiValidationException([
-                new ApiFieldError(
-                    "requestToken",
-                    ["Requested-access installation is handled by its existing request flow."])
-            ]);
+            return await StartRequestedAsync(request.RequestToken, cancellationToken);
         }
-
+        if (userId == Guid.Empty)
+        {
+            throw new ApiException(StatusCodes.Status401Unauthorized, "UNAUTHORIZED", "Authentication is required.");
+        }
         if (request.ProjectId is null || request.ProjectId == Guid.Empty)
         {
-            throw new ApiValidationException([
-                new ApiFieldError("projectId", ["Project id is required."])
-            ]);
+            throw new ApiValidationException([new ApiFieldError("projectId", ["Project id is required."])]);
         }
 
         var projectId = request.ProjectId.Value;
         await _projectAuthorization.EnsureCanManageAsync(projectId, cancellationToken);
-
         var state = await _stateService.CreateAsync(
             projectId,
             userId,
             GitHubInstallationFlowTypes.Direct,
             $"/supervisor/projects/{projectId:D}",
             cancellationToken);
-
-        var installUrl = BuildInstallUrl(state.Value);
-        _logger.LogInformation(
-            "GitHub App installation flow started. ProjectId={ProjectId} UserId={UserId}",
-            projectId,
-            userId);
-
         return new GitHubInstallStartResponse(
             projectId,
-            installUrl.AbsoluteUri,
+            BuildInstallUrl(state.Value).AbsoluteUri,
             GitHubInstallationFlowTypes.Direct,
+            state.ExpiresAt);
+    }
+
+    private async Task<GitHubInstallStartResponse> StartRequestedAsync(
+        string requestToken,
+        CancellationToken cancellationToken)
+    {
+        var request = await _accessRequests.ResolvePendingAsync(requestToken, cancellationToken);
+        var state = await _stateService.CreateAsync(
+            request.ProjectId,
+            request.RequestedByUserId,
+            GitHubInstallationFlowTypes.Requested,
+            "/github/access-updated",
+            cancellationToken,
+            request.Id);
+        _logger.LogInformation(
+            "Requested GitHub App installation flow started. ProjectId={ProjectId} AccessRequestId={AccessRequestId}",
+            request.ProjectId,
+            request.Id);
+        return new GitHubInstallStartResponse(
+            request.ProjectId,
+            BuildInstallUrl(state.Value).AbsoluteUri,
+            GitHubInstallationFlowTypes.Requested,
             state.ExpiresAt);
     }
 
@@ -90,123 +105,121 @@ public sealed class GitHubInstallationFlowService : IGitHubInstallationFlowServi
     {
         if (string.IsNullOrWhiteSpace(state))
         {
-            throw new ApiValidationException([
-                new ApiFieldError("state", ["GitHub installation state is required."])
-            ]);
+            throw new ApiValidationException([new ApiFieldError("state", ["GitHub installation state is required."])]);
         }
-
         var normalizedState = state.Trim();
         var normalizedAction = setupAction?.Trim().ToLowerInvariant();
-        var normalizedError = string.IsNullOrWhiteSpace(error)
-            ? null
-            : error.Trim().ToLowerInvariant();
-
-        // The callback is anonymous because the application auth cookie can be SameSite=Strict.
-        // Security is provided by the one-time server-side state generated for the initiating
-        // supervisor/project. The installation id is then verified using the GitHub App identity.
-        var validated = await _stateService.ValidateExternalCallbackAsync(
-            normalizedState,
-            GitHubInstallationFlowTypes.Direct,
-            cancellationToken);
+        var normalizedError = string.IsNullOrWhiteSpace(error) ? null : error.Trim().ToLowerInvariant();
+        var validated = await _stateService.ValidateExternalCallbackAsync(normalizedState, cancellationToken);
 
         if (!string.IsNullOrWhiteSpace(code))
         {
-            // ResearchTrack uses installation access tokens, not a user OAuth token, for repository
-            // synchronization. An OAuth callback here means an obsolete GitHub App configuration is
-            // still trying to force user authorization during installation.
-            var consumedLegacy = await ConsumeValidatedStateAsync(
-                normalizedState,
-                validated,
-                cancellationToken);
-            _logger.LogWarning(
-                "Unexpected GitHub user OAuth callback received. ProjectId={ProjectId}",
-                consumedLegacy.ProjectId);
-            return Failure(consumedLegacy, "unexpected_user_oauth");
+            var consumed = await ConsumeValidatedStateAsync(normalizedState, validated, cancellationToken);
+            return await FailureAsync(consumed, "unexpected_user_oauth", cancellationToken);
         }
-
         if (normalizedError is not null || IsCancelledOrDenied(normalizedAction))
         {
-            var consumed = await ConsumeValidatedStateAsync(
-                normalizedState,
-                validated,
-                cancellationToken);
-            var errorCode = normalizedError == "access_denied"
-                || IsCancelledOrDenied(normalizedAction)
-                    ? "cancelled"
-                    : "github_authorization_failed";
-            return Failure(consumed, errorCode);
+            var consumed = await ConsumeValidatedStateAsync(normalizedState, validated, cancellationToken);
+            var errorCode = normalizedError == "access_denied" || IsCancelledOrDenied(normalizedAction)
+                ? "cancelled"
+                : "github_authorization_failed";
+            return await FailureAsync(consumed, errorCode, cancellationToken);
         }
-
         if (installationId is null || installationId <= 0)
         {
-            var consumed = await ConsumeValidatedStateAsync(
-                normalizedState,
-                validated,
-                cancellationToken);
-            return Failure(consumed, "missing_installation");
+            var consumed = await ConsumeValidatedStateAsync(normalizedState, validated, cancellationToken);
+            return await FailureAsync(consumed, "missing_installation", cancellationToken);
         }
-
         if (!IsSupportedSetupAction(normalizedAction))
         {
-            var consumed = await ConsumeValidatedStateAsync(
-                normalizedState,
-                validated,
-                cancellationToken);
-            return Failure(consumed, "invalid_setup_action");
+            var consumed = await ConsumeValidatedStateAsync(normalizedState, validated, cancellationToken);
+            return await FailureAsync(consumed, "invalid_setup_action", cancellationToken);
         }
 
+        validated = await _stateService.BindInstallationAsync(
+            normalizedState,
+            installationId.Value,
+            validated.FlowType,
+            cancellationToken);
+
+        GitHubInstallationInfo installation;
         try
         {
-            // This verifies that the installation exists for this GitHub App and supplies canonical
-            // owner metadata. Browser-provided owner/account data is never trusted.
-            var installation = await _gitHubAppClient.GetInstallationAsync(
-                installationId.Value,
-                cancellationToken);
-
-            var consumed = await ConsumeValidatedStateAsync(
-                normalizedState,
-                validated,
-                cancellationToken);
-
-            var sourceId = await _accessSourceStore.CreateAsync(
-                consumed.ProjectId,
-                consumed.InitiatingUserId,
-                installation,
-                _timeProvider.GetUtcNow().UtcDateTime,
-                cancellationToken);
-
-            _logger.LogInformation(
-                "GitHub App installation connected. ProjectId={ProjectId} SourceId={SourceId} InstallationId={InstallationId}",
-                consumed.ProjectId,
-                sourceId,
-                installation.InstallationId);
-
-            return new GitHubInstallationCallbackResult(
-                consumed.ProjectId,
-                sourceId,
-                installation.InstallationId,
-                consumed.FlowType,
-                consumed.ReturnPath,
-                true,
-                null);
+            installation = await _gitHubAppClient.GetInstallationAsync(installationId.Value, cancellationToken);
+            if (string.Equals(validated.FlowType, GitHubInstallationFlowTypes.Requested, StringComparison.Ordinal))
+            {
+                if (validated.AccessRequestId is not Guid requestId)
+                {
+                    throw new InvalidOperationException("Requested installation state is missing its access request binding.");
+                }
+                await _accessRequests.EnsureInstallationOwnerAsync(requestId, installation.OwnerLogin, cancellationToken);
+            }
+        }
+        catch (ApiException exception) when (exception.StatusCode == StatusCodes.Status409Conflict
+            && string.Equals(validated.FlowType, GitHubInstallationFlowTypes.Requested, StringComparison.Ordinal))
+        {
+            var consumed = await ConsumeValidatedStateAsync(normalizedState, validated, cancellationToken);
+            return await FailureAsync(consumed, "installation_owner_mismatch", cancellationToken);
         }
         catch (ApiException exception) when (exception.StatusCode == StatusCodes.Status404NotFound)
         {
-            var consumed = await ConsumeValidatedStateAsync(
-                normalizedState,
-                validated,
-                cancellationToken);
-            return Failure(consumed, "invalid_installation");
+            var consumed = await ConsumeValidatedStateAsync(normalizedState, validated, cancellationToken);
+            return await FailureAsync(consumed, "invalid_installation", cancellationToken);
         }
-        catch (ApiException exception) when (
-            exception.StatusCode >= StatusCodes.Status500InternalServerError)
+        catch (ApiException exception) when (exception.StatusCode >= StatusCodes.Status500InternalServerError)
         {
-            var consumed = await ConsumeValidatedStateAsync(
-                normalizedState,
-                validated,
-                cancellationToken);
-            return Failure(consumed, "github_unavailable");
+            var consumed = await ConsumeValidatedStateAsync(normalizedState, validated, cancellationToken);
+            return await FailureAsync(consumed, "github_unavailable", cancellationToken);
         }
+
+        // Persist the verified installation before consuming state. Both source creation
+        // and request completion are idempotent, so a transient failure can safely retry
+        // the callback while the state is still valid instead of stranding a request.
+        var accessType = GitHubAccessTypes.FromFlowType(validated.FlowType);
+        var sourceId = await _accessSourceStore.CreateAsync(
+            validated.ProjectId,
+            validated.InitiatingUserId,
+            installation,
+            accessType,
+            _timeProvider.GetUtcNow().UtcDateTime,
+            cancellationToken);
+
+        string? requestedResultToken = null;
+        if (string.Equals(validated.FlowType, GitHubInstallationFlowTypes.Requested, StringComparison.Ordinal))
+        {
+            if (validated.AccessRequestId is not Guid requestId)
+            {
+                throw new InvalidOperationException("Requested installation state is missing its access request binding.");
+            }
+            requestedResultToken = await _accessRequests.CompleteAsync(
+                requestId,
+                sourceId,
+                installation.InstallationId,
+                cancellationToken);
+        }
+
+        var consumedState = await ConsumeValidatedStateAsync(normalizedState, validated, cancellationToken);
+        string? externalRedirect = null;
+        if (!string.IsNullOrWhiteSpace(requestedResultToken))
+        {
+            externalRedirect = BuildRequestedResultUrl(requestedResultToken, true, null);
+        }
+
+        _logger.LogInformation(
+            "GitHub App installation connected. ProjectId={ProjectId} SourceId={SourceId} InstallationId={InstallationId} FlowType={FlowType}",
+            consumedState.ProjectId,
+            sourceId,
+            installation.InstallationId,
+            consumedState.FlowType);
+        return new GitHubInstallationCallbackResult(
+            consumedState.ProjectId,
+            sourceId,
+            installation.InstallationId,
+            consumedState.FlowType,
+            consumedState.ReturnPath,
+            true,
+            null,
+            externalRedirect);
     }
 
     private async Task<ConsumedGitHubInstallationState> ConsumeValidatedStateAsync(
@@ -217,37 +230,65 @@ public sealed class GitHubInstallationFlowService : IGitHubInstallationFlowServi
         var consumed = await _stateService.ConsumeAsync(
             state,
             validated.InitiatingUserId,
-            GitHubInstallationFlowTypes.Direct,
+            validated.FlowType,
             cancellationToken);
-
         if (consumed.ProjectId != validated.ProjectId
             || consumed.InitiatingUserId != validated.InitiatingUserId
+            || consumed.AccessRequestId != validated.AccessRequestId
+            || consumed.PendingInstallationId != validated.PendingInstallationId
             || !string.Equals(consumed.FlowType, validated.FlowType, StringComparison.Ordinal)
             || !string.Equals(consumed.ReturnPath, validated.ReturnPath, StringComparison.Ordinal))
         {
-            throw new InvalidOperationException(
-                "GitHub installation state changed unexpectedly during callback validation.");
+            throw new InvalidOperationException("GitHub installation state changed unexpectedly during callback validation.");
         }
-
         return consumed;
     }
 
-    private static GitHubInstallationCallbackResult Failure(
+    private async Task<GitHubInstallationCallbackResult> FailureAsync(
         ConsumedGitHubInstallationState state,
-        string errorCode) => new(
+        string errorCode,
+        CancellationToken cancellationToken)
+    {
+        string? externalRedirect = null;
+        if (string.Equals(state.FlowType, GitHubInstallationFlowTypes.Requested, StringComparison.Ordinal)
+            && state.AccessRequestId is Guid requestId)
+        {
+            var resultToken = await _accessRequests.FailAsync(requestId, errorCode, cancellationToken);
+            if (!string.IsNullOrWhiteSpace(resultToken))
+            {
+                externalRedirect = BuildRequestedResultUrl(resultToken, false, errorCode);
+            }
+        }
+        return new GitHubInstallationCallbackResult(
             state.ProjectId,
             null,
             state.PendingInstallationId,
             state.FlowType,
             state.ReturnPath,
             false,
-            errorCode);
+            errorCode,
+            externalRedirect);
+    }
 
-    private static bool IsCancelledOrDenied(string? setupAction) =>
-        setupAction is "cancel" or "cancelled" or "denied";
+    private string BuildRequestedResultUrl(string token, bool succeeded, string? errorCode)
+    {
+        var builder = new UriBuilder(new Uri(_options.FrontendReturnOrigin, "github/access-updated"));
+        var query = new List<string>
+        {
+            $"token={Uri.EscapeDataString(token)}",
+            $"status={(succeeded ? "success" : "failed")}",
+            $"flowType={Uri.EscapeDataString(GitHubInstallationFlowTypes.Requested)}"
+        };
+        if (!string.IsNullOrWhiteSpace(errorCode))
+        {
+            query.Add($"githubError={Uri.EscapeDataString(errorCode)}");
+        }
+        builder.Query = string.Join("&", query);
+        return builder.Uri.AbsoluteUri;
+    }
 
-    private static bool IsSupportedSetupAction(string? setupAction) =>
-        setupAction is null or "" or "install" or "update";
+    private static bool IsCancelledOrDenied(string? setupAction) => setupAction is "cancel" or "cancelled" or "denied";
+    private static bool IsSupportedSetupAction(string? setupAction) => setupAction is null or "" or "install" or "update";
 
     private Uri BuildInstallUrl(string state)
     {

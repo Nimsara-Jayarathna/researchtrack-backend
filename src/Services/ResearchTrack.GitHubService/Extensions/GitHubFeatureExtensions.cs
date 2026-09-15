@@ -15,7 +15,7 @@ public static class GitHubFeatureExtensions
         IConfiguration configuration)
     {
         var projectBaseUrl = RequireAbsoluteUri(configuration, "Services:Project:BaseUrl");
-        var linkOptions = GetRepositoryLinkOptions(configuration);
+        var linkOptions = GitHubRepositoryLinkOptionsFactory.Create(configuration);
 
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton(linkOptions);
@@ -24,7 +24,10 @@ public static class GitHubFeatureExtensions
         services.AddScoped<IGitHubInstallationStateService, GitHubInstallationStateService>();
         services.AddScoped<IGitHubInstallationStateStore, GitHubInstallationStateStore>();
         services.AddScoped<IGitHubInstallationFlowService, GitHubInstallationFlowService>();
+        services.AddScoped<IGitHubAccessRequestService, GitHubAccessRequestService>();
+        services.AddSingleton<IGitHubAccessRequestTokenService, GitHubAccessRequestTokenService>();
         services.AddScoped<IGitHubInstallationRepositoryService, GitHubInstallationRepositoryService>();
+        services.AddScoped<IGitHubInstallationRepositoryInventoryService, GitHubInstallationRepositoryInventoryService>();
         services.AddScoped<IInstallationAccessSourceStore, InstallationAccessSourceStore>();
         services.AddScoped<IInstallationRepositoryStore, InstallationRepositoryStore>();
         services.AddSingleton<IGitHubAppJwtProvider, GitHubAppJwtProvider>();
@@ -38,7 +41,6 @@ public static class GitHubFeatureExtensions
         services.AddSingleton<IRepositorySyncQueue>(provider => provider.GetRequiredService<RepositorySyncQueue>());
         services.AddSingleton<IInitialRepositorySyncRequester>(provider => provider.GetRequiredService<RepositorySyncQueue>());
         services.AddHostedService<RepositorySyncWorker>();
-        services.AddHostedService<RepositoryScheduledSyncWorker>();
         services.AddScoped<IGitHubRepositorySynchronizationService, GitHubRepositorySynchronizationService>();
         services.AddSingleton<IGitHubInstallationTokenProvider, GitHubInstallationTokenProvider>();
 
@@ -49,6 +51,12 @@ public static class GitHubFeatureExtensions
             });
 
         services.AddHttpClient<IProjectAuthorizationClient, ProjectAuthorizationClient>(client =>
+        {
+            client.BaseAddress = EnsureTrailingSlash(projectBaseUrl);
+            client.Timeout = TimeSpan.FromSeconds(10);
+        });
+
+        services.AddHttpClient<IProjectMetadataClient, ProjectMetadataClient>(client =>
         {
             client.BaseAddress = EnsureTrailingSlash(projectBaseUrl);
             client.Timeout = TimeSpan.FromSeconds(10);
@@ -120,17 +128,4 @@ public static class GitHubFeatureExtensions
     private static Uri EnsureTrailingSlash(Uri value) => new(
         value.ToString().TrimEnd('/') + "/",
         UriKind.Absolute);
-
-    private static GitHubRepositoryLinkOptions GetRepositoryLinkOptions(IConfiguration configuration)
-    {
-        var linked = configuration.GetValue<int>("GitHub:RepositoryLinks:MaxLinkedRepositories");
-        var enabled = configuration.GetValue<int>("GitHub:RepositoryLinks:MaxEnabledRepositories");
-        if (linked < 1 || enabled < 1 || enabled > linked)
-        {
-            throw new InvalidOperationException(
-                "GitHub repository limits must be positive and enabled repositories cannot exceed linked repositories.");
-        }
-
-        return new GitHubRepositoryLinkOptions(linked, enabled);
-    }
 }

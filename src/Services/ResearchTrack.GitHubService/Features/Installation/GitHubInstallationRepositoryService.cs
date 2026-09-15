@@ -2,6 +2,7 @@ using ResearchTrack.BuildingBlocks.Api.Constants;
 using ResearchTrack.BuildingBlocks.Api.Contracts;
 using ResearchTrack.BuildingBlocks.Api.Exceptions;
 using ResearchTrack.GitHubService.Contracts;
+using ResearchTrack.GitHubService.Domain;
 using ResearchTrack.GitHubService.Infrastructure;
 using ResearchTrack.GitHubService.Infrastructure.GitHubApp;
 
@@ -9,11 +10,9 @@ namespace ResearchTrack.GitHubService.Features.Installation;
 
 public sealed class GitHubInstallationRepositoryService : IGitHubInstallationRepositoryService
 {
-    private const int PageSize = 100;
-    private const int MaxPages = 100;
-
     private readonly IProjectAuthorizationClient _projectAuthorization;
     private readonly IInstallationRepositoryStore _store;
+    private readonly IGitHubInstallationRepositoryInventoryService _inventoryService;
     private readonly IGitHubAppClient _gitHubAppClient;
     private readonly IGitHubInstallationRepositoryClient _repositoryClient;
     private readonly TimeProvider _timeProvider;
@@ -22,6 +21,7 @@ public sealed class GitHubInstallationRepositoryService : IGitHubInstallationRep
     public GitHubInstallationRepositoryService(
         IProjectAuthorizationClient projectAuthorization,
         IInstallationRepositoryStore store,
+        IGitHubInstallationRepositoryInventoryService inventoryService,
         IGitHubAppClient gitHubAppClient,
         IGitHubInstallationRepositoryClient repositoryClient,
         TimeProvider timeProvider,
@@ -29,6 +29,7 @@ public sealed class GitHubInstallationRepositoryService : IGitHubInstallationRep
     {
         _projectAuthorization = projectAuthorization;
         _store = store;
+        _inventoryService = inventoryService;
         _gitHubAppClient = gitHubAppClient;
         _repositoryClient = repositoryClient;
         _timeProvider = timeProvider;
@@ -55,25 +56,8 @@ public sealed class GitHubInstallationRepositoryService : IGitHubInstallationRep
 
         await _projectAuthorization.EnsureCanManageAsync(source.ProjectId, cancellationToken);
 
-        // Re-verify the installation still belongs to this App before minting a scoped token.
-        var installation = await _gitHubAppClient.GetInstallationAsync(
-            source.InstallationId,
-            cancellationToken);
-        if (installation.InstallationId != source.InstallationId)
-        {
-            throw DependencyFailure("GitHub installation verification returned an unexpected installation.");
-        }
-
-        var token = await _gitHubAppClient.CreateInstallationTokenAsync(
-            source.InstallationId,
-            cancellationToken);
-        var repositories = await ListAllRepositoriesAsync(token, cancellationToken);
-
-        var response = await _store.UpsertAvailableAsync(
-            source.Id,
-            repositories,
-            _timeProvider.GetUtcNow().UtcDateTime,
-            cancellationToken);
+        var response = await _inventoryService.TryRefreshAsync(source.Id, cancellationToken)
+            ?? throw NotFound("The GitHub App installation source is no longer active.");
 
         _logger.LogInformation(
             "Listed repositories accessible to GitHub App installation. ProjectId={ProjectId} SourceId={SourceId} InstallationId={InstallationId} RepositoryCount={RepositoryCount} UserId={UserId}",
@@ -228,55 +212,65 @@ public sealed class GitHubInstallationRepositoryService : IGitHubInstallationRep
         // Defense in depth: linking already authorizes in RepositoryLinkService.
         await _projectAuthorization.EnsureCanManageAsync(projectId, cancellationToken);
 
-        if (repositories.Count != 1)
+        // Reject stale/tampered local selections before minting an installation
+        // token or making repository API calls. Both direct and requested GitHub
+        // App flows intentionally use the same multi-repository verification path.
+        var storedSelections = new List<InstallationRepositorySelection>(repositories.Count);
+        foreach (var selection in repositories)
         {
-            throw new ApiValidationException([
-                new ApiFieldError(
-                    "repositories",
-                    ["Select exactly one repository for the direct GitHub App connection flow."])
-            ]);
+            var stored = await _store.GetSelectionAsync(
+                sourceId,
+                selection.GitHubRepositoryId,
+                cancellationToken)
+                ?? throw NotFound(
+                    "The selected repository was not offered by this GitHub App access source.");
+            storedSelections.Add(stored);
         }
 
-        var selection = repositories[0];
-        var storedSelection = await _store.GetSelectionAsync(
-            sourceId,
-            selection.GitHubRepositoryId,
-            cancellationToken)
-            ?? throw NotFound(
-                "The selected repository was not offered by this GitHub App access source.");
+        // Repository metadata access alone is not enough for ResearchTrack synchronization.
+        // Fail before persistence with an actionable error if the installed App has not
+        // been granted the read-only permissions required by commits and pull requests.
+        var installation = await _gitHubAppClient.GetInstallationAsync(
+            source.InstallationId,
+            cancellationToken);
+        GitHubAppPermissionRequirements.EnsureSynchronizationReadPermissions(installation);
 
         // Token creation proves the installation is currently accessible by this GitHub App.
         var token = await _gitHubAppClient.CreateInstallationTokenAsync(
             source.InstallationId,
             cancellationToken);
 
-        var authoritative = await GetAccessibleRepositoryAsync(
-            token,
-            storedSelection.GitHubRepositoryId,
-            cancellationToken);
-
-        if (authoritative.Id != storedSelection.GitHubRepositoryId)
+        foreach (var storedSelection in storedSelections)
         {
-            throw DependencyFailure("GitHub returned unexpected repository metadata.");
-        }
+            var authoritative = await GetAccessibleRepositoryAsync(
+                token,
+                storedSelection.GitHubRepositoryId,
+                cancellationToken);
 
-        var verifiedRepositoryId = await _store.UpsertVerifiedAsync(
-            source.Id,
-            authoritative,
-            _timeProvider.GetUtcNow().UtcDateTime,
-            cancellationToken);
-        if (verifiedRepositoryId != storedSelection.Id)
-        {
-            throw Conflict("The selected repository identity changed unexpectedly.");
-        }
+            if (authoritative.Id != storedSelection.GitHubRepositoryId)
+            {
+                throw DependencyFailure("GitHub returned unexpected repository metadata.");
+            }
 
-        _logger.LogInformation(
-            "Verified GitHub App repository before linking. ProjectId={ProjectId} SourceId={SourceId} InstallationId={InstallationId} GitHubRepositoryId={GitHubRepositoryId} UserId={UserId}",
-            projectId,
-            source.Id,
-            source.InstallationId,
-            authoritative.Id,
-            userId);
+            var verifiedRepositoryId = await _store.UpsertVerifiedAsync(
+                source.Id,
+                authoritative,
+                _timeProvider.GetUtcNow().UtcDateTime,
+                cancellationToken);
+            if (verifiedRepositoryId != storedSelection.Id)
+            {
+                throw Conflict("The selected repository identity changed unexpectedly.");
+            }
+
+            _logger.LogInformation(
+                "Verified GitHub App repository before linking. ProjectId={ProjectId} SourceId={SourceId} InstallationId={InstallationId} GitHubRepositoryId={GitHubRepositoryId} AccessType={AccessType} UserId={UserId}",
+                projectId,
+                source.Id,
+                source.InstallationId,
+                authoritative.Id,
+                source.AccessType,
+                userId);
+        }
 
         return true;
     }
@@ -298,47 +292,6 @@ public sealed class GitHubInstallationRepositoryService : IGitHubInstallationRep
             throw NotFound(
                 "The selected repository is no longer accessible to this GitHub App installation.");
         }
-    }
-
-    private async Task<IReadOnlyList<GitHubInstallationRepository>> ListAllRepositoriesAsync(
-        GitHubInstallationToken token,
-        CancellationToken cancellationToken)
-    {
-        var repositories = new List<GitHubInstallationRepository>();
-        int? expectedTotalCount = null;
-        for (var page = 1; page <= MaxPages; page++)
-        {
-            var result = await _repositoryClient.ListAsync(
-                token,
-                page,
-                PageSize,
-                cancellationToken);
-
-            expectedTotalCount ??= result.TotalCount;
-            if (result.TotalCount != expectedTotalCount)
-            {
-                throw DependencyFailure(
-                    "GitHub repository pagination changed during repository discovery.");
-            }
-
-            repositories.AddRange(result.Items);
-
-            if (!result.HasNext)
-            {
-                if (repositories.Count != result.TotalCount
-                    || repositories.Select(repository => repository.Id).Distinct().Count()
-                        != repositories.Count)
-                {
-                    throw DependencyFailure(
-                        "GitHub repository pagination returned an inconsistent repository inventory.");
-                }
-
-                return repositories;
-            }
-        }
-
-        throw DependencyFailure(
-            "GitHub installation repository inventory exceeds the supported pagination limit.");
     }
 
     private static ApiException NotFound(string message) => new(

@@ -15,45 +15,29 @@ namespace ResearchTrack.GitHubService.Controllers;
 
 [Route("api/github/access-source/install")]
 [Route("api/v1/github/access-source/install")]
-[Authorize(Policy = AuthSecurityConstants.Policies.SupervisorOnly)]
 public sealed class GitHubInstallationController : ApiControllerBase
 {
     private readonly IGitHubInstallationFlowService _installationFlowService;
     private readonly GitHubAppOptions _gitHubAppOptions;
 
-    public GitHubInstallationController(
-        IGitHubInstallationFlowService installationFlowService,
-        GitHubAppOptions gitHubAppOptions)
+    public GitHubInstallationController(IGitHubInstallationFlowService installationFlowService, GitHubAppOptions gitHubAppOptions)
     {
         _installationFlowService = installationFlowService;
         _gitHubAppOptions = gitHubAppOptions;
     }
 
     [HttpPost("start")]
-    [ProducesResponseType<ApiResponse<GitHubInstallStartResponse>>(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    [AllowAnonymous]
     public async Task<ActionResult<ApiResponse<GitHubInstallStartResponse>>> Start(
         [FromBody] StartGitHubInstallationRequest request,
         CancellationToken cancellationToken)
     {
-        var response = await _installationFlowService.StartAsync(
-            GetRequiredUserId(),
-            request,
-            cancellationToken);
-        return ApiOk(response);
+        var userId = string.IsNullOrWhiteSpace(request.RequestToken) ? GetRequiredUserId() : Guid.Empty;
+        return ApiOk(await _installationFlowService.StartAsync(userId, request, cancellationToken));
     }
 
     [HttpGet("callback")]
     [AllowAnonymous]
-    [ProducesResponseType(StatusCodes.Status302Found)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(StatusCodes.Status409Conflict)]
-    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
     public async Task<IActionResult> Callback(
         [FromQuery] string? state,
         [FromQuery(Name = "installation_id")] long? installationId,
@@ -63,56 +47,28 @@ public sealed class GitHubInstallationController : ApiControllerBase
         CancellationToken cancellationToken)
     {
         var result = await _installationFlowService.CompleteCallbackAsync(
-            state,
-            installationId,
-            setupAction,
-            code,
-            error,
-            cancellationToken);
-
+            state, installationId, setupAction, code, error, cancellationToken);
         if (!string.IsNullOrWhiteSpace(result.ExternalRedirectUrl))
         {
             return Redirect(result.ExternalRedirectUrl);
         }
-
         return Redirect(BuildFrontendReturnUrl(result));
     }
 
     private string BuildFrontendReturnUrl(GitHubInstallationCallbackResult result)
     {
-        var returnUri = new Uri(
-            _gitHubAppOptions.FrontendReturnOrigin,
-            result.ReturnPath.TrimStart('/'));
+        var returnUri = new Uri(_gitHubAppOptions.FrontendReturnOrigin, result.ReturnPath.TrimStart('/'));
         var query = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var pair in QueryHelpers.ParseQuery(returnUri.Query))
-        {
-            query[pair.Key] = pair.Value.ToString();
-        }
-
+        foreach (var pair in QueryHelpers.ParseQuery(returnUri.Query)) query[pair.Key] = pair.Value.ToString();
         query["tab"] = "integrations";
         query["githubSetup"] = result.Succeeded ? "success" : "failed";
         query["githubFlow"] = result.FlowType;
-
-        if (result.SourceId is Guid sourceId)
-        {
-            query["githubSourceId"] = sourceId.ToString("D");
-        }
-
-        if (result.InstallationId is long installationId)
-        {
-            query["installationId"] = installationId.ToString(
-                System.Globalization.CultureInfo.InvariantCulture);
-        }
-
-        if (!string.IsNullOrWhiteSpace(result.ErrorCode))
-        {
-            query["githubError"] = result.ErrorCode;
-        }
-
+        if (result.SourceId is Guid sourceId) query["githubSourceId"] = sourceId.ToString("D");
+        if (result.InstallationId is long installationId) query["installationId"] = installationId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        if (!string.IsNullOrWhiteSpace(result.ErrorCode)) query["githubError"] = result.ErrorCode;
         var builder = new UriBuilder(returnUri)
         {
-            Query = string.Join("&", query.Select(pair =>
-                $"{Uri.EscapeDataString(pair.Key)}={Uri.EscapeDataString(pair.Value)}"))
+            Query = string.Join("&", query.Select(pair => $"{Uri.EscapeDataString(pair.Key)}={Uri.EscapeDataString(pair.Value)}"))
         };
         return builder.Uri.AbsoluteUri;
     }
@@ -120,14 +76,7 @@ public sealed class GitHubInstallationController : ApiControllerBase
     private Guid GetRequiredUserId()
     {
         var subject = User.FindFirstValue(AuthSecurityConstants.SubjectClaim);
-        if (Guid.TryParse(subject, out var userId))
-        {
-            return userId;
-        }
-
-        throw new ApiException(
-            StatusCodes.Status401Unauthorized,
-            ErrorCodes.Unauthorized,
-            "Authentication is required.");
+        if (Guid.TryParse(subject, out var userId)) return userId;
+        throw new ApiException(StatusCodes.Status401Unauthorized, ErrorCodes.Unauthorized, "Authentication is required.");
     }
 }

@@ -36,6 +36,15 @@ public sealed class GitHubDashboardQueryService : IGitHubDashboardQueryService
             .ThenBy(link => link.LinkedAt)
             .ToListAsync(cancellationToken);
 
+        var hasUnacknowledgedAccess = await db.AccessRequests.AsNoTracking()
+            .AnyAsync(request => request.ProjectId == projectId
+                && request.Status == GitHubAccessRequestStatuses.Completed
+                && request.SourceId != null
+                && request.InstallationId != null
+                && request.AcknowledgedAt == null
+                && db.AccessSources.Any(source => source.Id == request.SourceId && source.Active),
+                cancellationToken);
+
         var selected = SelectLink(links, linkedRepositoryId);
         var repositories = links.Select(link => new GitHubDashboardRepositoryResponse(
             link.Id,
@@ -58,7 +67,7 @@ public sealed class GitHubDashboardQueryService : IGitHubDashboardQueryService
                 new GitHubDashboardActivitySummaryResponse(0, null, "idle"),
                 [],
                 [],
-                false);
+                hasUnacknowledgedAccess);
         }
 
         var source = await db.AccessSources.AsNoTracking()
@@ -114,7 +123,7 @@ public sealed class GitHubDashboardQueryService : IGitHubDashboardQueryService
                 totalCommits > 0 ? "active" : "idle"),
             contributorPreview,
             recentCommits,
-            false);
+            hasUnacknowledgedAccess);
     }
 
     public async Task<GitHubCompatibilityPage<GitHubDashboardCommitResponse>> GetActivityAsync(

@@ -5,4 +5,5 @@ public sealed record InstallationAccessSourceSnapshot(
     Guid ProjectId,
     long InstallationId,
     string OwnerLogin,
-    string OwnerType);
+    string OwnerType,
+    string AccessType);

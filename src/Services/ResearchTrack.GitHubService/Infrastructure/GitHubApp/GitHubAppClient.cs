@@ -54,7 +54,8 @@ public sealed class GitHubAppClient : IGitHubAppClient
         if (payload is null
             || payload.Id != installationId
             || string.IsNullOrWhiteSpace(payload.Account?.Login)
-            || string.IsNullOrWhiteSpace(payload.Account.Type))
+            || string.IsNullOrWhiteSpace(payload.Account.Type)
+            || payload.Permissions is null)
         {
             throw DependencyFailure("GitHub returned invalid installation metadata.");
         }
@@ -65,7 +66,11 @@ public sealed class GitHubAppClient : IGitHubAppClient
                 ? "USER"
                 : throw DependencyFailure("GitHub returned an unsupported installation owner type.");
 
-        return new GitHubInstallationInfo(payload.Id, payload.Account.Login, ownerType);
+        return new GitHubInstallationInfo(
+            payload.Id,
+            payload.Account.Login,
+            ownerType,
+            new Dictionary<string, string>(payload.Permissions, StringComparer.OrdinalIgnoreCase));
     }
 
     public async Task<GitHubInstallationToken> CreateInstallationTokenAsync(
@@ -135,7 +140,10 @@ public sealed class GitHubAppClient : IGitHubAppClient
         [property: JsonPropertyName("token")] string Token,
         [property: JsonPropertyName("expires_at")] DateTimeOffset ExpiresAt);
 
-    private sealed record InstallationResponse(long Id, InstallationAccount Account);
+    private sealed record InstallationResponse(
+        long Id,
+        InstallationAccount Account,
+        [property: JsonPropertyName("permissions")] Dictionary<string, string>? Permissions);
 
     private sealed record InstallationAccount(string Login, string Type);
 }

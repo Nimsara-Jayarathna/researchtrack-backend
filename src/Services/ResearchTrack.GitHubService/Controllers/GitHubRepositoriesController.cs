@@ -20,68 +20,51 @@ public sealed class GitHubRepositoriesController : ApiControllerBase
     private readonly IRepositoryLinkService _repositoryLinkService;
     private readonly IGitHubInstallationRepositoryService _installationRepositoryService;
 
-    public GitHubRepositoriesController(
-        IRepositoryLinkService repositoryLinkService,
-        IGitHubInstallationRepositoryService installationRepositoryService)
+    public GitHubRepositoriesController(IRepositoryLinkService repositoryLinkService, IGitHubInstallationRepositoryService installationRepositoryService)
     {
         _repositoryLinkService = repositoryLinkService;
         _installationRepositoryService = installationRepositoryService;
     }
 
     [HttpGet("available")]
-    [ProducesResponseType<ApiResponse<GitHubAvailableRepositoriesResponse>>(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
-    public async Task<ActionResult<ApiResponse<GitHubAvailableRepositoriesResponse>>> GetAvailable(
-        [FromQuery] Guid sourceId,
-        CancellationToken cancellationToken)
+    public async Task<ActionResult<ApiResponse<GitHubAvailableRepositoriesResponse>>> GetAvailable([FromQuery] Guid sourceId, CancellationToken cancellationToken)
     {
-        var userId = GetRequiredUserId();
-        var installationAvailable = await _installationRepositoryService.TryGetAvailableAsync(
-            userId,
-            sourceId,
-            cancellationToken)
-            ?? throw new ApiException(
-                StatusCodes.Status404NotFound,
-                ErrorCodes.NotFound,
-                "The active GitHub App access source was not found.");
-
-        return ApiOk(installationAvailable);
+        var available = await _installationRepositoryService.TryGetAvailableAsync(GetRequiredUserId(), sourceId, cancellationToken)
+            ?? throw new ApiException(StatusCodes.Status404NotFound, ErrorCodes.NotFound, "The active GitHub App access source was not found.");
+        return ApiOk(available);
     }
 
     [HttpPost("link")]
-    [ProducesResponseType<ApiResponse<ProjectGitHubRepositoriesResponse>>(StatusCodes.Status201Created)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    [ProducesResponseType(StatusCodes.Status409Conflict)]
-    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
-    public async Task<ActionResult<ApiResponse<ProjectGitHubRepositoriesResponse>>> Link(
-        [FromBody] LinkGitHubRepositoriesRequest request,
+    public async Task<ActionResult<ApiResponse<ProjectGitHubRepositoriesResponse>>> Link([FromBody] LinkGitHubRepositoriesRequest request, CancellationToken cancellationToken)
+        => ApiCreated(null, await _repositoryLinkService.LinkAsync(GetRequiredUserId(), request, cancellationToken));
+
+    [HttpDelete("{linkedRepositoryId:guid}")]
+    public async Task<ActionResult<ApiResponse<ProjectGitHubRepositoriesResponse>>> Unlink(Guid linkedRepositoryId, CancellationToken cancellationToken)
+        => ApiOk(await _repositoryLinkService.UnlinkAsync(GetRequiredUserId(), linkedRepositoryId, cancellationToken));
+
+    [HttpPost("{linkedRepositoryId:guid}/enable")]
+    public async Task<ActionResult<ApiResponse<ProjectGitHubRepositoriesResponse>>> Enable(Guid linkedRepositoryId, CancellationToken cancellationToken)
+        => ApiOk(await _repositoryLinkService.SetEnabledAsync(GetRequiredUserId(), linkedRepositoryId, true, cancellationToken));
+
+    [HttpPost("{linkedRepositoryId:guid}/disable")]
+    public async Task<ActionResult<ApiResponse<ProjectGitHubRepositoriesResponse>>> Disable(Guid linkedRepositoryId, CancellationToken cancellationToken)
+        => ApiOk(await _repositoryLinkService.SetEnabledAsync(GetRequiredUserId(), linkedRepositoryId, false, cancellationToken));
+
+    [HttpPost("{linkedRepositoryId:guid}/select")]
+    public async Task<ActionResult<ApiResponse<ProjectGitHubRepositoriesResponse>>> Select(Guid linkedRepositoryId, CancellationToken cancellationToken)
+        => ApiOk(await _repositoryLinkService.SelectPrimaryAsync(GetRequiredUserId(), linkedRepositoryId, cancellationToken));
+
+    [HttpPost("{linkedRepositoryId:guid}/display-name")]
+    public async Task<ActionResult<ApiResponse<ProjectGitHubRepositoriesResponse>>> DisplayName(
+        Guid linkedRepositoryId,
+        [FromBody] UpdateGitHubRepositoryDisplayNameRequest request,
         CancellationToken cancellationToken)
-    {
-        var linked = await _repositoryLinkService.LinkAsync(
-            GetRequiredUserId(),
-            request,
-            cancellationToken);
-        return ApiCreated(null, linked);
-    }
+        => ApiOk(await _repositoryLinkService.UpdateDisplayNameAsync(GetRequiredUserId(), linkedRepositoryId, request.CustomName, cancellationToken));
 
     private Guid GetRequiredUserId()
     {
         var subject = User.FindFirstValue(AuthSecurityConstants.SubjectClaim);
-        if (Guid.TryParse(subject, out var userId))
-        {
-            return userId;
-        }
-
-        throw new ApiException(
-            StatusCodes.Status401Unauthorized,
-            ErrorCodes.Unauthorized,
-            "Authentication is required.");
+        if (Guid.TryParse(subject, out var userId)) return userId;
+        throw new ApiException(StatusCodes.Status401Unauthorized, ErrorCodes.Unauthorized, "Authentication is required.");
     }
 }

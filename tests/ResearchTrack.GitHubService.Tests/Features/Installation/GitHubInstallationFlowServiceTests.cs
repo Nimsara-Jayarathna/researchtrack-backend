@@ -66,6 +66,43 @@ public sealed class GitHubInstallationFlowServiceTests
     }
 
     [Fact]
+    public async Task Requested_callback_reuses_same_github_app_pipeline_and_completes_access_request()
+    {
+        var requestId = Guid.Parse("66666666-6666-6666-6666-666666666666");
+        var state = new StubStateService
+        {
+            FlowType = GitHubInstallationFlowTypes.Requested,
+            AccessRequestId = requestId
+        };
+        var requests = new StubAccessRequestService { ResultToken = "result-token" };
+        var appClient = new StubGitHubAppClient();
+        var store = new StubInstallationStore { ExpectedAccessType = GitHubAccessTypes.InstallationRequested };
+        var service = CreateService(
+            new StubAuthorizationClient(),
+            state,
+            appClient,
+            store,
+            requests);
+
+        var result = await service.CompleteCallbackAsync(
+            "state-value",
+            InstallationId,
+            "install",
+            null,
+            null,
+            TestContext.Current.CancellationToken);
+
+        Assert.True(result.Succeeded);
+        Assert.True(appClient.GetInstallationWasCalled);
+        Assert.True(store.WasCalled);
+        Assert.True(requests.OwnerCheckWasCalled);
+        Assert.True(requests.CompleteWasCalled);
+        Assert.True(state.ConsumeWasCalled);
+        Assert.Equal(GitHubInstallationFlowTypes.Requested, result.FlowType);
+        Assert.Contains("result-token", result.ExternalRedirectUrl);
+    }
+
+    [Fact]
     public async Task Unexpected_user_oauth_callback_is_rejected_and_never_persisted()
     {
         var state = new StubStateService();
@@ -192,7 +229,8 @@ public sealed class GitHubInstallationFlowServiceTests
         StubAuthorizationClient authorization,
         StubStateService state,
         StubGitHubAppClient? appClient = null,
-        StubInstallationStore? store = null)
+        StubInstallationStore? store = null,
+        StubAccessRequestService? accessRequests = null)
     {
         var options = new GitHubAppOptions(
             12345,
@@ -202,11 +240,13 @@ public sealed class GitHubInstallationFlowServiceTests
             "/tmp/test.pem",
             new Uri("https://api.example.test/api/github/access-source/install/callback"),
             new Uri("https://app.example.test/"),
-            TimeSpan.FromMinutes(10));
+            TimeSpan.FromMinutes(10),
+            TimeSpan.FromHours(24));
 
         return new GitHubInstallationFlowService(
             authorization,
             state,
+            accessRequests ?? new StubAccessRequestService(),
             appClient ?? new StubGitHubAppClient(),
             store ?? new StubInstallationStore(),
             options,
@@ -241,13 +281,16 @@ public sealed class GitHubInstallationFlowServiceTests
         public bool ConsumeWasCalled { get; private set; }
         public Guid CreatedProjectId { get; private set; }
         public Guid CreatedUserId { get; private set; }
+        public string FlowType { get; init; } = GitHubInstallationFlowTypes.Direct;
+        public Guid? AccessRequestId { get; init; }
 
         public Task<GitHubInstallationState> CreateAsync(
             Guid projectId,
             Guid initiatingUserId,
             string flowType,
             string returnPath,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            Guid? accessRequestId = null)
         {
             CreateWasCalled = true;
             CreatedProjectId = projectId;
@@ -262,11 +305,10 @@ public sealed class GitHubInstallationFlowServiceTests
             Guid expectedUserId,
             string expectedFlowType,
             CancellationToken cancellationToken) =>
-            ValidateExternalCallbackAsync(state, expectedFlowType, cancellationToken);
+            ValidateExternalCallbackAsync(state, cancellationToken);
 
         public Task<ValidatedGitHubInstallationState> ValidateExternalCallbackAsync(
             string state,
-            string expectedFlowType,
             CancellationToken cancellationToken)
         {
             ValidateWasCalled = true;
@@ -278,8 +320,11 @@ public sealed class GitHubInstallationFlowServiceTests
             return Task.FromResult(new ValidatedGitHubInstallationState(
                 ProjectId,
                 UserId,
-                GitHubInstallationFlowTypes.Direct,
-                $"/supervisor/projects/{ProjectId:D}",
+                FlowType,
+                string.Equals(FlowType, GitHubInstallationFlowTypes.Requested, StringComparison.Ordinal)
+                    ? "/github/access-updated"
+                    : $"/supervisor/projects/{ProjectId:D}",
+                AccessRequestId,
                 PendingInstallationId,
                 PendingInstallationId.HasValue ? Now.UtcDateTime : null));
         }
@@ -291,7 +336,7 @@ public sealed class GitHubInstallationFlowServiceTests
             CancellationToken cancellationToken)
         {
             PendingInstallationId = installationId;
-            return ValidateExternalCallbackAsync(state, expectedFlowType, cancellationToken);
+            return ValidateExternalCallbackAsync(state, cancellationToken);
         }
 
         public Task<ConsumedGitHubInstallationState> ConsumeAsync(
@@ -304,11 +349,45 @@ public sealed class GitHubInstallationFlowServiceTests
             return Task.FromResult(new ConsumedGitHubInstallationState(
                 ProjectId,
                 UserId,
-                GitHubInstallationFlowTypes.Direct,
-                $"/supervisor/projects/{ProjectId:D}",
+                FlowType,
+                string.Equals(FlowType, GitHubInstallationFlowTypes.Requested, StringComparison.Ordinal)
+                    ? "/github/access-updated"
+                    : $"/supervisor/projects/{ProjectId:D}",
+                AccessRequestId,
                 PendingInstallationId,
                 Now.UtcDateTime));
         }
+    }
+
+    private sealed class StubAccessRequestService : IGitHubAccessRequestService
+    {
+        public bool OwnerCheckWasCalled { get; private set; }
+        public bool CompleteWasCalled { get; private set; }
+        public string? ResultToken { get; init; }
+
+        public Task<GitHubAccessRequestCreateResponse> CreateAsync(Guid userId, Guid projectId, string ownerLogin, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task<IReadOnlyList<GitHubAccessRequestSummaryResponse>> ListAsync(Guid userId, Guid projectId, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task RevokeAsync(Guid userId, Guid projectId, Guid requestId, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task<GitHubAccessRequestValidationResponse> ValidateAsync(string token, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task<PendingGitHubAccessRequest> ResolvePendingAsync(string token, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task EnsureInstallationOwnerAsync(Guid requestId, string ownerLogin, CancellationToken cancellationToken)
+        {
+            OwnerCheckWasCalled = true;
+            Assert.Equal("openai", ownerLogin);
+            return Task.CompletedTask;
+        }
+        public Task<string?> CompleteAsync(Guid requestId, Guid sourceId, long installationId, CancellationToken cancellationToken)
+        {
+            CompleteWasCalled = true;
+            Assert.Equal(SourceId, sourceId);
+            Assert.Equal(InstallationId, installationId);
+            return Task.FromResult(ResultToken);
+        }
+        public Task<string?> FailAsync(Guid requestId, string errorCode, CancellationToken cancellationToken) => Task.FromResult<string?>(null);
+        public Task<GitHubAccessUpdatedSummaryResponse> GetResultAsync(string token, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task<GitHubAccessUpdatedAcknowledgeResponse> AcknowledgeAsync(string token, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task<GitHubAccessUpdatedSummaryResponse> GetLatestCompletedAsync(Guid userId, Guid projectId, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task<GitHubAccessUpdatedAcknowledgeResponse> AcknowledgeLatestAsync(Guid userId, Guid projectId, CancellationToken cancellationToken) => throw new NotSupportedException();
     }
 
     private sealed class StubGitHubAppClient : IGitHubAppClient
@@ -337,11 +416,13 @@ public sealed class GitHubInstallationFlowServiceTests
     private sealed class StubInstallationStore : IInstallationAccessSourceStore
     {
         public bool WasCalled { get; private set; }
+        public string ExpectedAccessType { get; init; } = GitHubAccessTypes.InstallationDirect;
 
         public Task<Guid> CreateAsync(
             Guid projectId,
             Guid userId,
             GitHubInstallationInfo installation,
+            string accessType,
             DateTime now,
             CancellationToken cancellationToken)
         {
@@ -349,6 +430,7 @@ public sealed class GitHubInstallationFlowServiceTests
             Assert.Equal(ProjectId, projectId);
             Assert.Equal(UserId, userId);
             Assert.Equal(InstallationId, installation.InstallationId);
+            Assert.Equal(ExpectedAccessType, accessType);
             return Task.FromResult(SourceId);
         }
     }

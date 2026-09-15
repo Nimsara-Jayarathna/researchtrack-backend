@@ -31,6 +31,12 @@ public static class GitHubAppOptionsFactory
             throw Invalid("GitHub:StateExpiryMinutes", "must be between 1 and 30 minutes.");
         }
 
+        var accessRequestExpiryHours = configuration.GetValue<int?>("GitHub:AccessRequestExpiryHours") ?? 24;
+        if (accessRequestExpiryHours is < 1 or > 168)
+        {
+            throw Invalid("GitHub:AccessRequestExpiryHours", "must be between 1 and 168 hours.");
+        }
+
         return new GitHubAppOptions(
             appId,
             appSlug,
@@ -39,7 +45,8 @@ public static class GitHubAppOptionsFactory
             privateKeyPath,
             setupCallbackUrl,
             frontendReturnOrigin,
-            TimeSpan.FromMinutes(stateExpiryMinutes))
+            TimeSpan.FromMinutes(stateExpiryMinutes),
+            TimeSpan.FromHours(accessRequestExpiryHours))
         {
             PrivateKeyBase64 = privateKeyBase64
         };

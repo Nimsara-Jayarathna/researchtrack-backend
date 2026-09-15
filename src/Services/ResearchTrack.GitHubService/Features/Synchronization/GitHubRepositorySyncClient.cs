@@ -28,13 +28,6 @@ public sealed class GitHubRepositorySyncClient : IGitHubRepositorySyncClient
         return ParseRepository(payload.RootElement);
     }
 
-    public Task<IReadOnlyList<GitHubSyncBranch>> GetBranchesAsync(
-        string owner,
-        string repository,
-        string? token,
-        CancellationToken cancellationToken) =>
-        GetPagedAsync($"repos/{Part(owner)}/{Part(repository)}/branches", token, ParseBranch, cancellationToken);
-
     public Task<IReadOnlyList<GitHubSyncCommit>> GetCommitsAsync(
         string owner,
         string repository,
@@ -205,10 +198,14 @@ public sealed class GitHubRepositorySyncClient : IGitHubRepositorySyncClient
                         BuildRateLimitMessage(response));
                 }
 
+                var acceptedPermissions = TryGetHeader(response, "X-Accepted-GitHub-Permissions");
+                var message = string.IsNullOrWhiteSpace(acceptedPermissions)
+                    ? "ResearchTrack does not have permission to read this GitHub repository."
+                    : $"ResearchTrack GitHub App permission is insufficient for this GitHub API operation. Required permission set: {acceptedPermissions}. Update the GitHub App permissions and approve the update for the installation.";
                 throw new ApiException(
                     StatusCodes.Status403Forbidden,
                     ErrorCodes.Forbidden,
-                    "ResearchTrack does not have permission to read this GitHub repository.");
+                    message);
             }
 
             if ((int)response.StatusCode == StatusCodes.Status429TooManyRequests)
@@ -309,15 +306,6 @@ public sealed class GitHubRepositorySyncClient : IGitHubRepositorySyncClient
             NullableDate(element, "created_at"),
             NullableDate(element, "updated_at"),
             NullableDate(element, "pushed_at"));
-    }
-
-    private static GitHubSyncBranch ParseBranch(JsonElement element)
-    {
-        var commit = RequiredObject(element, "commit");
-        return new GitHubSyncBranch(
-            RequiredString(element, "name"),
-            RequiredString(commit, "sha"),
-            Bool(element, "protected"));
     }
 
     private static GitHubSyncCommit ParseCommit(JsonElement element)

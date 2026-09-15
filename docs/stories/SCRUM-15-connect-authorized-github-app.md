@@ -39,17 +39,15 @@ GitHub documentation:
 
 ## Least-privilege permissions for SCRUM-15
 
-For the code currently in this branch, configure repository permissions as follows:
+For the integrated GitHub connection + synchronization flow in this branch, configure repository permissions as follows:
 
-- **Metadata: Read-only** — required for repository metadata/default-branch lookup by repository ID.
+- **Metadata: Read-only** — required for repository metadata and installation repository discovery.
+- **Contents: Read-only** — required for default-branch commit activity and commit details.
+- **Pull requests: Read-only** — required for pull request activity and review details.
 
-Repository selection is restricted by the repositories granted to the installation. The installation repository-list endpoint itself does not require a broader repository-content permission.
+Repository selection is still restricted to repositories granted to the GitHub App installation. ResearchTrack does not require write access to repository contents or pull requests. Do not grant Issues, Administration, Actions, or other write permissions unless a future story explicitly needs them.
 
-Do **not** grant Contents, Pull requests, Issues, Administration, Actions, or write permissions merely for SCRUM-15. No webhook is required by the current SCRUM-15 implementation.
-
-### Story 11 note
-
-This source tree contains the shared `IInitialRepositorySyncRequester` contract, but its registered implementation is currently `DeferredInitialRepositorySyncRequester`, which records the handoff and explicitly states that Story 11 integration is pending. Therefore this document does not invent extra GitHub permissions for Story 11. When the real synchronization requester is integrated, derive any additional read-only permissions from the exact GitHub endpoints it calls.
+When these permissions are changed in the GitHub App settings, existing installations must approve the permission update in GitHub before synchronization can succeed. ResearchTrack now validates these permissions before linking and before synchronization so a metadata-only installation fails with an actionable message instead of linking successfully and failing later in the background worker.
 
 ## Backend configuration keys
 
@@ -92,7 +90,7 @@ A real GitHub test is required after environment credentials and public callback
 5. Grant the App access to a private test repository.
 6. Return through the backend setup callback and complete the GitHub user-authorization check.
 7. Confirm ResearchTrack returns to the original project and loads only repositories accessible to that installation.
-8. Select exactly one repository and confirm the link.
+8. Select one or more repositories (up to the configured project limit), choose one primary repository, and confirm the links.
 9. Verify the stored numeric GitHub repository ID, owner/full name, canonical URL, and default branch against GitHub.
 10. Verify the link persists after refreshing the project page and the synchronization status reflects the shared handoff.
 11. Start again and cancel/deny at GitHub; confirm no new source/link appears.
@@ -101,6 +99,6 @@ A real GitHub test is required after environment credentials and public callback
 14. Remove the repository from the App installation after it was listed but before confirming; confirm the link is rejected.
 15. Remove App access after linking and retry repository discovery; confirm a safe access/unavailable error instead of stale success.
 
-## Current integration limitation
+## Synchronization integration
 
-SCRUM-15 persists the repository and calls the existing shared initial-sync boundary. The current branch's concrete requester is deferred pending Story 11; therefore a production synchronization ingestion run cannot be claimed until that owning story supplies the real requester implementation.
+Repository linking is integrated with the shared synchronization queue. Each newly linked repository is queued independently for an initial default-branch synchronization. If a synchronization attempt fails, the link remains intact with a failed synchronization status so the supervisor can correct GitHub App permissions and retry manually without recreating the project link.

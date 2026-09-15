@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using ResearchTrack.BuildingBlocks.Api.Constants;
 using ResearchTrack.BuildingBlocks.Api.Exceptions;
 using ResearchTrack.GitHubService.Contracts;
+using ResearchTrack.GitHubService.Domain;
 using ResearchTrack.GitHubService.Features.Installation;
 using ResearchTrack.GitHubService.Infrastructure;
 using ResearchTrack.GitHubService.Infrastructure.GitHubApp;
@@ -264,28 +265,39 @@ public sealed class GitHubInstallationRepositoryServiceTests
     }
 
     [Fact]
-    public async Task Direct_installation_link_requires_exactly_one_repository()
+    public async Task Direct_installation_uses_the_same_multi_repository_verification_flow()
     {
+        var secondRepositoryId = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+        var store = new StubStore();
+        store.Selections[RepositoryId] = new InstallationRepositorySelection(RepositoryId, 9001);
+        store.Selections[secondRepositoryId] = new InstallationRepositorySelection(secondRepositoryId, 9002);
+        store.VerifiedIdsByGitHubRepositoryId[9001] = RepositoryId;
+        store.VerifiedIdsByGitHubRepositoryId[9002] = secondRepositoryId;
+
         var app = new StubGitHubAppClient();
         var repositoryClient = new StubRepositoryClient();
+        repositoryClient.Repositories[9001] = Repository(9001, "org/one", "one");
+        repositoryClient.Repositories[9002] = Repository(9002, "org/two", "two");
         var service = CreateService(
             new StubAuthorizationClient(),
-            new StubStore(),
+            store,
             app,
             repositoryClient);
 
-        await Assert.ThrowsAsync<ApiValidationException>(() => service.TryVerifyForLinkAsync(
+        var handled = await service.TryVerifyForLinkAsync(
             UserId,
             ProjectId,
             SourceId,
             [
                 new LinkGitHubRepositoryRequestItem(RepositoryId, null, true),
-                new LinkGitHubRepositoryRequestItem(Guid.NewGuid(), null, false)
+                new LinkGitHubRepositoryRequestItem(secondRepositoryId, null, false)
             ],
-            TestContext.Current.CancellationToken));
+            TestContext.Current.CancellationToken);
 
-        Assert.Equal(0, app.CreateTokenCallCount);
-        Assert.Equal(0, repositoryClient.GetCallCount);
+        Assert.True(handled);
+        Assert.Equal(1, app.CreateTokenCallCount);
+        Assert.Equal(2, repositoryClient.GetCallCount);
+        Assert.Equal(2, store.UpsertVerifiedCallCount);
     }
 
     [Fact]
@@ -320,13 +332,25 @@ public sealed class GitHubInstallationRepositoryServiceTests
         StubAuthorizationClient authorization,
         StubStore store,
         StubGitHubAppClient app,
-        StubRepositoryClient repositoryClient) => new(
-            authorization,
+        StubRepositoryClient repositoryClient)
+    {
+        var timeProvider = new FixedTimeProvider(Now);
+        var inventory = new GitHubInstallationRepositoryInventoryService(
             store,
             app,
             repositoryClient,
-            new FixedTimeProvider(Now),
+            timeProvider,
+            NullLogger<GitHubInstallationRepositoryInventoryService>.Instance);
+
+        return new GitHubInstallationRepositoryService(
+            authorization,
+            store,
+            inventory,
+            app,
+            repositoryClient,
+            timeProvider,
             NullLogger<GitHubInstallationRepositoryService>.Instance);
+    }
 
     private static GitHubInstallationRepository Repository(long id, string fullName, string name) =>
         new(id, "org", name, fullName, $"https://github.com/{fullName}", "main", true);
@@ -346,9 +370,11 @@ public sealed class GitHubInstallationRepositoryServiceTests
     private sealed class StubStore : IInstallationRepositoryStore
     {
         public InstallationAccessSourceSnapshot? Source { get; init; } =
-            new(SourceId, ProjectId, 777, "org", "ORG");
+            new(SourceId, ProjectId, 777, "org", "ORG", GitHubAccessTypes.InstallationDirect);
         public InstallationRepositorySelection? Selection { get; init; } =
             new(RepositoryId, 9001);
+        public Dictionary<Guid, InstallationRepositorySelection> Selections { get; } = [];
+        public Dictionary<long, Guid> VerifiedIdsByGitHubRepositoryId { get; } = [];
         public int UpsertAvailableCallCount { get; private set; }
         public int UpsertVerifiedCallCount { get; private set; }
         public IReadOnlyList<GitHubInstallationRepository> LastAvailableRepositories { get; private set; } =
@@ -387,7 +413,8 @@ public sealed class GitHubInstallationRepositoryServiceTests
         public Task<InstallationRepositorySelection?> GetSelectionAsync(
             Guid sourceId,
             Guid repositoryId,
-            CancellationToken cancellationToken) => Task.FromResult(Selection);
+            CancellationToken cancellationToken) => Task.FromResult(
+                Selections.TryGetValue(repositoryId, out var selected) ? selected : Selection);
 
         public Task<Guid> UpsertVerifiedAsync(
             Guid sourceId,
@@ -397,7 +424,10 @@ public sealed class GitHubInstallationRepositoryServiceTests
         {
             UpsertVerifiedCallCount++;
             LastVerifiedRepository = repository;
-            return Task.FromResult(RepositoryId);
+            return Task.FromResult(
+                VerifiedIdsByGitHubRepositoryId.TryGetValue(repository.Id, out var storedId)
+                    ? storedId
+                    : RepositoryId);
         }
     }
 
@@ -432,6 +462,7 @@ public sealed class GitHubInstallationRepositoryServiceTests
         public Exception? GetFailure { get; init; }
         public GitHubInstallationRepository Repository { get; init; } =
             GitHubInstallationRepositoryServiceTests.Repository(9001, "org/example", "example");
+        public Dictionary<long, GitHubInstallationRepository> Repositories { get; } = [];
         public List<int> ListedPages { get; } = [];
         public int GetCallCount { get; private set; }
 
@@ -461,9 +492,15 @@ public sealed class GitHubInstallationRepositoryServiceTests
             CancellationToken cancellationToken)
         {
             GetCallCount++;
-            return GetFailure is null
-                ? Task.FromResult(Repository)
-                : Task.FromException<GitHubInstallationRepository>(GetFailure);
+            if (GetFailure is not null)
+            {
+                return Task.FromException<GitHubInstallationRepository>(GetFailure);
+            }
+
+            return Task.FromResult(
+                Repositories.TryGetValue(repositoryId, out var repository)
+                    ? repository
+                    : Repository);
         }
     }
 

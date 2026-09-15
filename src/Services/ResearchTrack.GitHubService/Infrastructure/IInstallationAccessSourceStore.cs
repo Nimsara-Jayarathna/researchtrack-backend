@@ -8,6 +8,7 @@ public interface IInstallationAccessSourceStore
         Guid projectId,
         Guid userId,
         GitHubInstallationInfo installation,
+        string accessType,
         DateTime now,
         CancellationToken cancellationToken);
 }

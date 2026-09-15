@@ -126,6 +126,10 @@ rt_load_dev_env() {
     rt_validate_shared_auth_environment
   fi
 
+  if [[ "${service,,}" == "github" ]]; then
+    rt_validate_github_repository_limits_environment
+  fi
+
   export ASPNETCORE_ENVIRONMENT="${ASPNETCORE_ENVIRONMENT:-Development}"
   export DOTNET_ENVIRONMENT="${DOTNET_ENVIRONMENT:-Development}"
   if [[ "${service,,}" != "gateway" ]]; then
@@ -182,6 +186,28 @@ rt_validate_shared_auth_environment() {
   rt_reject_placeholder Jwt__Issuer
   rt_reject_placeholder Jwt__Audience
   rt_reject_placeholder Jwt__SigningKey
+}
+
+rt_validate_github_repository_limits_environment() {
+  rt_require_env \
+    GitHub__RepositoryLinks__MaxLinkedRepositories \
+    GitHub__RepositoryLinks__MaxEnabledRepositories
+
+  rt_reject_placeholder GitHub__RepositoryLinks__MaxLinkedRepositories
+  rt_reject_placeholder GitHub__RepositoryLinks__MaxEnabledRepositories
+
+  if [[ ! "$GitHub__RepositoryLinks__MaxLinkedRepositories" =~ ^[1-9][0-9]*$ ]]; then
+    echo "GitHub__RepositoryLinks__MaxLinkedRepositories must be a positive integer." >&2
+    return 1
+  fi
+  if [[ ! "$GitHub__RepositoryLinks__MaxEnabledRepositories" =~ ^[1-9][0-9]*$ ]]; then
+    echo "GitHub__RepositoryLinks__MaxEnabledRepositories must be a positive integer." >&2
+    return 1
+  fi
+  if (( GitHub__RepositoryLinks__MaxEnabledRepositories > GitHub__RepositoryLinks__MaxLinkedRepositories )); then
+    echo "GitHub enabled repository limit cannot exceed the linked repository limit." >&2
+    return 1
+  fi
 }
 
 rt_validate_db_environment() {

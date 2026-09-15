@@ -1,3 +1,4 @@
+using System.Data;
 using Microsoft.EntityFrameworkCore;
 using ResearchTrack.BuildingBlocks.Api.Constants;
 using ResearchTrack.BuildingBlocks.Api.Contracts;
@@ -32,7 +33,7 @@ public sealed class RepositoryLinkStore : IRepositoryLinkStore
         CancellationToken cancellationToken)
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
 
         var source = await dbContext.AccessSources
             .SingleOrDefaultAsync(item => item.Id == sourceId, cancellationToken)
@@ -49,7 +50,7 @@ public sealed class RepositoryLinkStore : IRepositoryLinkStore
         {
             throw Conflict("The GitHub access source is inactive.");
         }
-        if (!string.Equals(source.AccessType, GitHubAccessTypes.GitHubApp, StringComparison.Ordinal))
+        if (!GitHubAccessTypes.IsGitHubAppBacked(source.AccessType))
         {
             throw Conflict("The access source is not backed by the ResearchTrack GitHub App.");
         }
@@ -58,16 +59,29 @@ public sealed class RepositoryLinkStore : IRepositoryLinkStore
             .Select(item => item.GitHubRepositoryId)
             .ToArray();
 
-        var selectedRepositories = await dbContext.Repositories
-            .Where(repository => repository.SourceId == sourceId
-                && requestedIds.Contains(repository.Id))
+        // MySql.EntityFrameworkCore 10 can fail while parameterizing a multi-value
+        // Guid.Contains(...) predicate inside this serializable transaction. The
+        // installation inventory is already scoped by source and is intentionally
+        // small enough to materialize safely, so load the source inventory with a
+        // simple translatable predicate and resolve the requested ids in memory.
+        // This also preserves the request order for deterministic primary fallback.
+        var sourceRepositories = await dbContext.Repositories
+            .AsNoTracking()
+            .Where(repository => repository.SourceId == sourceId)
             .ToListAsync(cancellationToken);
-        if (selectedRepositories.Count != requestedIds.Length)
+        var sourceRepositoriesById = sourceRepositories.ToDictionary(repository => repository.Id);
+        var selectedRepositories = new List<GitHubRepository>(requestedIds.Length);
+        foreach (var requestedId in requestedIds)
         {
-            throw new ApiException(
-                StatusCodes.Status404NotFound,
-                ErrorCodes.NotFound,
-                "One or more selected repositories were not verified for this GitHub App access source.");
+            if (!sourceRepositoriesById.TryGetValue(requestedId, out var repository))
+            {
+                throw new ApiException(
+                    StatusCodes.Status404NotFound,
+                    ErrorCodes.NotFound,
+                    "One or more selected repositories were not verified for this GitHub App access source.");
+            }
+
+            selectedRepositories.Add(repository);
         }
 
         var existingLinks = await dbContext.ProjectRepositoryLinks
@@ -139,7 +153,6 @@ public sealed class RepositoryLinkStore : IRepositoryLinkStore
                     Active = true,
                     Primary = makePrimary,
                     Enabled = true,
-                    ActiveRepositoryKey = $"{projectId:N}:{repository.GitHubRepositoryId}",
                     PrimaryProjectKey = makePrimary ? projectId.ToString("N") : null,
                     LinkedAt = now,
                     LastSyncedAt = null,
@@ -199,6 +212,227 @@ public sealed class RepositoryLinkStore : IRepositoryLinkStore
         return await LoadProjectAsync(dbContext, projectId, cancellationToken);
     }
 
+
+public async Task<Guid?> GetLinkProjectIdAsync(Guid linkedRepositoryId, CancellationToken cancellationToken)
+{
+    await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+    return await db.ProjectRepositoryLinks.AsNoTracking()
+        .Where(link => link.Id == linkedRepositoryId && link.Active)
+        .Select(link => (Guid?)link.ProjectId)
+        .SingleOrDefaultAsync(cancellationToken);
+}
+
+public async Task<Guid?> GetSourceProjectIdAsync(Guid sourceId, CancellationToken cancellationToken)
+{
+    await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+    return await db.AccessSources.AsNoTracking()
+        .Where(source => source.Id == sourceId && source.Active)
+        .Select(source => (Guid?)source.ProjectId)
+        .SingleOrDefaultAsync(cancellationToken);
+}
+
+public async Task<RepositoryEnablementPersistenceResult> SetEnabledAsync(
+    Guid linkedRepositoryId, bool enabled, DateTime now, CancellationToken cancellationToken)
+{
+    await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+    await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
+    var link = await RequireActiveLinkAsync(db, linkedRepositoryId, cancellationToken);
+    EnsureNotSyncing(link, enabled ? "enable" : "disable");
+    if (link.Enabled == enabled)
+    {
+        var unchanged = await LoadProjectAsync(db, link.ProjectId, cancellationToken);
+        await tx.CommitAsync(cancellationToken);
+        return new RepositoryEnablementPersistenceResult(unchanged, false, enabled);
+    }
+    if (enabled)
+    {
+        var enabledCount = await db.ProjectRepositoryLinks.CountAsync(
+            item => item.ProjectId == link.ProjectId && item.Active && item.Enabled,
+            cancellationToken);
+        if (enabledCount >= _options.MaxEnabledRepositories) throw Conflict("The project has reached its enabled repository limit.");
+        link.Enabled = true;
+        link.SyncStatus = GitHubSyncStatuses.Pending;
+        var hasPrimary = await db.ProjectRepositoryLinks.AnyAsync(
+            item => item.ProjectId == link.ProjectId && item.Active && item.Enabled && item.Primary,
+            cancellationToken);
+        if (!hasPrimary)
+        {
+            link.Primary = true;
+            link.PrimaryProjectKey = link.ProjectId.ToString("N");
+        }
+    }
+    else
+    {
+        var wasPrimary = link.Primary;
+        link.Enabled = false;
+        link.Primary = false;
+        link.PrimaryProjectKey = null;
+        link.SyncStatus = GitHubSyncStatuses.Disabled;
+        if (wasPrimary) await PromotePrimaryAsync(db, link.ProjectId, link.Id, now, cancellationToken);
+    }
+    link.UpdatedAt = now;
+    await db.SaveChangesAsync(cancellationToken);
+    var response = await LoadProjectAsync(db, link.ProjectId, cancellationToken);
+    await tx.CommitAsync(cancellationToken);
+    return new RepositoryEnablementPersistenceResult(response, true, enabled);
+}
+
+public async Task<ProjectGitHubRepositoriesResponse> UnlinkAsync(
+    Guid linkedRepositoryId, DateTime now, CancellationToken cancellationToken)
+{
+    await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+    await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
+    var link = await RequireActiveLinkAsync(db, linkedRepositoryId, cancellationToken);
+    EnsureNotSyncing(link, "unlink");
+    var projectId = link.ProjectId;
+    var wasPrimary = link.Primary;
+    link.Active = false;
+    link.Enabled = false;
+    link.Primary = false;
+    link.PrimaryProjectKey = null;
+    link.SyncStatus = GitHubSyncStatuses.Disabled;
+    link.UpdatedAt = now;
+    if (wasPrimary) await PromotePrimaryAsync(db, projectId, link.Id, now, cancellationToken);
+    await db.SaveChangesAsync(cancellationToken);
+    var response = await LoadProjectAsync(db, projectId, cancellationToken);
+    await tx.CommitAsync(cancellationToken);
+    return response;
+}
+
+public async Task<ProjectGitHubRepositoriesResponse> SelectPrimaryAsync(
+    Guid linkedRepositoryId, DateTime now, CancellationToken cancellationToken)
+{
+    await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+    await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
+    var selected = await RequireActiveLinkAsync(db, linkedRepositoryId, cancellationToken);
+    if (!selected.Enabled) throw Conflict("A disabled repository cannot be selected as primary.");
+    var current = await db.ProjectRepositoryLinks
+        .Where(link => link.ProjectId == selected.ProjectId && link.Active && link.Primary && link.Id != selected.Id)
+        .ToListAsync(cancellationToken);
+    foreach (var link in current)
+    {
+        link.Primary = false;
+        link.PrimaryProjectKey = null;
+        link.UpdatedAt = now;
+    }
+    selected.Primary = true;
+    selected.PrimaryProjectKey = selected.ProjectId.ToString("N");
+    selected.UpdatedAt = now;
+    await db.SaveChangesAsync(cancellationToken);
+    var response = await LoadProjectAsync(db, selected.ProjectId, cancellationToken);
+    await tx.CommitAsync(cancellationToken);
+    return response;
+}
+
+public async Task<ProjectGitHubRepositoriesResponse> UpdateDisplayNameAsync(
+    Guid linkedRepositoryId, string? customName, DateTime now, CancellationToken cancellationToken)
+{
+    await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+    var link = await RequireActiveLinkAsync(db, linkedRepositoryId, cancellationToken);
+    link.CustomName = NormalizeCustomName(customName);
+    link.UpdatedAt = now;
+    await db.SaveChangesAsync(cancellationToken);
+    return await LoadProjectAsync(db, link.ProjectId, cancellationToken);
+}
+
+public async Task<ProjectGitHubRepositoriesResponse> DisconnectSourceAsync(
+    Guid sourceId, DateTime now, CancellationToken cancellationToken)
+{
+    await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+    await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
+    var source = await db.AccessSources.SingleOrDefaultAsync(item => item.Id == sourceId && item.Active, cancellationToken)
+        ?? throw new ApiException(StatusCodes.Status404NotFound, ErrorCodes.NotFound, "The active GitHub access source was not found.");
+    var links = await db.ProjectRepositoryLinks
+        .Where(link => link.SourceId == sourceId && link.Active)
+        .ToListAsync(cancellationToken);
+    if (links.Any(link => string.Equals(link.SyncStatus, GitHubSyncStatuses.InProgress, StringComparison.Ordinal)))
+    {
+        throw Conflict("Cannot disconnect a GitHub access source while one of its repositories is synchronizing.");
+    }
+    foreach (var link in links)
+    {
+        link.Active = false;
+        link.Enabled = false;
+        link.Primary = false;
+        link.PrimaryProjectKey = null;
+        link.SyncStatus = GitHubSyncStatuses.Disabled;
+        link.UpdatedAt = now;
+    }
+    source.Active = false;
+    source.ActiveInstallationKey = null;
+    source.UpdatedAt = now;
+    await db.SaveChangesAsync(cancellationToken);
+    await PromotePrimaryAsync(db, source.ProjectId, Guid.Empty, now, cancellationToken);
+    await db.SaveChangesAsync(cancellationToken);
+    var response = await LoadProjectAsync(db, source.ProjectId, cancellationToken);
+    await tx.CommitAsync(cancellationToken);
+    return response;
+}
+
+public async Task PrepareManualSyncAsync(
+    Guid projectId, Guid linkedRepositoryId, DateTime now, CancellationToken cancellationToken)
+{
+    await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+    var affected = await db.ProjectRepositoryLinks
+        .Where(item => item.Id == linkedRepositoryId
+            && item.ProjectId == projectId
+            && item.Active
+            && item.Enabled
+            && item.SyncStatus != GitHubSyncStatuses.InProgress
+            && item.SyncStatus != GitHubSyncStatuses.Pending)
+        .ExecuteUpdateAsync(setters => setters
+            .SetProperty(item => item.SyncStatus, GitHubSyncStatuses.Pending)
+            .SetProperty(item => item.UpdatedAt, now), cancellationToken);
+    if (affected == 1)
+    {
+        return;
+    }
+
+    var link = await db.ProjectRepositoryLinks.AsNoTracking().SingleOrDefaultAsync(
+        item => item.Id == linkedRepositoryId && item.ProjectId == projectId && item.Active,
+        cancellationToken) ?? throw new ApiException(StatusCodes.Status404NotFound, ErrorCodes.NotFound, "The linked GitHub repository was not found for this project.");
+    if (!link.Enabled)
+    {
+        throw Conflict("A disabled repository cannot be synchronized.");
+    }
+    throw Conflict("Repository synchronization is already queued or in progress.");
+}
+
+private static async Task<ProjectRepositoryLink> RequireActiveLinkAsync(
+    GitHubDbContext db, Guid linkedRepositoryId, CancellationToken cancellationToken) =>
+    await db.ProjectRepositoryLinks.SingleOrDefaultAsync(link => link.Id == linkedRepositoryId && link.Active, cancellationToken)
+    ?? throw new ApiException(StatusCodes.Status404NotFound, ErrorCodes.NotFound, "The linked GitHub repository was not found.");
+
+private static void EnsureNotSyncing(ProjectRepositoryLink link, string operation)
+{
+    if (string.Equals(link.SyncStatus, GitHubSyncStatuses.InProgress, StringComparison.Ordinal))
+    {
+        throw Conflict($"Cannot {operation} repository while synchronization is in progress.");
+    }
+}
+
+private static async Task PromotePrimaryAsync(
+    GitHubDbContext db, Guid projectId, Guid excludedId, DateTime now, CancellationToken cancellationToken)
+{
+    var hasPrimary = await db.ProjectRepositoryLinks.AnyAsync(
+        link => link.ProjectId == projectId
+            && link.Active
+            && link.Enabled
+            && link.Primary
+            && link.Id != excludedId,
+        cancellationToken);
+    if (hasPrimary) return;
+    var replacement = await db.ProjectRepositoryLinks
+        .Where(link => link.ProjectId == projectId && link.Active && link.Enabled && link.Id != excludedId)
+        .OrderBy(link => link.LinkedAt)
+        .ThenBy(link => link.Id)
+        .FirstOrDefaultAsync(cancellationToken);
+    if (replacement is null) return;
+    replacement.Primary = true;
+    replacement.PrimaryProjectKey = projectId.ToString("N");
+    replacement.UpdatedAt = now;
+}
+
     private async Task<ProjectGitHubRepositoriesResponse> LoadProjectAsync(
         GitHubDbContext dbContext,
         Guid projectId,
@@ -209,6 +443,18 @@ public sealed class RepositoryLinkStore : IRepositoryLinkStore
             .Where(source => source.ProjectId == projectId && source.Active)
             .OrderBy(source => source.CreatedAt)
             .ToListAsync(cancellationToken);
+        var hasUnacknowledgedAccess = await dbContext.AccessRequests
+            .AsNoTracking()
+            .AnyAsync(request =>
+                request.ProjectId == projectId
+                && request.Status == GitHubAccessRequestStatuses.Completed
+                && request.SourceId != null
+                && request.InstallationId != null
+                && request.AcknowledgedAt == null
+                && dbContext.AccessSources.Any(source =>
+                    source.Id == request.SourceId && source.Active),
+                cancellationToken);
+
         var sources = sourceEntities
             .Select(source => new GitHubAccessSourceResponse(
                 source.Id,
@@ -250,6 +496,7 @@ public sealed class RepositoryLinkStore : IRepositoryLinkStore
             projectId,
             _options.MaxLinkedRepositories,
             _options.MaxEnabledRepositories,
+            hasUnacknowledgedAccess,
             sources,
             links);
     }

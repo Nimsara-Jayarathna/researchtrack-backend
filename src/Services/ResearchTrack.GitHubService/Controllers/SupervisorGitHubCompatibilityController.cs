@@ -21,7 +21,6 @@ public sealed class SupervisorGitHubCompatibilityController : ApiControllerBase
     private readonly IGitHubInstallationRepositoryService _installationRepositoryService;
     private readonly IRepositoryLinkService _repositoryLinkService;
     private readonly IProjectGitHubInventoryService _inventoryService;
-    private readonly IRepositorySyncQueue _syncQueue;
     private readonly IGitHubEvidenceQueryService _evidenceQueryService;
     private readonly IGitHubDashboardQueryService _dashboardQueryService;
 
@@ -29,14 +28,12 @@ public sealed class SupervisorGitHubCompatibilityController : ApiControllerBase
         IGitHubInstallationRepositoryService installationRepositoryService,
         IRepositoryLinkService repositoryLinkService,
         IProjectGitHubInventoryService inventoryService,
-        IRepositorySyncQueue syncQueue,
         IGitHubEvidenceQueryService evidenceQueryService,
         IGitHubDashboardQueryService dashboardQueryService)
     {
         _installationRepositoryService = installationRepositoryService;
         _repositoryLinkService = repositoryLinkService;
         _inventoryService = inventoryService;
-        _syncQueue = syncQueue;
         _evidenceQueryService = evidenceQueryService;
         _dashboardQueryService = dashboardQueryService;
     }
@@ -98,11 +95,12 @@ public sealed class SupervisorGitHubCompatibilityController : ApiControllerBase
             GetRequiredUserId(),
             projectId,
             cancellationToken);
-        foreach (var repository in project.Repositories.Where(item => item.Enabled))
+        foreach (var repository in project.Repositories.Where(item => item.Enabled
+            && !string.Equals(item.SyncStatus, ResearchTrack.GitHubService.Domain.GitHubSyncStatuses.Pending, StringComparison.Ordinal)
+            && !string.Equals(item.SyncStatus, ResearchTrack.GitHubService.Domain.GitHubSyncStatuses.InProgress, StringComparison.Ordinal)))
         {
-            await _syncQueue.EnqueueAsync(
-                new RepositorySyncWorkItem(repository.Id, ResearchTrack.GitHubService.Domain.GitHubSyncTriggers.Manual),
-                cancellationToken);
+            await _repositoryLinkService.RequestManualSyncAsync(
+                GetRequiredUserId(), projectId, repository.Id, cancellationToken);
         }
 
         return ApiOk(new GitHubProjectSyncQueuedResponse(projectId, "QUEUED"));
@@ -200,15 +198,10 @@ public sealed class SupervisorGitHubCompatibilityController : ApiControllerBase
         Guid linkedRepositoryId,
         CancellationToken cancellationToken)
     {
-        await _repositoryLinkService.EnsureBelongsToProjectAsync(
+        await _repositoryLinkService.RequestManualSyncAsync(
             GetRequiredUserId(),
             projectId,
             linkedRepositoryId,
-            cancellationToken);
-        await _syncQueue.EnqueueAsync(
-            new RepositorySyncWorkItem(
-                linkedRepositoryId,
-                ResearchTrack.GitHubService.Domain.GitHubSyncTriggers.Manual),
             cancellationToken);
         return ApiOk(new GitHubSyncQueuedResponse(linkedRepositoryId, "QUEUED"));
     }

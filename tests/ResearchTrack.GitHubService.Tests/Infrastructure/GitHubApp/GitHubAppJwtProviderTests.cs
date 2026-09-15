@@ -26,7 +26,8 @@ public sealed class GitHubAppJwtProviderTests
                     path,
                     new Uri("https://api.example.test/callback"),
                     new Uri("https://app.example.test/"),
-                    TimeSpan.FromMinutes(10)),
+                    TimeSpan.FromMinutes(10),
+                    TimeSpan.FromHours(24)),
                 new FixedTimeProvider(now));
 
             var token = provider.CreateToken();

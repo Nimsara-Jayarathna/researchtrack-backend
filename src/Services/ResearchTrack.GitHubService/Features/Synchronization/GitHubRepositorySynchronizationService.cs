@@ -3,6 +3,7 @@ using ResearchTrack.BuildingBlocks.Api.Constants;
 using ResearchTrack.BuildingBlocks.Api.Exceptions;
 using ResearchTrack.GitHubService.Domain;
 using ResearchTrack.GitHubService.Infrastructure;
+using ResearchTrack.GitHubService.Infrastructure.GitHubApp;
 using ResearchTrack.GitHubService.Persistence;
 
 namespace ResearchTrack.GitHubService.Features.Synchronization;
@@ -12,6 +13,7 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
     private readonly IDbContextFactory<GitHubDbContext> _dbContextFactory;
     private readonly IGitHubRepositorySyncClient _gitHubClient;
     private readonly IGitHubInstallationTokenProvider _tokenProvider;
+    private readonly IGitHubAppClient _gitHubAppClient;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<GitHubRepositorySynchronizationService> _logger;
 
@@ -19,12 +21,14 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
         IDbContextFactory<GitHubDbContext> dbContextFactory,
         IGitHubRepositorySyncClient gitHubClient,
         IGitHubInstallationTokenProvider tokenProvider,
+        IGitHubAppClient gitHubAppClient,
         TimeProvider timeProvider,
         ILogger<GitHubRepositorySynchronizationService> logger)
     {
         _dbContextFactory = dbContextFactory;
         _gitHubClient = gitHubClient;
         _tokenProvider = tokenProvider;
+        _gitHubAppClient = gitHubAppClient;
         _timeProvider = timeProvider;
         _logger = logger;
     }
@@ -41,7 +45,10 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
         }
 
         var runId = Guid.NewGuid();
-        await MarkStartedAsync(syncContext.Link, runId, trigger, cancellationToken);
+        if (!await TryMarkStartedAsync(syncContext.Link, runId, trigger, cancellationToken))
+        {
+            return;
+        }
 
         try
         {
@@ -52,6 +59,11 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
                     ErrorCodes.Conflict,
                     "The linked repository does not have an active GitHub App installation.");
             }
+
+            var installation = await _gitHubAppClient.GetInstallationAsync(
+                installationId,
+                cancellationToken);
+            GitHubAppPermissionRequirements.EnsureSynchronizationReadPermissions(installation);
 
             var token = await _tokenProvider.GetTokenAsync(installationId, cancellationToken);
 
@@ -69,18 +81,19 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
                     "The GitHub repository identity no longer matches the linked ResearchTrack repository.");
             }
 
-            var branches = await _gitHubClient.GetBranchesAsync(
-                repository.OwnerLogin,
-                repository.Name,
-                token,
-                cancellationToken);
-
+            // ResearchTrack tracks default-branch activity only. Listing every
+            // branch adds an unnecessary GitHub API call and used to make initial
+            // synchronization fail before the default-branch commit request. Use
+            // the newest default-branch commit as the local branch head instead.
             var commits = (await _gitHubClient.GetCommitsAsync(
                 repository.OwnerLogin,
                 repository.Name,
                 repository.DefaultBranch,
                 token,
                 cancellationToken)).ToList();
+            IReadOnlyList<GitHubSyncBranch> branches = commits.Count == 0
+                ? []
+                : [new GitHubSyncBranch(repository.DefaultBranch, commits[0].Sha, false)];
 
             var contributors = await _gitHubClient.GetContributorsAsync(
                 repository.OwnerLogin,
@@ -183,7 +196,7 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
         return new SyncContext(link, source);
     }
 
-    private async Task MarkStartedAsync(
+    private async Task<bool> TryMarkStartedAsync(
         ProjectRepositoryLink link,
         Guid runId,
         string trigger,
@@ -191,13 +204,23 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
     {
         var now = _timeProvider.GetUtcNow().UtcDateTime;
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-        var trackedLink = await dbContext.ProjectRepositoryLinks
-            .SingleAsync(item => item.Id == link.Id, cancellationToken);
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
 
-        trackedLink.SyncStatus = GitHubSyncStatuses.InProgress;
-        trackedLink.LastSyncStartedAt = now;
-        trackedLink.LastSyncError = null;
-        trackedLink.UpdatedAt = now;
+        var affected = await dbContext.ProjectRepositoryLinks
+            .Where(item => item.Id == link.Id
+                && item.Active
+                && item.Enabled
+                && item.SyncStatus != GitHubSyncStatuses.InProgress)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(item => item.SyncStatus, GitHubSyncStatuses.InProgress)
+                .SetProperty(item => item.LastSyncStartedAt, now)
+                .SetProperty(item => item.LastSyncError, (string?)null)
+                .SetProperty(item => item.UpdatedAt, now), cancellationToken);
+        if (affected != 1)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return false;
+        }
 
         dbContext.SyncRuns.Add(new GitHubSyncRun
         {
@@ -208,8 +231,9 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
             Status = GitHubSyncRunStatuses.Running,
             StartedAt = now
         });
-
         await dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return true;
     }
 
     private async Task EnrichNewCommitsAsync(

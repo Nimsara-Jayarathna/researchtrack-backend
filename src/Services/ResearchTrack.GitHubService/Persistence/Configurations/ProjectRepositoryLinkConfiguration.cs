@@ -26,7 +26,6 @@ public sealed class ProjectRepositoryLinkConfiguration : IEntityTypeConfiguratio
         builder.Property(link => link.Active).IsRequired();
         builder.Property(link => link.Primary).IsRequired();
         builder.Property(link => link.Enabled).IsRequired();
-        builder.Property(link => link.ActiveRepositoryKey).HasMaxLength(96);
         builder.Property(link => link.PrimaryProjectKey).HasMaxLength(32);
         builder.Property(link => link.LinkedAt).IsRequired();
         builder.Property(link => link.LastSyncedAt);
@@ -41,9 +40,6 @@ public sealed class ProjectRepositoryLinkConfiguration : IEntityTypeConfiguratio
             .HasDatabaseName("ix_project_repository_links_project_active");
         builder.HasIndex(link => link.SourceId)
             .HasDatabaseName("ix_project_repository_links_source_id");
-        builder.HasIndex(link => link.ActiveRepositoryKey)
-            .IsUnique()
-            .HasDatabaseName("ux_project_repository_links_active_repository");
         builder.HasIndex(link => link.PrimaryProjectKey)
             .IsUnique()
             .HasDatabaseName("ux_project_repository_links_primary_project");
