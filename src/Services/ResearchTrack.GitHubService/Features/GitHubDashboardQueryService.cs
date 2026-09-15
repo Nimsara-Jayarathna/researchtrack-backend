@@ -30,11 +30,10 @@ public sealed class GitHubDashboardQueryService : IGitHubDashboardQueryService
         await AuthorizeAsync(projectId, cancellationToken);
         await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
-        var links = await db.ProjectRepositoryLinks.AsNoTracking()
-            .Where(link => link.ProjectId == projectId && link.Active && link.Enabled)
-            .OrderByDescending(link => link.Primary)
-            .ThenBy(link => link.LinkedAt)
-            .ToListAsync(cancellationToken);
+        var links = await LoadAccessibleEnabledLinksAsync(
+            db,
+            projectId,
+            cancellationToken);
 
         var hasUnacknowledgedAccess = await db.AccessRequests.AsNoTracking()
             .AnyAsync(request => request.ProjectId == projectId
@@ -219,6 +218,22 @@ public sealed class GitHubDashboardQueryService : IGitHubDashboardQueryService
         return _projectAuthorization.EnsureCanManageAsync(projectId, cancellationToken);
     }
 
+    private static Task<List<ProjectRepositoryLink>> LoadAccessibleEnabledLinksAsync(
+        GitHubDbContext db,
+        Guid projectId,
+        CancellationToken cancellationToken) =>
+        (from link in db.ProjectRepositoryLinks.AsNoTracking()
+         join source in db.AccessSources.AsNoTracking() on link.SourceId equals source.Id
+         join repository in db.Repositories.AsNoTracking() on link.GitHubRepositoryId equals repository.Id
+         where link.ProjectId == projectId
+             && link.Active
+             && link.Enabled
+             && source.Active
+             && source.ConnectionStatus == GitHubConnectionStatuses.Connected
+             && repository.Available
+         orderby link.Primary descending, link.LinkedAt
+         select link).ToListAsync(cancellationToken);
+
     private static ProjectRepositoryLink? SelectLink(
         IReadOnlyList<ProjectRepositoryLink> links,
         Guid? linkedRepositoryId)
@@ -240,11 +255,10 @@ public sealed class GitHubDashboardQueryService : IGitHubDashboardQueryService
         Guid? linkedRepositoryId,
         CancellationToken cancellationToken)
     {
-        var links = await db.ProjectRepositoryLinks.AsNoTracking()
-            .Where(link => link.ProjectId == projectId && link.Active && link.Enabled)
-            .OrderByDescending(link => link.Primary)
-            .ThenBy(link => link.LinkedAt)
-            .ToListAsync(cancellationToken);
+        var links = await LoadAccessibleEnabledLinksAsync(
+            db,
+            projectId,
+            cancellationToken);
         return SelectLink(links, linkedRepositoryId);
     }
 

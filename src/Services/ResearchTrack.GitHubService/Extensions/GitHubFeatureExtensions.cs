@@ -3,6 +3,7 @@ using ResearchTrack.GitHubService.Configuration;
 using ResearchTrack.GitHubService.Features;
 using ResearchTrack.GitHubService.Features.Installation;
 using ResearchTrack.GitHubService.Features.Synchronization;
+using ResearchTrack.GitHubService.Features.Webhooks;
 using ResearchTrack.GitHubService.Infrastructure;
 using ResearchTrack.GitHubService.Infrastructure.GitHubApp;
 
@@ -20,6 +21,7 @@ public static class GitHubFeatureExtensions
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton(linkOptions);
         services.AddSingleton(_ => GitHubAppOptionsFactory.Create(configuration));
+        services.AddSingleton(_ => GitHubWebhookOptionsFactory.Create(configuration));
         services.AddHttpContextAccessor();
         services.AddScoped<IGitHubInstallationStateService, GitHubInstallationStateService>();
         services.AddScoped<IGitHubInstallationStateStore, GitHubInstallationStateStore>();
@@ -43,6 +45,13 @@ public static class GitHubFeatureExtensions
         services.AddHostedService<RepositorySyncWorker>();
         services.AddScoped<IGitHubRepositorySynchronizationService, GitHubRepositorySynchronizationService>();
         services.AddSingleton<IGitHubInstallationTokenProvider, GitHubInstallationTokenProvider>();
+
+        services.AddSingleton<GitHubWebhookSignal>();
+        services.AddSingleton<IGitHubWebhookSignatureVerifier, GitHubWebhookSignatureVerifier>();
+        services.AddScoped<IGitHubWebhookDeliveryStore, GitHubWebhookDeliveryStore>();
+        services.AddScoped<IGitHubWebhookIngressService, GitHubWebhookIngressService>();
+        services.AddScoped<IGitHubWebhookEventProcessor, GitHubWebhookEventProcessor>();
+        services.AddHostedService<GitHubWebhookDeliveryWorker>();
 
         services.AddHttpClient<IGitHubRepositorySyncClient, GitHubRepositorySyncClient>(ConfigureGitHubApiClient)
             .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler

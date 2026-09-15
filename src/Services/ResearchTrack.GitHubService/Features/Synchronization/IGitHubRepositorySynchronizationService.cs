@@ -2,7 +2,7 @@ namespace ResearchTrack.GitHubService.Features.Synchronization;
 
 public interface IGitHubRepositorySynchronizationService
 {
-    Task SynchronizeAsync(
+    Task<GitHubSynchronizationOutcome> SynchronizeAsync(
         Guid linkedRepositoryId,
         string trigger,
         CancellationToken cancellationToken);

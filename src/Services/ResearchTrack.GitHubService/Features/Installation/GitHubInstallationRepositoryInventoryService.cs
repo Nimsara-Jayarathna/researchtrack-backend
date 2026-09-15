@@ -49,6 +49,7 @@ public sealed class GitHubInstallationRepositoryInventoryService : IGitHubInstal
         var installation = await _gitHubAppClient.GetInstallationAsync(
             source.InstallationId,
             cancellationToken);
+        GitHubAppPermissionRequirements.EnsureInstallationActive(installation);
 
         if (installation.InstallationId != source.InstallationId
             || !string.Equals(installation.OwnerLogin, source.OwnerLogin, StringComparison.OrdinalIgnoreCase)
