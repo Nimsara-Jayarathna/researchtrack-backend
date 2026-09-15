@@ -368,12 +368,22 @@ public sealed class GitHubWebhookEventProcessor : IGitHubWebhookEventProcessor
                 && source.InstallationId == installationId
                 && source.ConnectionStatus == GitHubConnectionStatuses.Connected
                 && repository.Available
-            select new EligibleLink(link.Id, link.GitHubRepoId, link.DefaultBranch);
+            select new
+            {
+                link.Id,
+                link.GitHubRepoId,
+                link.DefaultBranch
+            };
+
         if (repositoryId.HasValue)
         {
-            query = query.Where(link => link.GitHubRepoId == repositoryId.Value);
+            var requestedRepositoryId = repositoryId.Value;
+            query = query.Where(link => link.GitHubRepoId == requestedRepositoryId);
         }
-        return await query.ToListAsync(cancellationToken);
+
+        return await query
+            .Select(link => new EligibleLink(link.Id, link.GitHubRepoId, link.DefaultBranch))
+            .ToListAsync(cancellationToken);
     }
 
     private static JsonDocument Parse(string payload)
