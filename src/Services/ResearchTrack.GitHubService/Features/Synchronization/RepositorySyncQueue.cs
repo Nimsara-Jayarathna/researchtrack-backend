@@ -1,3 +1,4 @@
+using Prometheus;
 using System.Collections.Concurrent;
 using System.Threading.Channels;
 using ResearchTrack.GitHubService.Domain;
@@ -14,6 +15,9 @@ public sealed class RepositorySyncQueue : IRepositorySyncQueue, IInitialReposito
             SingleReader = true,
             SingleWriter = false
         });
+    private static readonly Gauge QueueDepth = Metrics.CreateGauge(
+        "github_sync_queue_depth",
+        "Number of GitHub repository syncs currently queued or in progress.");
 
     public async ValueTask EnqueueAsync(
         RepositorySyncWorkItem item,
@@ -27,10 +31,12 @@ public sealed class RepositorySyncQueue : IRepositorySyncQueue, IInitialReposito
         try
         {
             await _channel.Writer.WriteAsync(item, cancellationToken);
+            QueueDepth.Set(_queuedOrRunning.Count);
         }
         catch
         {
             _queuedOrRunning.TryRemove(item.LinkedRepositoryId, out _);
+            QueueDepth.Set(_queuedOrRunning.Count);
             throw;
         }
     }
@@ -38,8 +44,11 @@ public sealed class RepositorySyncQueue : IRepositorySyncQueue, IInitialReposito
     public IAsyncEnumerable<RepositorySyncWorkItem> ReadAllAsync(CancellationToken cancellationToken) =>
         _channel.Reader.ReadAllAsync(cancellationToken);
 
-    public void Complete(Guid linkedRepositoryId) =>
+    public void Complete(Guid linkedRepositoryId)
+    {
         _queuedOrRunning.TryRemove(linkedRepositoryId, out _);
+        QueueDepth.Set(_queuedOrRunning.Count);
+    }
 
     public Task RequestAsync(InitialRepositorySyncRequest request, CancellationToken cancellationToken) =>
         EnqueueAsync(
