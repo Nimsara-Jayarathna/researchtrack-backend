@@ -1,3 +1,4 @@
+using Prometheus;
 using Microsoft.EntityFrameworkCore;
 using ResearchTrack.BuildingBlocks.Api.Constants;
 using ResearchTrack.BuildingBlocks.Api.Exceptions;
@@ -16,6 +17,8 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
     private readonly IGitHubAppClient _gitHubAppClient;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<GitHubRepositorySynchronizationService> _logger;
+    private static readonly Counter SyncRunsTotal = Metrics.CreateCounter("github_sync_runs_total","Total number of GitHub repository sync attempts.",new CounterConfiguration { LabelNames = new[] { "trigger", "outcome" } });
+    private static readonly Histogram SyncDurationSeconds = Metrics.CreateHistogram("github_sync_duration_seconds","Duration of GitHub repository sync operations that actually ran.",new HistogramConfiguration { LabelNames = new[] { "trigger" } });
 
     public GitHubRepositorySynchronizationService(
         IDbContextFactory<GitHubDbContext> dbContextFactory,
@@ -33,7 +36,7 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
         _logger = logger;
     }
 
-    public async Task<GitHubSynchronizationOutcome> SynchronizeAsync(
+        public async Task<GitHubSynchronizationOutcome> SynchronizeAsync(
         Guid linkedRepositoryId,
         string trigger,
         CancellationToken cancellationToken)
@@ -44,14 +47,18 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
             || !string.Equals(syncContext.Source.ConnectionStatus, GitHubConnectionStatuses.Connected, StringComparison.Ordinal)
             || !syncContext.Repository.Available)
         {
+            SyncRunsTotal.WithLabels(trigger, "skipped_unavailable").Inc();
             return GitHubSynchronizationOutcome.SkippedUnavailable;
         }
 
         var runId = Guid.NewGuid();
         if (!await TryMarkStartedAsync(syncContext.Link, runId, trigger, cancellationToken))
         {
+            SyncRunsTotal.WithLabels(trigger, "already_running").Inc();
             return GitHubSynchronizationOutcome.AlreadyRunning;
         }
+
+        using var durationTimer = SyncDurationSeconds.WithLabels(trigger).NewTimer();
 
         try
         {
@@ -144,10 +151,12 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
                 commits.Count,
                 contributors.Count,
                 pullRequests.Count);
+            SyncRunsTotal.WithLabels(trigger, "completed").Inc();
             return GitHubSynchronizationOutcome.Completed;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            SyncRunsTotal.WithLabels(trigger, "cancelled").Inc();
             await MarkFailedBestEffortAsync(
                 linkedRepositoryId,
                 runId,
@@ -157,6 +166,7 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
         }
         catch (Exception exception)
         {
+            SyncRunsTotal.WithLabels(trigger, "failed").Inc();
             var errorCode = exception is ApiException apiException
                 ? apiException.Code
                 : "github_sync_failed";
@@ -174,6 +184,8 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
             throw;
         }
     }
+
+
 
     private async Task<SyncContext> LoadSyncContextAsync(
         Guid linkedRepositoryId,

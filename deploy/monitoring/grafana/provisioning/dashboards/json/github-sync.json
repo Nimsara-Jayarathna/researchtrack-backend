@@ -1,0 +1,76 @@
+{
+  "title": "GitHub Sync Operations",
+  "uid": "github-sync-operations",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Queue Depth",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        { "expr": "github_sync_queue_depth", "legendFormat": "queued/running" }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Sync Success Rate (5m)",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        {
+          "expr": "sum(rate(github_sync_runs_total{outcome=\"success\"}[5m])) / clamp_min(sum(rate(github_sync_runs_total[5m])), 1e-9)",
+          "legendFormat": "success ratio"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "percentunit", "min": 0, "max": 1 }
+      }
+    },
+    {
+      "id": 3,
+      "title": "Sync Runs by Outcome and Trigger",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        {
+          "expr": "sum(rate(github_sync_runs_total[5m])) by (trigger, outcome)",
+          "legendFormat": "{{trigger}} - {{outcome}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Sync Duration P95 (by trigger)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(github_sync_duration_seconds_bucket[5m])) by (le, trigger))",
+          "legendFormat": "{{trigger}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "GitHub API Requests by Outcome",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 14 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        {
+          "expr": "sum(rate(github_api_requests_total[5m])) by (outcome)",
+          "legendFormat": "{{outcome}}"
+        }
+      ]
+    }
+  ]
+}

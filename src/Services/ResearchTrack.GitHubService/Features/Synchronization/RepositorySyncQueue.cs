@@ -1,3 +1,4 @@
+using Prometheus;
 using System.Collections.Concurrent;
 using System.Threading.Channels;
 using ResearchTrack.GitHubService.Domain;
@@ -7,12 +8,10 @@ namespace ResearchTrack.GitHubService.Features.Synchronization;
 public sealed class RepositorySyncQueue : IRepositorySyncQueue, IInitialRepositorySyncRequester
 {
     private readonly ConcurrentDictionary<Guid, SyncQueueState> _states = new();
-    // The reader calls CompleteAsync after each synchronization and may need to
-    // enqueue one coalesced rerun. An unbounded channel avoids a bounded-channel
-    // self-deadlock where the single reader could otherwise block trying to write
-    // that rerun while no reader is available to free capacity. Per-repository
-    // state still coalesces duplicate requests, so one noisy repository cannot
-    // grow the queue without bound.
+    private static readonly Gauge QueueDepth = Metrics.CreateGauge(
+        "github_sync_queue_depth",
+        "Number of GitHub repositories currently queued or running a sync.");
+
     private readonly Channel<RepositorySyncWorkItem> _channel = Channel.CreateUnbounded<RepositorySyncWorkItem>(
         new UnboundedChannelOptions
         {
@@ -37,10 +36,6 @@ public sealed class RepositorySyncQueue : IRepositorySyncQueue, IInitialReposito
                         continue;
                     }
 
-                    // A queued item has not started reading GitHub yet, so it will
-                    // naturally observe the newest state. An event arriving while
-                    // the sync is already running must request one more pass after
-                    // completion or the newer GitHub state can be lost.
                     if (existing.Running)
                     {
                         existing.RerunRequested = true;
@@ -56,6 +51,8 @@ public sealed class RepositorySyncQueue : IRepositorySyncQueue, IInitialReposito
                 continue;
             }
 
+            QueueDepth.Set(_states.Count);
+
             try
             {
                 await _channel.Writer.WriteAsync(item, cancellationToken);
@@ -64,6 +61,7 @@ public sealed class RepositorySyncQueue : IRepositorySyncQueue, IInitialReposito
             catch
             {
                 _states.TryRemove(new KeyValuePair<Guid, SyncQueueState>(item.LinkedRepositoryId, state));
+                QueueDepth.Set(_states.Count);
                 throw;
             }
         }
@@ -91,15 +89,13 @@ public sealed class RepositorySyncQueue : IRepositorySyncQueue, IInitialReposito
 
     public void Complete(Guid linkedRepositoryId)
     {
-        // Kept for compatibility with test doubles and older call sites. The
-        // production worker uses CompleteAsync so a requested rerun can be
-        // written back to the bounded channel safely.
         if (_states.TryGetValue(linkedRepositoryId, out var state))
         {
             lock (state.Gate)
             {
                 _states.TryRemove(new KeyValuePair<Guid, SyncQueueState>(linkedRepositoryId, state));
             }
+            QueueDepth.Set(_states.Count);
         }
     }
 
@@ -135,6 +131,8 @@ public sealed class RepositorySyncQueue : IRepositorySyncQueue, IInitialReposito
             }
         }
 
+        QueueDepth.Set(_states.Count);
+
         if (rerun is null)
         {
             return;
@@ -149,6 +147,7 @@ public sealed class RepositorySyncQueue : IRepositorySyncQueue, IInitialReposito
             if (state is not null)
             {
                 _states.TryRemove(new KeyValuePair<Guid, SyncQueueState>(linkedRepositoryId, state));
+                QueueDepth.Set(_states.Count);
             }
             throw;
         }
