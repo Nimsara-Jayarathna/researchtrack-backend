@@ -4,6 +4,7 @@ using ResearchTrack.BuildingBlocks.Api.Exceptions;
 using ResearchTrack.GitHubService.Domain;
 using ResearchTrack.GitHubService.Infrastructure;
 using ResearchTrack.GitHubService.Persistence;
+using Prometheus;
 
 namespace ResearchTrack.GitHubService.Features.Synchronization;
 
@@ -14,6 +15,8 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
     private readonly IGitHubInstallationTokenProvider _tokenProvider;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<GitHubRepositorySynchronizationService> _logger;
+    private static readonly Counter SyncRunsTotal = Metrics.CreateCounter("github_sync_runs_total","Total number of GitHub repository sync attempts.",new CounterConfiguration { LabelNames = new[] { "trigger", "outcome" } });
+    private static readonly Histogram SyncDurationSeconds = Metrics.CreateHistogram("github_sync_duration_seconds","Duration of GitHub repository sync operations.",new HistogramConfiguration { LabelNames = new[] { "trigger" } });
 
     public GitHubRepositorySynchronizationService(
         IDbContextFactory<GitHubDbContext> dbContextFactory,
@@ -42,6 +45,8 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
 
         var runId = Guid.NewGuid();
         await MarkStartedAsync(syncContext.Link, runId, trigger, cancellationToken);
+
+        using var durationTimer = SyncDurationSeconds.WithLabels(trigger).NewTimer();
 
         try
         {
@@ -127,6 +132,8 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
                 reviews,
                 cancellationToken);
 
+            SyncRunsTotal.WithLabels(trigger, "success").Inc();    
+
             _logger.LogInformation(
                 "GitHub synchronization completed. ProjectId={ProjectId} LinkedRepositoryId={LinkedRepositoryId} Trigger={Trigger} Commits={CommitCount} Contributors={ContributorCount} PullRequests={PullRequestCount}",
                 syncContext.Link.ProjectId,
@@ -137,7 +144,8 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
                 pullRequests.Count);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
+        {   
+            SyncRunsTotal.WithLabels(trigger, "cancelled").Inc();
             await MarkFailedBestEffortAsync(
                 linkedRepositoryId,
                 runId,
@@ -147,6 +155,7 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
         }
         catch (Exception exception)
         {
+            SyncRunsTotal.WithLabels(trigger, "failed").Inc();
             var errorCode = exception is ApiException apiException
                 ? apiException.Code
                 : "github_sync_failed";

@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Text.Json;
 using ResearchTrack.BuildingBlocks.Api.Constants;
 using ResearchTrack.BuildingBlocks.Api.Exceptions;
+using Prometheus;
 
 namespace ResearchTrack.GitHubService.Features.Synchronization;
 
@@ -12,6 +13,7 @@ public sealed class GitHubRepositorySyncClient : IGitHubRepositorySyncClient
     private const int MaxPages = 1000;
     private static long _anonymousRateLimitResetUnixSeconds;
     private readonly HttpClient _httpClient;
+    private static readonly Counter ApiRequestsTotal = Metrics.CreateCounter("github_api_requests_total","Total number of outbound GitHub API requests by outcome.",new CounterConfiguration { LabelNames = new[] { "outcome" } });
 
     public GitHubRepositorySyncClient(HttpClient httpClient)
     {
@@ -168,10 +170,12 @@ public sealed class GitHubRepositorySyncClient : IGitHubRepositorySyncClient
         }
         catch (HttpRequestException exception)
         {
+            ApiRequestsTotal.WithLabels("network_error").Inc();
             throw DependencyFailure("GitHub API is unavailable.", exception);
         }
         catch (TaskCanceledException exception) when (!cancellationToken.IsCancellationRequested)
         {
+            ApiRequestsTotal.WithLabels("timeout").Inc();
             throw DependencyFailure("GitHub API did not respond in time.", exception);
         }
 
@@ -179,6 +183,7 @@ public sealed class GitHubRepositorySyncClient : IGitHubRepositorySyncClient
         {
             if (response.StatusCode == HttpStatusCode.NotFound)
             {
+                ApiRequestsTotal.WithLabels("not_found").Inc();
                 throw new ApiException(
                     StatusCodes.Status404NotFound,
                     ErrorCodes.NotFound,
@@ -187,6 +192,7 @@ public sealed class GitHubRepositorySyncClient : IGitHubRepositorySyncClient
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
+                ApiRequestsTotal.WithLabels("unauthorized").Inc();
                 throw new ApiException(
                     StatusCodes.Status403Forbidden,
                     ErrorCodes.Forbidden,
@@ -198,6 +204,7 @@ public sealed class GitHubRepositorySyncClient : IGitHubRepositorySyncClient
                 var rateRemaining = TryGetHeader(response, "X-RateLimit-Remaining");
                 if (string.Equals(rateRemaining, "0", StringComparison.Ordinal))
                 {
+                    ApiRequestsTotal.WithLabels("rate_limited").Inc();
                     RememberAnonymousRateLimit(token, response);
                     throw new ApiException(
                         StatusCodes.Status503ServiceUnavailable,
@@ -205,6 +212,7 @@ public sealed class GitHubRepositorySyncClient : IGitHubRepositorySyncClient
                         BuildRateLimitMessage(response));
                 }
 
+                ApiRequestsTotal.WithLabels("forbidden").Inc();
                 throw new ApiException(
                     StatusCodes.Status403Forbidden,
                     ErrorCodes.Forbidden,
@@ -213,6 +221,7 @@ public sealed class GitHubRepositorySyncClient : IGitHubRepositorySyncClient
 
             if ((int)response.StatusCode == StatusCodes.Status429TooManyRequests)
             {
+                ApiRequestsTotal.WithLabels("rate_limited").Inc();
                 RememberAnonymousRateLimit(token, response);
                 throw new ApiException(
                     StatusCodes.Status503ServiceUnavailable,
@@ -222,10 +231,12 @@ public sealed class GitHubRepositorySyncClient : IGitHubRepositorySyncClient
 
             if (!response.IsSuccessStatusCode)
             {
+                ApiRequestsTotal.WithLabels("error").Inc();
                 throw DependencyFailure(
                     $"GitHub API returned HTTP {(int)response.StatusCode}.");
             }
 
+            ApiRequestsTotal.WithLabels("success").Inc();
             await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
             return await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
         }
