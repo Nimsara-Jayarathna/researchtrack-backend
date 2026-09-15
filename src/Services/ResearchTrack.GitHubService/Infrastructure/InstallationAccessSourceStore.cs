@@ -38,6 +38,11 @@ public sealed class InstallationAccessSourceStore : IInstallationAccessSourceSto
         {
             existing.OwnerLogin = installation.OwnerLogin;
             existing.OwnerType = installation.OwnerType;
+            // The source represents the current authorization path for this
+            // project/installation pair. Re-authorization through Request Access
+            // or Direct Connect must update the origin so repository-selection
+            // rules cannot be left behind from an older flow.
+            existing.AccessType = accessType;
             existing.UpdatedAt = now;
             await dbContext.SaveChangesAsync(cancellationToken);
             return existing.Id;

@@ -321,13 +321,25 @@ public sealed class GitHubInstallationRepositoryServiceTests
         StubAuthorizationClient authorization,
         StubStore store,
         StubGitHubAppClient app,
-        StubRepositoryClient repositoryClient) => new(
-            authorization,
+        StubRepositoryClient repositoryClient)
+    {
+        var timeProvider = new FixedTimeProvider(Now);
+        var inventory = new GitHubInstallationRepositoryInventoryService(
             store,
             app,
             repositoryClient,
-            new FixedTimeProvider(Now),
+            timeProvider,
+            NullLogger<GitHubInstallationRepositoryInventoryService>.Instance);
+
+        return new GitHubInstallationRepositoryService(
+            authorization,
+            store,
+            inventory,
+            app,
+            repositoryClient,
+            timeProvider,
             NullLogger<GitHubInstallationRepositoryService>.Instance);
+    }
 
     private static GitHubInstallationRepository Repository(long id, string fullName, string name) =>
         new(id, "org", name, fullName, $"https://github.com/{fullName}", "main", true);

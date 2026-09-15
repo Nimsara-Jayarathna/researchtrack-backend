@@ -10,11 +10,9 @@ namespace ResearchTrack.GitHubService.Features.Installation;
 
 public sealed class GitHubInstallationRepositoryService : IGitHubInstallationRepositoryService
 {
-    private const int PageSize = 100;
-    private const int MaxPages = 100;
-
     private readonly IProjectAuthorizationClient _projectAuthorization;
     private readonly IInstallationRepositoryStore _store;
+    private readonly IGitHubInstallationRepositoryInventoryService _inventoryService;
     private readonly IGitHubAppClient _gitHubAppClient;
     private readonly IGitHubInstallationRepositoryClient _repositoryClient;
     private readonly TimeProvider _timeProvider;
@@ -23,6 +21,7 @@ public sealed class GitHubInstallationRepositoryService : IGitHubInstallationRep
     public GitHubInstallationRepositoryService(
         IProjectAuthorizationClient projectAuthorization,
         IInstallationRepositoryStore store,
+        IGitHubInstallationRepositoryInventoryService inventoryService,
         IGitHubAppClient gitHubAppClient,
         IGitHubInstallationRepositoryClient repositoryClient,
         TimeProvider timeProvider,
@@ -30,6 +29,7 @@ public sealed class GitHubInstallationRepositoryService : IGitHubInstallationRep
     {
         _projectAuthorization = projectAuthorization;
         _store = store;
+        _inventoryService = inventoryService;
         _gitHubAppClient = gitHubAppClient;
         _repositoryClient = repositoryClient;
         _timeProvider = timeProvider;
@@ -56,25 +56,8 @@ public sealed class GitHubInstallationRepositoryService : IGitHubInstallationRep
 
         await _projectAuthorization.EnsureCanManageAsync(source.ProjectId, cancellationToken);
 
-        // Re-verify the installation still belongs to this App before minting a scoped token.
-        var installation = await _gitHubAppClient.GetInstallationAsync(
-            source.InstallationId,
-            cancellationToken);
-        if (installation.InstallationId != source.InstallationId)
-        {
-            throw DependencyFailure("GitHub installation verification returned an unexpected installation.");
-        }
-
-        var token = await _gitHubAppClient.CreateInstallationTokenAsync(
-            source.InstallationId,
-            cancellationToken);
-        var repositories = await ListAllRepositoriesAsync(token, cancellationToken);
-
-        var response = await _store.UpsertAvailableAsync(
-            source.Id,
-            repositories,
-            _timeProvider.GetUtcNow().UtcDateTime,
-            cancellationToken);
+        var response = await _inventoryService.TryRefreshAsync(source.Id, cancellationToken)
+            ?? throw NotFound("The GitHub App installation source is no longer active.");
 
         _logger.LogInformation(
             "Listed repositories accessible to GitHub App installation. ProjectId={ProjectId} SourceId={SourceId} InstallationId={InstallationId} RepositoryCount={RepositoryCount} UserId={UserId}",
@@ -304,47 +287,6 @@ public sealed class GitHubInstallationRepositoryService : IGitHubInstallationRep
             throw NotFound(
                 "The selected repository is no longer accessible to this GitHub App installation.");
         }
-    }
-
-    private async Task<IReadOnlyList<GitHubInstallationRepository>> ListAllRepositoriesAsync(
-        GitHubInstallationToken token,
-        CancellationToken cancellationToken)
-    {
-        var repositories = new List<GitHubInstallationRepository>();
-        int? expectedTotalCount = null;
-        for (var page = 1; page <= MaxPages; page++)
-        {
-            var result = await _repositoryClient.ListAsync(
-                token,
-                page,
-                PageSize,
-                cancellationToken);
-
-            expectedTotalCount ??= result.TotalCount;
-            if (result.TotalCount != expectedTotalCount)
-            {
-                throw DependencyFailure(
-                    "GitHub repository pagination changed during repository discovery.");
-            }
-
-            repositories.AddRange(result.Items);
-
-            if (!result.HasNext)
-            {
-                if (repositories.Count != result.TotalCount
-                    || repositories.Select(repository => repository.Id).Distinct().Count()
-                        != repositories.Count)
-                {
-                    throw DependencyFailure(
-                        "GitHub repository pagination returned an inconsistent repository inventory.");
-                }
-
-                return repositories;
-            }
-        }
-
-        throw DependencyFailure(
-            "GitHub installation repository inventory exceeds the supported pagination limit.");
     }
 
     private static ApiException NotFound(string message) => new(

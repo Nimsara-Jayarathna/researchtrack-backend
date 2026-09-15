@@ -6,6 +6,7 @@ public sealed record ProjectGitHubRepositoriesResponse(
     Guid ProjectId,
     int MaxLinkedRepositories,
     int MaxEnabledRepositories,
+    bool HasUnacknowledgedAccess,
     IReadOnlyList<GitHubAccessSourceResponse> AccessSources,
     IReadOnlyList<ProjectRepositoryLinkResponse> Repositories);
 

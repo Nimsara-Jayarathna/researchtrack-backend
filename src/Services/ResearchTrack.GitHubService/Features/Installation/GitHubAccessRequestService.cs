@@ -15,6 +15,7 @@ public sealed class GitHubAccessRequestService : IGitHubAccessRequestService
     private readonly IProjectAuthorizationClient _projectAuthorization;
     private readonly IProjectMetadataClient _projectMetadata;
     private readonly IGitHubAccessRequestTokenService _tokens;
+    private readonly IGitHubInstallationRepositoryInventoryService _repositoryInventory;
     private readonly GitHubAppOptions _options;
     private readonly TimeProvider _timeProvider;
 
@@ -23,6 +24,7 @@ public sealed class GitHubAccessRequestService : IGitHubAccessRequestService
         IProjectAuthorizationClient projectAuthorization,
         IProjectMetadataClient projectMetadata,
         IGitHubAccessRequestTokenService tokens,
+        IGitHubInstallationRepositoryInventoryService repositoryInventory,
         GitHubAppOptions options,
         TimeProvider timeProvider)
     {
@@ -30,6 +32,7 @@ public sealed class GitHubAccessRequestService : IGitHubAccessRequestService
         _projectAuthorization = projectAuthorization;
         _projectMetadata = projectMetadata;
         _tokens = tokens;
+        _repositoryInventory = repositoryInventory;
         _options = options;
         _timeProvider = timeProvider;
     }
@@ -251,7 +254,7 @@ public sealed class GitHubAccessRequestService : IGitHubAccessRequestService
         {
             throw Conflict("GitHub access was not completed successfully for this request.");
         }
-        return await BuildSummaryAsync(db, request, cancellationToken);
+        return await BuildSummaryAsync(request, cancellationToken);
     }
 
     public async Task<GitHubAccessUpdatedAcknowledgeResponse> AcknowledgeAsync(
@@ -303,7 +306,7 @@ public sealed class GitHubAccessRequestService : IGitHubAccessRequestService
             .OrderByDescending(item => item.CompletedAt)
             .FirstOrDefaultAsync(cancellationToken)
             ?? throw NotFound("No newly completed GitHub access request was found for this project.");
-        return await BuildSummaryAsync(db, request, cancellationToken);
+        return await BuildSummaryAsync(request, cancellationToken);
     }
 
     public async Task<GitHubAccessUpdatedAcknowledgeResponse> AcknowledgeLatestAsync(
@@ -416,22 +419,31 @@ public sealed class GitHubAccessRequestService : IGitHubAccessRequestService
     }
 
     private async Task<GitHubAccessUpdatedSummaryResponse> BuildSummaryAsync(
-        GitHubDbContext db,
         GitHubAccessRequest request,
         CancellationToken cancellationToken)
     {
         var sourceId = request.SourceId!.Value;
-        var repositories = await db.Repositories.AsNoTracking()
-            .Where(repository => repository.SourceId == sourceId)
-            .OrderBy(repository => repository.FullName)
+
+        // The access-updated page is the first screen the external repository
+        // owner sees after GitHub redirects back to ResearchTrack. Always refresh
+        // from the installation token here so the confirmation reflects GitHub's
+        // current repository grant (including "All repositories") rather than a
+        // stale or not-yet-populated local snapshot.
+        var refreshed = await _repositoryInventory.TryRefreshAsync(
+            sourceId,
+            cancellationToken)
+            ?? throw NotFound("The GitHub App access source is no longer active.");
+
+        var repositories = refreshed.Items
+            .OrderBy(repository => repository.FullName, StringComparer.OrdinalIgnoreCase)
             .Select(repository => new GitHubInstallationRepositoryResponse(
-                repository.GitHubRepositoryId,
+                repository.GitHubRepoId,
                 repository.Name,
                 repository.FullName,
                 repository.Url,
                 repository.OwnerLogin,
                 repository.DefaultBranch))
-            .ToListAsync(cancellationToken);
+            .ToList();
         var scope = repositories.Count switch
         {
             0 => "NO_REPOSITORIES",

@@ -430,6 +430,18 @@ private static async Task PromotePrimaryAsync(
             .Where(source => source.ProjectId == projectId && source.Active)
             .OrderBy(source => source.CreatedAt)
             .ToListAsync(cancellationToken);
+        var hasUnacknowledgedAccess = await dbContext.AccessRequests
+            .AsNoTracking()
+            .AnyAsync(request =>
+                request.ProjectId == projectId
+                && request.Status == GitHubAccessRequestStatuses.Completed
+                && request.SourceId != null
+                && request.InstallationId != null
+                && request.AcknowledgedAt == null
+                && dbContext.AccessSources.Any(source =>
+                    source.Id == request.SourceId && source.Active),
+                cancellationToken);
+
         var sources = sourceEntities
             .Select(source => new GitHubAccessSourceResponse(
                 source.Id,
@@ -471,6 +483,7 @@ private static async Task PromotePrimaryAsync(
             projectId,
             _options.MaxLinkedRepositories,
             _options.MaxEnabledRepositories,
+            hasUnacknowledgedAccess,
             sources,
             links);
     }

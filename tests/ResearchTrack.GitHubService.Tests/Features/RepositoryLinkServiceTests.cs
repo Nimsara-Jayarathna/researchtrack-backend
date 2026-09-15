@@ -232,6 +232,7 @@ public sealed class RepositoryLinkServiceTests
         ProjectId,
         5,
         5,
+        false,
         [],
         [new ProjectRepositoryLinkResponse(
             LinkId,
@@ -314,13 +315,13 @@ public sealed class RepositoryLinkServiceTests
         public Task<RepositoryEnablementPersistenceResult> SetEnabledAsync(Guid linkedRepositoryId, bool enabled, DateTime now, CancellationToken cancellationToken) =>
             Task.FromResult(new RepositoryEnablementPersistenceResult(Response(enabled ? "PENDING" : "DISABLED"), EnableChanged, enabled));
         public Task<ProjectGitHubRepositoriesResponse> UnlinkAsync(Guid linkedRepositoryId, DateTime now, CancellationToken cancellationToken) =>
-            Task.FromResult(new ProjectGitHubRepositoriesResponse(ProjectId, 5, 5, [], []));
+            Task.FromResult(new ProjectGitHubRepositoriesResponse(ProjectId, 5, 5, false, [], []));
         public Task<ProjectGitHubRepositoriesResponse> SelectPrimaryAsync(Guid linkedRepositoryId, DateTime now, CancellationToken cancellationToken) =>
             Task.FromResult(Response("SUCCESS"));
         public Task<ProjectGitHubRepositoriesResponse> UpdateDisplayNameAsync(Guid linkedRepositoryId, string? customName, DateTime now, CancellationToken cancellationToken) =>
             Task.FromResult(Response("SUCCESS"));
         public Task<ProjectGitHubRepositoriesResponse> DisconnectSourceAsync(Guid sourceId, DateTime now, CancellationToken cancellationToken) =>
-            Task.FromResult(new ProjectGitHubRepositoriesResponse(ProjectId, 5, 5, [], []));
+            Task.FromResult(new ProjectGitHubRepositoriesResponse(ProjectId, 5, 5, false, [], []));
         public Task PrepareManualSyncAsync(Guid projectId, Guid linkedRepositoryId, DateTime now, CancellationToken cancellationToken) =>
             Task.CompletedTask;
     }

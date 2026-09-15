@@ -22,12 +22,8 @@ public sealed class InstallationRepositoryStore : IInstallationRepositoryStore
         CancellationToken cancellationToken)
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-        return await dbContext.AccessSources
-            .AsNoTracking()
-            .Where(source => source.Id == sourceId
-                && source.Active
-                && GitHubAccessTypes.IsGitHubAppBacked(source.AccessType)
-                && source.InstallationId != null)
+        return await ActiveGitHubAppSources(dbContext.AccessSources.AsNoTracking())
+            .Where(source => source.Id == sourceId)
             .Select(source => new InstallationAccessSourceSnapshot(
                 source.Id,
                 source.ProjectId,
@@ -44,12 +40,9 @@ public sealed class InstallationRepositoryStore : IInstallationRepositoryStore
         CancellationToken cancellationToken)
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-        return await dbContext.AccessSources
-            .AsNoTracking()
+        return await ActiveGitHubAppSources(dbContext.AccessSources.AsNoTracking())
             .Where(source => source.ProjectId == projectId
-                && source.InstallationId == installationId
-                && source.Active
-                && GitHubAccessTypes.IsGitHubAppBacked(source.AccessType))
+                && source.InstallationId == installationId)
             .Select(source => new InstallationAccessSourceSnapshot(
                 source.Id,
                 source.ProjectId,
@@ -60,18 +53,23 @@ public sealed class InstallationRepositoryStore : IInstallationRepositoryStore
             .SingleOrDefaultAsync(cancellationToken);
     }
 
-    public async Task<GitHubAvailableRepositoriesResponse> UpsertAvailableAsync(
+    public Task<GitHubAvailableRepositoriesResponse> UpsertAvailableAsync(
         Guid sourceId,
         IReadOnlyList<GitHubInstallationRepository> repositories,
         DateTime now,
+        CancellationToken cancellationToken) =>
+        UpsertAvailableCoreAsync(sourceId, repositories, now, retryOnDuplicate: true, cancellationToken: cancellationToken);
+
+    private async Task<GitHubAvailableRepositoriesResponse> UpsertAvailableCoreAsync(
+        Guid sourceId,
+        IReadOnlyList<GitHubInstallationRepository> repositories,
+        DateTime now,
+        bool retryOnDuplicate,
         CancellationToken cancellationToken)
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-        var sourceExists = await dbContext.AccessSources.AnyAsync(
-            source => source.Id == sourceId
-                && source.Active
-                && GitHubAccessTypes.IsGitHubAppBacked(source.AccessType),
-            cancellationToken);
+        var sourceExists = await ActiveGitHubAppSources(dbContext.AccessSources)
+            .AnyAsync(source => source.Id == sourceId, cancellationToken);
         if (!sourceExists)
         {
             throw SourceNotFound();
@@ -110,7 +108,24 @@ public sealed class InstallationRepositoryStore : IInstallationRepositoryStore
             selectedEntities.Add(entity);
         }
 
-        await dbContext.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException exception) when (retryOnDuplicate && IsDuplicateKey(exception))
+        {
+            // The access-updated page can legitimately request the same inventory
+            // twice (for example React development StrictMode), and production
+            // instances can also refresh concurrently. Treat the unique
+            // source/repository key as an idempotency boundary and retry once
+            // against the rows committed by the competing request.
+            return await UpsertAvailableCoreAsync(
+                sourceId,
+                repositories,
+                now,
+                retryOnDuplicate: false,
+                cancellationToken: cancellationToken);
+        }
 
         var items = selectedEntities
             .OrderBy(repository => repository.FullName, StringComparer.OrdinalIgnoreCase)
@@ -172,6 +187,15 @@ public sealed class InstallationRepositoryStore : IInstallationRepositoryStore
         return entity.Id;
     }
 
+
+    private static IQueryable<GitHubAccessSource> ActiveGitHubAppSources(
+        IQueryable<GitHubAccessSource> sources) =>
+        sources.Where(source =>
+            source.Active
+            && source.InstallationId != null
+            && (source.AccessType == GitHubAccessTypes.InstallationDirect
+                || source.AccessType == GitHubAccessTypes.InstallationRequested));
+
     private static void ApplyMetadata(
         GitHubRepository entity,
         GitHubInstallationRepository repository,
@@ -193,6 +217,20 @@ public sealed class InstallationRepositoryStore : IInstallationRepositoryStore
         repository.OwnerLogin,
         repository.DefaultBranch,
         repository.Url);
+
+    private static bool IsDuplicateKey(DbUpdateException exception)
+    {
+        for (Exception? current = exception; current is not null; current = current.InnerException)
+        {
+            if (current.Message.Contains("Duplicate entry", StringComparison.OrdinalIgnoreCase)
+                || current.Message.Contains("duplicate key", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     private static ApiException SourceNotFound() => new(
         StatusCodes.Status404NotFound,

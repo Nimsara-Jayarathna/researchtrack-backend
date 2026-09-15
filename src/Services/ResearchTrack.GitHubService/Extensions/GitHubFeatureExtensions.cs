@@ -27,6 +27,7 @@ public static class GitHubFeatureExtensions
         services.AddScoped<IGitHubAccessRequestService, GitHubAccessRequestService>();
         services.AddSingleton<IGitHubAccessRequestTokenService, GitHubAccessRequestTokenService>();
         services.AddScoped<IGitHubInstallationRepositoryService, GitHubInstallationRepositoryService>();
+        services.AddScoped<IGitHubInstallationRepositoryInventoryService, GitHubInstallationRepositoryInventoryService>();
         services.AddScoped<IInstallationAccessSourceStore, InstallationAccessSourceStore>();
         services.AddScoped<IInstallationRepositoryStore, InstallationRepositoryStore>();
         services.AddSingleton<IGitHubAppJwtProvider, GitHubAppJwtProvider>();
