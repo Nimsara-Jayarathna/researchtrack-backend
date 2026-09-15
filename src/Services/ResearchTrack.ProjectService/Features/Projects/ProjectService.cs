@@ -734,6 +734,13 @@ public sealed class ProjectService : IProjectService
         }
 
         var dueDate = request.DueDate.Value;
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
+        var today = DateOnly.FromDateTime(now);
+
+        ProjectMilestonePolicy.ValidateDueDateForStatus(
+            dueDate,
+            ProjectMilestoneStatuses.Planned,
+            today);
 
         await using var dbContext =
             await _dbContextFactory.CreateDbContextAsync(
@@ -761,27 +768,30 @@ public sealed class ProjectService : IProjectService
                 "Only the owning Supervisor can add milestones.");
         }
 
-        var maxSequence =
+        var existingMilestones =
             await dbContext.ProjectMilestones
                 .Where(milestone =>
                     milestone.ProjectId == projectId)
-                .Select(milestone =>
-                    (int?)milestone.SequenceNo)
-                .MaxAsync(cancellationToken) ?? 0;
+                .OrderBy(milestone =>
+                    milestone.SequenceNo)
+                .ToListAsync(cancellationToken);
 
-        var now =
-            _timeProvider.GetUtcNow().UtcDateTime;
+        var previousMilestone = existingMilestones.LastOrDefault();
+        ProjectMilestonePolicy.ValidateChronologyWithPrevious(
+            previousMilestone?.DueDate,
+            dueDate);
 
         var milestone = new ProjectMilestone
         {
             Id = Guid.NewGuid(),
             ProjectId = projectId,
             Title = title,
-            Description = description,
+            Description = string.IsNullOrWhiteSpace(description)
+                ? null
+                : description,
             DueDate = dueDate,
-            Status =
-                ProjectMilestoneStatuses.Planned,
-            SequenceNo = maxSequence + 1,
+            Status = ProjectMilestoneStatuses.Planned,
+            SequenceNo = (previousMilestone?.SequenceNo ?? 0) + 1,
             CreatedByUserId = supervisorUserId,
             CreatedAt = now,
             UpdatedAt = now
@@ -789,10 +799,10 @@ public sealed class ProjectService : IProjectService
 
         dbContext.ProjectMilestones.Add(milestone);
 
-        if (dueDate < project.MilestoneDate)
-        {
-            project.MilestoneDate = dueDate;
-        }
+        existingMilestones.Add(milestone);
+        ProjectMilestonePolicy.ApplyAggregates(
+            project,
+            existingMilestones);
 
         project.UpdatedAt = now;
         project.LastActivityAt = now;
@@ -826,7 +836,21 @@ public sealed class ProjectService : IProjectService
                 "Milestone title is required.");
         }
 
-        var dueDate = request.DueDate;
+        if (request.DueDate is null)
+        {
+            throw new ApiException(
+                StatusCodes.Status400BadRequest,
+                ErrorCodes.ValidationError,
+                "Milestone due date is required.");
+        }
+
+        var nextStatus =
+            ProjectMilestonePolicy.NormalizeAndValidateStatus(
+                request.Status);
+
+        var requestedDueDate = request.DueDate.Value;
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
+        var today = DateOnly.FromDateTime(now);
 
         await using var dbContext =
             await _dbContextFactory.CreateDbContextAsync(
@@ -854,13 +878,16 @@ public sealed class ProjectService : IProjectService
                 "Only the owning Supervisor can update milestones.");
         }
 
-        var milestone =
+        var milestones =
             await dbContext.ProjectMilestones
-                .SingleOrDefaultAsync(
-                    item =>
-                        item.Id == milestoneId &&
-                        item.ProjectId == projectId,
-                    cancellationToken);
+                .Where(item =>
+                    item.ProjectId == projectId)
+                .OrderBy(item =>
+                    item.SequenceNo)
+                .ToListAsync(cancellationToken);
+
+        var milestone = milestones.SingleOrDefault(
+            item => item.Id == milestoneId);
 
         if (milestone is null)
         {
@@ -870,27 +897,51 @@ public sealed class ProjectService : IProjectService
                 "The requested milestone was not found.");
         }
 
-        var now =
-            _timeProvider.GetUtcNow().UtcDateTime;
+        var currentStatus = milestone.Status;
+        var currentDueDate = milestone.DueDate;
+        var statusChanged = !string.Equals(
+            currentStatus,
+            nextStatus,
+            StringComparison.Ordinal);
+        var dueDateChanged =
+            currentDueDate != requestedDueDate;
+
+        if (statusChanged)
+        {
+            ProjectMilestonePolicy.ValidateStatusTransition(
+                currentStatus,
+                nextStatus);
+        }
+
+        if (statusChanged || dueDateChanged)
+        {
+            ProjectMilestonePolicy.ValidateDueDateForStatus(
+                requestedDueDate,
+                nextStatus,
+                today);
+        }
+
+        if (dueDateChanged)
+        {
+            ProjectMilestonePolicy.ValidateChronologyForUpdate(
+                milestones,
+                milestone.Id,
+                requestedDueDate);
+        }
 
         milestone.Title = title;
-        milestone.Description = description;
-        milestone.DueDate = dueDate;
+        milestone.Description = string.IsNullOrWhiteSpace(description)
+            ? null
+            : description;
+        milestone.DueDate = requestedDueDate;
+        milestone.Status = nextStatus;
         milestone.UpdatedAt = now;
 
-        // Recalculate earliest milestone date
-        var milestoneDates =
-            await dbContext.ProjectMilestones
-                .Where(item =>
-                    item.ProjectId == projectId)
-                .Select(item =>
-                    item.DueDate)
-                .ToListAsync(cancellationToken);
-
-        if (milestoneDates.Count > 0)
+        if (statusChanged || dueDateChanged)
         {
-            project.MilestoneDate =
-                milestoneDates.Min();
+            ProjectMilestonePolicy.ApplyAggregates(
+                project,
+                milestones);
         }
 
         project.UpdatedAt = now;
