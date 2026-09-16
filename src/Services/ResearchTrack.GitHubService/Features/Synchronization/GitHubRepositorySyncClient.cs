@@ -409,7 +409,7 @@ public sealed class GitHubRepositorySyncClient : IGitHubRepositorySyncClient
             Bool(element, "merged") || NullableDate(element, "merged_at") is not null,
             user is null ? null : NullableInt64(user.Value, "id"),
             user is null ? null : NullableString(user.Value, "login"),
-            RequiredString(head, "ref"),
+            NullableString(head, "label") ?? RequiredString(head, "ref"),
             RequiredString(head, "sha"),
             RequiredString(target, "ref"),
             RequiredString(target, "sha"),

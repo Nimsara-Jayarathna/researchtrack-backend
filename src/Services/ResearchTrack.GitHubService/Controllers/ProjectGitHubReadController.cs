@@ -129,6 +129,8 @@ public sealed class ProjectGitHubReadController : ApiControllerBase
         Guid linkedRepositoryId,
         [FromQuery] int page = 1,
         [FromQuery] int size = 50,
+        [FromQuery] string? status = null,
+        [FromQuery] string? search = null,
         CancellationToken cancellationToken = default)
     {
         return ApiOk(await _evidenceQueryService.GetPullRequestsAsync(
@@ -137,6 +139,8 @@ public sealed class ProjectGitHubReadController : ApiControllerBase
             linkedRepositoryId,
             page,
             size,
+            status,
+            search,
             cancellationToken));
     }
 
