@@ -14,6 +14,7 @@ public sealed class GitHubPullRequestConfiguration : IEntityTypeConfiguration<Gi
         builder.Property(x => x.Body).HasColumnType("longtext");
         builder.Property(x => x.State).HasMaxLength(32).IsRequired();
         builder.Property(x => x.AuthorLogin).HasMaxLength(255);
+        builder.Property(x => x.MergedByLogin).HasMaxLength(255);
         builder.Property(x => x.SourceBranch).HasMaxLength(255).IsRequired();
         builder.Property(x => x.SourceSha).HasMaxLength(64).IsRequired();
         builder.Property(x => x.TargetBranch).HasMaxLength(255).IsRequired();

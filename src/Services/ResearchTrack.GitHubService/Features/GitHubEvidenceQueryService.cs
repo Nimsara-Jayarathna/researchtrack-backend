@@ -155,6 +155,8 @@ public sealed class GitHubEvidenceQueryService : IGitHubEvidenceQueryService
                 item.IsDraft,
                 item.IsMerged,
                 item.AuthorLogin,
+                item.MergedByGitHubId,
+                item.MergedByLogin,
                 item.SourceBranch,
                 item.TargetBranch,
                 item.CreatedAt,
