@@ -13,7 +13,7 @@ namespace ResearchTrack.GitHubService.Controllers;
 
 [Route("api/projects/{projectId:guid}/github-repositories")]
 [Route("api/v1/projects/{projectId:guid}/github-repositories")]
-[Authorize(Policy = AuthSecurityConstants.Policies.SupervisorOnly)]
+[Authorize(Policy = AuthSecurityConstants.Policies.Authenticated)]
 public sealed class ProjectGitHubRepositoriesController : ApiControllerBase
 {
     private readonly IRepositoryLinkService _repositoryLinkService;
@@ -37,6 +37,26 @@ public sealed class ProjectGitHubRepositoriesController : ApiControllerBase
             GetRequiredUserId(),
             projectId,
             cancellationToken);
+
+        // Non-supervisor project members only need repository evidence/navigation data.
+        // Do not expose installation/access-source management identifiers in that read model.
+        if (!User.IsInRole(AuthSecurityConstants.Roles.Supervisor))
+        {
+            repositories = repositories with
+            {
+                HasUnacknowledgedAccess = false,
+                AccessSources = [],
+                Repositories = repositories.Repositories
+                    .Select(repository => repository with
+                    {
+                        SourceId = null,
+                        AccessType = null,
+                        GitHubRepositoryId = null
+                    })
+                    .ToList()
+            };
+        }
+
         return ApiOk(repositories);
     }
 

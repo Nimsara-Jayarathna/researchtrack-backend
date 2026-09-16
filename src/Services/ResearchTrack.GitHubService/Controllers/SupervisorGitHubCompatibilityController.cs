@@ -14,7 +14,6 @@ using ResearchTrack.GitHubService.Features.Synchronization;
 namespace ResearchTrack.GitHubService.Controllers;
 
 [Route("api/supervisor/projects/{projectId:guid}/github")]
-[Route("api/v1/projects/{projectId:guid}/github")]
 [Authorize(Policy = AuthSecurityConstants.Policies.SupervisorOnly)]
 public sealed class SupervisorGitHubCompatibilityController : ApiControllerBase
 {
