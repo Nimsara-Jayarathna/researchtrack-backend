@@ -271,6 +271,13 @@ project_url="$(require_value "$ENV_DIR/github.env" Services__Project__BaseUrl)"
   exit 1
 }
 
+github_sync_interval="$(require_value "$ENV_DIR/github.env" GitHub__SyncIntervalMinutes)"
+if [[ ! "$github_sync_interval" =~ ^[0-9]+$ ]] ||
+   (( github_sync_interval < 1 || github_sync_interval > 1440 )); then
+  echo "github.env GitHub__SyncIntervalMinutes must be between 1 and 1440." >&2
+  exit 1
+fi
+
 case "$DEPLOY_ENVIRONMENT" in
   test) expected_runtime_environment="Test" ;;
   production) expected_runtime_environment="Production" ;;

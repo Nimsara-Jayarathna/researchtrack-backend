@@ -139,7 +139,16 @@ for service in "${observability_services[@]}"; do
   case "$service" in
     prometheus)
       wait_for_observability_http "$service" "http://prometheus:9090/-/ready" "$container_id"
-      echo "$service is running and ready."
+
+      rules_payload="$(docker exec "$probe_container_id" curl -fsS http://prometheus:9090/api/v1/rules)"
+      if [[ "$rules_payload" != *"researchtrack-availability"* \
+        || "$rules_payload" != *"researchtrack-github-integration"* ]]; then
+        echo "Prometheus is ready but the ResearchTrack operational alert rule groups are not loaded." >&2
+        docker logs --tail 200 "$container_id" || true
+        exit 1
+      fi
+
+      echo "$service is running, ready, and has the ResearchTrack alert rules loaded."
       ;;
     grafana)
       wait_for_observability_http "$service" "http://grafana:3000/api/health" "$container_id"

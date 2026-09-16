@@ -240,9 +240,11 @@ jobs:
             local required_files=(
               compose.yml
               monitoring/prometheus.yml
+              monitoring/rules/researchtrack-alerts.yml
               monitoring/grafana/provisioning/datasources/prometheus.yml
               monitoring/grafana/provisioning/dashboards/dashboards.yml
               monitoring/grafana/provisioning/dashboards/json/researchtrack-overview.json
+              monitoring/grafana/provisioning/dashboards/json/github-sync.json
               mysql/reconcile-databases.sh
               scripts/deploy-stack.sh
               scripts/verify-health.sh
