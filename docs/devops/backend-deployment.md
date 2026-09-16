@@ -141,6 +141,8 @@ Configure GitHub rulesets so the status check **Restore, Build and Test** must p
 
 A push to `develop` or `main` detects the changed deployable services. A service image is rebuilt only when its service source changes. Changes to shared compilation inputs such as BuildingBlocks, central package versions, the solution, global SDK selection, or the shared service Dockerfile rebuild every executable image.
 
+Deployment does not rely only on the moving `test`/`production` tag being noticed by Compose. After images are pulled, the deployment reconciler verifies that every running application container uses the exact pulled image ID. It also compares the current service environment files with the `env.previous` snapshot retained during deployment; if an environment changed but Compose did not recreate that service, the deployment force-recreates it. This removes the need for manual service restarts after shared-code/image or environment changes.
+
 For a first deployment of an environment, run the matching backend deploy workflow manually with `force_full_build=true`. This publishes all seven required backend image tags before Compose tries to pull and start the full stack.
 
 Each built image receives:
@@ -165,7 +167,7 @@ Each database has its own service DB user and password.
 
 `MYSQL_ENV_FILE`, based on `config/env/mysql/.env.example`, holds the MySQL root bootstrap credential and the six database/user/password triples. Each service environment file repeats only the credentials that service needs through `ConnectionStrings__DefaultConnection`. `deploy/validate-env-files.sh` verifies these values agree before deployment, preventing accidental password/database drift.
 
-The database reconciliation script runs on first initialization and on each deployment. It creates missing databases/users and updates service DB-user passwords when the service password changes.
+The database reconciliation script runs on first initialization and on each deployment. It creates missing databases/users and updates service DB-user passwords when the service password changes. Because the script is bind-mounted into MySQL and the deployment payload can replace the host-side file, `deploy-stack.sh` compares the mounted script hash with the uploaded script before provisioning. MySQL is force-recreated only when that mount is stale; the persistent `mysql-data` volume is retained.
 
 **Important:** changing `MYSQL_ROOT_PASSWORD` in GitHub after the MySQL volume has already been initialized does not rotate the existing MySQL root password. Root-password rotation requires an explicit MySQL administrative procedure.
 
@@ -200,12 +202,14 @@ The Compose defaults are intentionally conservative because the planned VPS has 
 
 ### Test
 
-`develop` push -> detect changes -> build/push changed `:test` images -> upload Test env files -> start/reconcile MySQL -> pull current Test images -> run migrations -> reconcile application containers -> verify health.
+`develop` push -> detect changes -> build/push changed `:test` images -> upload Test env files -> refresh the MySQL script mount when required -> reconcile MySQL -> pull current Test images -> run migrations -> reconcile/verify application images and environment changes -> force-recreate Prometheus/Grafana with current provisioning -> verify health and loaded monitoring state.
 
 ### Production
 
-`main` push -> detect changes -> build/push changed `:production` images -> upload Production env files -> start/reconcile MySQL -> pull current Production images -> run migrations -> reconcile application containers -> verify health.
+`main` push -> detect changes -> build/push changed `:production` images -> upload Production env files -> refresh the MySQL script mount when required -> reconcile MySQL -> pull current Production images -> run migrations -> reconcile/verify application images and environment changes -> force-recreate Prometheus/Grafana with current provisioning -> verify health and loaded monitoring state.
+
+Prometheus and Grafana are intentionally recreated on every backend deployment. Their rule/configuration/provisioning paths are bind-mounted while the deployment workflow replaces the corresponding host-side tree. Recreation guarantees those mounts and startup-loaded configuration reference the current deployment instead of an inode/configuration retained by an older container. Named Prometheus/Grafana volumes remain intact.
 
 ## Health verification
 
-Every application image uses `/health/live` for its Docker health check. After liveness succeeds, the deployment workflow also calls `/health/ready` inside each container. The workflow fails if a service stops, reports unhealthy, cannot reach its required database, or does not become ready within the deployment window.
+Every application image uses `/health/live` for its Docker health check. After liveness succeeds, the deployment workflow also calls `/health/ready` inside each container. The verifier additionally confirms every application container uses the exact image ID resolved by the freshly pulled environment tag, Prometheus exposes both ResearchTrack rule groups and all six expected operational alerts, and Grafana exposes the provisioned Prometheus datasource plus both ResearchTrack dashboards. The workflow fails rather than leaving a deployment that requires a manual restart.

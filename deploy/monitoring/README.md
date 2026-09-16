@@ -135,4 +135,6 @@ For a controlled missed-run test, use an isolated test build or debugger to paus
 
 ## Prometheus rule verification
 
-Deployment health verification checks that Prometheus is ready and that both ResearchTrack rule groups are loaded from `/api/v1/rules`.
+Deployment force-recreates Prometheus so the newly uploaded bind-mounted configuration and rule files are loaded without a manual restart. Health verification then checks `/api/v1/rules` for both ResearchTrack rule groups and all six expected alert names, rather than accepting the presence of the group names alone. This prevents an older rule set with the same group names from being mistaken for the current deployment.
+
+Grafana is also force-recreated so startup provisioning uses the current datasource/dashboard tree. Verification checks datasource UID `prometheus` and dashboard UIDs `researchtrack-overview` and `github-sync-operations`. Named monitoring data volumes are retained during recreation.

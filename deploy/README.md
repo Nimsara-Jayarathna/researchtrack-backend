@@ -18,3 +18,14 @@ Deployment-only contents here are limited to orchestration/runtime infrastructur
 - `mysql/reconcile-databases.sh`
 
 See `config/env/README.md` for the local/deployment configuration model and `docs/devops/backend-deployment.md` for GitHub settings, networking, GHCR, migrations, secrets, and VPS prerequisites.
+
+## Container reconciliation behavior
+
+`deploy/scripts/deploy-stack.sh` treats container recreation as an explicit deployment postcondition rather than assuming `docker compose up` noticed every moving-tag, environment, or bind-mounted configuration change.
+
+- Application services are first reconciled normally by Compose. The script then verifies each running container uses the exact image ID pulled for the current `test`/`production` tag. If an environment file changed and Compose left the existing container in place, or if the running image ID is stale, that service is force-recreated and verified again.
+- Prometheus and Grafana are force-recreated on every deployment. Their configuration is bind-mounted and the workflow replaces the host provisioning tree, so recreation guarantees the newly uploaded Prometheus rules/configuration and Grafana datasource/dashboard provisioning are active without an SSH/manual restart.
+- The MySQL reconciliation script is also bind-mounted. Before database provisioning, the deployment compares the script mounted in the existing MySQL container with the newly uploaded host script and recreates MySQL only when the mounted script is stale. The named `mysql-data` volume is retained.
+- `verify-health.sh` independently checks that each application container is running the exact pulled image, all expected Prometheus alert rules are loaded, and both ResearchTrack Grafana dashboards plus the Prometheus datasource are provisioned.
+
+Named volumes (`mysql-data`, `prometheus-data`, and `grafana-data`) are not deleted by these recreations.
