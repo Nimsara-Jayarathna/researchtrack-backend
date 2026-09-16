@@ -22,6 +22,7 @@ public static class GitHubFeatureExtensions
         services.AddSingleton(linkOptions);
         services.AddSingleton(_ => GitHubAppOptionsFactory.Create(configuration));
         services.AddSingleton(_ => GitHubWebhookOptionsFactory.Create(configuration));
+        services.AddSingleton(_ => GitHubReconciliationOptionsFactory.Create(configuration));
         services.AddHttpContextAccessor();
         services.AddScoped<IGitHubInstallationStateService, GitHubInstallationStateService>();
         services.AddScoped<IGitHubInstallationStateStore, GitHubInstallationStateStore>();
@@ -44,6 +45,8 @@ public static class GitHubFeatureExtensions
         services.AddSingleton<IInitialRepositorySyncRequester>(provider => provider.GetRequiredService<RepositorySyncQueue>());
         services.AddHostedService<RepositorySyncWorker>();
         services.AddScoped<IGitHubRepositorySynchronizationService, GitHubRepositorySynchronizationService>();
+        services.AddScoped<IGitHubReconciliationService, GitHubReconciliationService>();
+        services.AddHostedService<GitHubReconciliationWorker>();
         services.AddSingleton<IGitHubInstallationTokenProvider, GitHubInstallationTokenProvider>();
 
         services.AddSingleton<GitHubWebhookSignal>();
