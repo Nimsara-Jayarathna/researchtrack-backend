@@ -258,6 +258,9 @@ public sealed class RepositoryLinkServiceTests
         public Exception? Failure { get; init; }
         public int CallCount { get; private set; }
 
+        public Task EnsureCanViewAsync(Guid projectId, CancellationToken cancellationToken)
+            => EnsureCanManageAsync(projectId, cancellationToken);
+
         public Task EnsureCanManageAsync(Guid projectId, CancellationToken cancellationToken)
         {
             CallCount++;

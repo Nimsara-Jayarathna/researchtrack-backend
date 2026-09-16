@@ -187,7 +187,7 @@ public sealed class GitHubEvidenceQueryService : IGitHubEvidenceQueryService
             ]);
         }
 
-        await _projectAuthorization.EnsureCanManageAsync(projectId, cancellationToken);
+        await _projectAuthorization.EnsureCanViewAsync(projectId, cancellationToken);
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
         var exists = await dbContext.ProjectRepositoryLinks
             .AsNoTracking()

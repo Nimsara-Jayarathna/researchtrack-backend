@@ -264,6 +264,9 @@ public sealed class GitHubInstallationFlowServiceTests
         public Exception? Failure { get; init; }
         public bool WasCalled { get; private set; }
 
+        public Task EnsureCanViewAsync(Guid projectId, CancellationToken cancellationToken)
+            => EnsureCanManageAsync(projectId, cancellationToken);
+
         public Task EnsureCanManageAsync(Guid projectId, CancellationToken cancellationToken)
         {
             WasCalled = true;
