@@ -110,7 +110,7 @@ public sealed class RepositoryLinkService : IRepositoryLinkService
             ]);
         }
 
-        await _projectAuthorization.EnsureCanManageAsync(projectId, cancellationToken);
+        await _projectAuthorization.EnsureCanViewAsync(projectId, cancellationToken);
         return await _store.GetProjectAsync(projectId, cancellationToken);
     }
 

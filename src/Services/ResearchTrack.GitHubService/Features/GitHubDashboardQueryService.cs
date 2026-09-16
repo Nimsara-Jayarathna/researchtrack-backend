@@ -215,7 +215,7 @@ public sealed class GitHubDashboardQueryService : IGitHubDashboardQueryService
         {
             throw new ApiValidationException([new ApiFieldError("projectId", ["Project id is required."])]);
         }
-        return _projectAuthorization.EnsureCanManageAsync(projectId, cancellationToken);
+        return _projectAuthorization.EnsureCanViewAsync(projectId, cancellationToken);
     }
 
     private static Task<List<ProjectRepositoryLink>> LoadAccessibleEnabledLinksAsync(

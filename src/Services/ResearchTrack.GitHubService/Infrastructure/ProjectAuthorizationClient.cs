@@ -15,7 +15,22 @@ public sealed class ProjectAuthorizationClient : IProjectAuthorizationClient
         _httpContextAccessor = httpContextAccessor;
     }
 
-    public async Task EnsureCanManageAsync(Guid projectId, CancellationToken cancellationToken)
+    public Task EnsureCanViewAsync(Guid projectId, CancellationToken cancellationToken) =>
+        EnsureProjectAccessAsync(
+            projectId,
+            "You do not have access to this project's GitHub evidence.",
+            cancellationToken);
+
+    public Task EnsureCanManageAsync(Guid projectId, CancellationToken cancellationToken) =>
+        EnsureProjectAccessAsync(
+            projectId,
+            "Only the owning Supervisor can manage this project's GitHub integration.",
+            cancellationToken);
+
+    private async Task EnsureProjectAccessAsync(
+        Guid projectId,
+        string forbiddenMessage,
+        CancellationToken cancellationToken)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, $"api/v1/projects/{projectId}");
         ForwardAuthentication(request);
@@ -55,7 +70,7 @@ public sealed class ProjectAuthorizationClient : IProjectAuthorizationClient
                 throw new ApiException(
                     StatusCodes.Status403Forbidden,
                     ErrorCodes.Forbidden,
-                    "Only the owning Supervisor can manage this project's GitHub integration.");
+                    forbiddenMessage);
             }
 
             throw DependencyFailure("Unable to verify project authorization with Project Service.");
