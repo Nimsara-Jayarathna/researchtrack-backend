@@ -43,6 +43,8 @@ public sealed record GitHubPullRequestResponse(
     bool IsDraft,
     bool IsMerged,
     string? AuthorLogin,
+    long? MergedByGitHubId,
+    string? MergedByLogin,
     string SourceBranch,
     string TargetBranch,
     DateTime CreatedAt,

@@ -13,6 +13,8 @@ public sealed class GitHubPullRequest
     public bool IsMerged { get; set; }
     public long? AuthorGitHubId { get; set; }
     public string? AuthorLogin { get; set; }
+    public long? MergedByGitHubId { get; set; }
+    public string? MergedByLogin { get; set; }
     public required string SourceBranch { get; set; }
     public required string SourceSha { get; set; }
     public required string TargetBranch { get; set; }

@@ -63,7 +63,18 @@ public sealed class GitHubDashboardQueryService : IGitHubDashboardQueryService
                 "NOT_AUTHORIZED",
                 repositories,
                 null,
-                new GitHubDashboardActivitySummaryResponse(0, null, "idle"),
+                new GitHubDashboardActivitySummaryResponse(
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    null,
+                    null,
+                    null,
+                    null,
+                    "idle"),
                 [],
                 [],
                 hasUnacknowledgedAccess);
@@ -74,9 +85,57 @@ public sealed class GitHubDashboardQueryService : IGitHubDashboardQueryService
 
         var totalCommits = await db.Commits.AsNoTracking()
             .CountAsync(commit => commit.RepositoryLinkId == selected.Id, cancellationToken);
-        var lastActivity = await db.Commits.AsNoTracking()
+        var latestCommitAt = await db.Commits.AsNoTracking()
             .Where(commit => commit.RepositoryLinkId == selected.Id)
             .MaxAsync(commit => (DateTime?)commit.CommittedAt, cancellationToken);
+
+        var pullRequestSummary = await db.PullRequests.AsNoTracking()
+            .Where(pullRequest => pullRequest.RepositoryLinkId == selected.Id)
+            .GroupBy(_ => 1)
+            .Select(group => new
+            {
+                Total = group.Count(),
+                Open = group.Count(pullRequest =>
+                    !pullRequest.IsMerged
+                    && !pullRequest.IsDraft
+                    && pullRequest.State == "OPEN"),
+                Draft = group.Count(pullRequest =>
+                    !pullRequest.IsMerged
+                    && pullRequest.IsDraft
+                    && pullRequest.State == "OPEN"),
+                Merged = group.Count(pullRequest => pullRequest.IsMerged),
+                Closed = group.Count(pullRequest =>
+                    !pullRequest.IsMerged
+                    && pullRequest.State == "CLOSED")
+            })
+            .SingleOrDefaultAsync(cancellationToken);
+
+        var latestPullRequest = await db.PullRequests.AsNoTracking()
+            .Where(pullRequest => pullRequest.RepositoryLinkId == selected.Id)
+            .OrderByDescending(pullRequest => pullRequest.UpdatedAt)
+            .ThenByDescending(pullRequest => pullRequest.Number)
+            .Select(pullRequest => new
+            {
+                pullRequest.Number,
+                pullRequest.UpdatedAt,
+                pullRequest.IsMerged,
+                pullRequest.IsDraft,
+                pullRequest.State
+            })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        var lastActivityIsPullRequest =
+            latestPullRequest is not null
+            && (latestCommitAt is null || latestPullRequest.UpdatedAt >= latestCommitAt.Value);
+        var lastActivityAt = lastActivityIsPullRequest
+            ? latestPullRequest!.UpdatedAt
+            : latestCommitAt;
+        var lastActivityPullRequestStatus = lastActivityIsPullRequest
+            ? NormalizePullRequestStatus(
+                latestPullRequest!.State,
+                latestPullRequest.IsDraft,
+                latestPullRequest.IsMerged)
+            : null;
 
         var contributorPreview = await db.Contributors.AsNoTracking()
             .Where(contributor => contributor.RepositoryLinkId == selected.Id)
@@ -118,8 +177,16 @@ public sealed class GitHubDashboardQueryService : IGitHubDashboardQueryService
             links.FirstOrDefault(link => link.Primary)?.Url ?? selected.Url,
             new GitHubDashboardActivitySummaryResponse(
                 totalCommits,
-                lastActivity,
-                totalCommits > 0 ? "active" : "idle"),
+                pullRequestSummary?.Total ?? 0,
+                pullRequestSummary?.Open ?? 0,
+                pullRequestSummary?.Draft ?? 0,
+                pullRequestSummary?.Merged ?? 0,
+                pullRequestSummary?.Closed ?? 0,
+                lastActivityAt,
+                lastActivityIsPullRequest ? "pull_request" : latestCommitAt is not null ? "commit" : null,
+                lastActivityIsPullRequest ? latestPullRequest!.Number : null,
+                lastActivityPullRequestStatus,
+                totalCommits > 0 || (pullRequestSummary?.Total ?? 0) > 0 ? "active" : "idle"),
             contributorPreview,
             recentCommits,
             hasUnacknowledgedAccess);
@@ -260,6 +327,29 @@ public sealed class GitHubDashboardQueryService : IGitHubDashboardQueryService
             projectId,
             cancellationToken);
         return SelectLink(links, linkedRepositoryId);
+    }
+
+    private static string NormalizePullRequestStatus(
+        string state,
+        bool isDraft,
+        bool isMerged)
+    {
+        if (isMerged)
+        {
+            return "MERGED";
+        }
+
+        if (string.Equals(state, "CLOSED", StringComparison.OrdinalIgnoreCase))
+        {
+            return "CLOSED";
+        }
+
+        if (isDraft)
+        {
+            return "DRAFT";
+        }
+
+        return "OPEN";
     }
 
     private static GitHubDashboardCommitResponse ToDashboardCommit(
