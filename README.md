@@ -345,6 +345,7 @@ GitHub__StateExpiryMinutes
 GitHub__AccessRequestExpiryHours
 GitHub__RepositoryLinks__MaxLinkedRepositories
 GitHub__RepositoryLinks__MaxEnabledRepositories
+GitHub__SyncIntervalMinutes
 GitHub__WebhookSecret
 GitHub__Webhook__MaxPayloadBytes
 GitHub__Webhook__MaxAttempts
@@ -354,7 +355,7 @@ GitHub__Webhook__PollIntervalSeconds
 
 `GitHub__RepositoryLinks__MaxLinkedRepositories` and `GitHub__RepositoryLinks__MaxEnabledRepositories` are required runtime values from the GitHub service environment. There is no appsettings fallback; startup fails when either is missing/invalid or when the enabled limit exceeds the linked limit.
 
-GitHub synchronization is webhook-driven with manual sync/reconciliation available to supervisors. The GitHub service does not use a periodic cron/scheduled repository synchronization interval.
+GitHub synchronization is webhook-driven for near-real-time updates, with manual sync available to supervisors and a lightweight scheduled reconciliation safety net. `GitHub__SyncIntervalMinutes` controls the reconciliation cadence (1-1440 minutes, default/canonical value 15). Each reconciliation cycle checks only the current default branch and its HEAD SHA; unchanged repositories are not fully synchronized. If the remote default branch or HEAD SHA differs from the last successfully synchronized values, the existing synchronization queue is used with trigger `RECONCILIATION`.
 
 The webhook receiver is `POST /api/github/webhooks` (also available under `/api/v1/github/webhooks`). It is intentionally anonymous at the ResearchTrack authentication layer because GitHub authenticates deliveries using `X-Hub-Signature-256`. ResearchTrack validates HMAC-SHA256 over the exact raw request body using `GitHub__WebhookSecret`, deduplicates `X-GitHub-Delivery`, persists the delivery before returning `202 Accepted`, and processes it asynchronously from the durable webhook inbox. Failed transient deliveries use bounded exponential retry and stale `PROCESSING` leases are recovered after service restart. `GitHub__Webhook__PollIntervalSeconds` defaults to 5 seconds and provides a bounded durable-inbox poll so webhook work persisted by another service instance is still discovered even though the in-process wake signal is local to one instance.
 

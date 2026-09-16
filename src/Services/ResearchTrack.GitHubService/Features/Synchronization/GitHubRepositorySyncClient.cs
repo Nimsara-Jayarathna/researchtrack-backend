@@ -33,6 +33,24 @@ public sealed class GitHubRepositorySyncClient : IGitHubRepositorySyncClient
         return ParseRepository(payload.RootElement);
     }
 
+    public async Task<GitHubDefaultBranchHead> GetDefaultBranchHeadAsync(
+        string owner,
+        string repository,
+        string branch,
+        string? token,
+        CancellationToken cancellationToken)
+    {
+        using var payload = await GetAsync(
+            $"repos/{Part(owner)}/{Part(repository)}/branches/{Part(branch)}",
+            token,
+            cancellationToken);
+
+        var commit = RequiredObject(payload.RootElement, "commit");
+        return new GitHubDefaultBranchHead(
+            branch,
+            RequiredString(commit, "sha"));
+    }
+
     public Task<IReadOnlyList<GitHubSyncCommit>> GetCommitsAsync(
         string owner,
         string repository,

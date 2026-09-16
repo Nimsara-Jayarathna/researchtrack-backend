@@ -128,6 +128,7 @@ rt_load_dev_env() {
 
   if [[ "${service,,}" == "github" ]]; then
     rt_validate_github_repository_limits_environment
+    rt_validate_github_sync_environment
     rt_validate_github_webhook_environment
   fi
 
@@ -207,6 +208,17 @@ rt_validate_github_repository_limits_environment() {
   fi
   if (( GitHub__RepositoryLinks__MaxEnabledRepositories > GitHub__RepositoryLinks__MaxLinkedRepositories )); then
     echo "GitHub enabled repository limit cannot exceed the linked repository limit." >&2
+    return 1
+  fi
+}
+
+rt_validate_github_sync_environment() {
+  rt_require_env GitHub__SyncIntervalMinutes
+  rt_reject_placeholder GitHub__SyncIntervalMinutes
+
+  if [[ ! "$GitHub__SyncIntervalMinutes" =~ ^[0-9]+$ ]] ||
+     (( GitHub__SyncIntervalMinutes < 1 || GitHub__SyncIntervalMinutes > 1440 )); then
+    echo "GitHub__SyncIntervalMinutes must be between 1 and 1440." >&2
     return 1
   fi
 }

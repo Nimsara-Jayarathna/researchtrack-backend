@@ -1,0 +1,77 @@
+groups:
+  - name: researchtrack-availability
+    rules:
+      - alert: ResearchTrackServiceUnavailable
+        expr: up{job="researchtrack-services", instance!="gateway:9100"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          category: availability
+        annotations:
+          summary: "ResearchTrack backend service unavailable"
+          description: "Prometheus cannot scrape {{ $labels.instance }} for at least one minute."
+
+      - alert: ResearchTrackApiGatewayUnavailable
+        expr: up{job="researchtrack-services", instance="gateway:9100"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          category: availability
+        annotations:
+          summary: "ResearchTrack API Gateway unavailable"
+          description: "Prometheus cannot scrape the API Gateway for at least one minute."
+
+      - alert: ResearchTrackSustainedServerErrors
+        expr: sum by (instance) (increase(http_requests_received_total{job="researchtrack-services", code=~"5.."}[5m])) >= 5
+        for: 2m
+        labels:
+          severity: warning
+          category: application
+        annotations:
+          summary: "Repeated ResearchTrack server errors detected"
+          description: "{{ $labels.instance }} has produced at least five HTTP 5xx responses in the last five minutes and the condition is sustained."
+
+  - name: researchtrack-github-integration
+    rules:
+      - alert: ResearchTrackGitHubSyncFailures
+        expr: sum(increase(github_sync_runs_total{job="researchtrack-services", instance="github:8080", outcome="failed"}[10m])) >= 2
+        for: 1m
+        labels:
+          severity: warning
+          category: github
+        annotations:
+          summary: "Repeated GitHub synchronization failures"
+          description: "ResearchTrack has recorded multiple failed GitHub synchronization runs within ten minutes."
+
+      - alert: ResearchTrackGitHubReconciliationFailures
+        expr: sum(increase(github_reconciliation_cycles_total{job="researchtrack-services", instance="github:8080", outcome=~"partial_failure|failed"}[30m])) >= 2
+        for: 1m
+        labels:
+          severity: warning
+          category: github
+        annotations:
+          summary: "Repeated GitHub reconciliation failures"
+          description: "The scheduled GitHub reconciliation process has repeatedly failed or completed with repository-check failures."
+
+      - alert: ResearchTrackGitHubReconciliationMissed
+        expr: |
+          (
+            github_reconciliation_last_completed_timestamp_seconds{job="researchtrack-services", instance="github:8080"} == 0
+            and
+            (time() - process_start_time_seconds{job="researchtrack-services", instance="github:8080"})
+              > 2 * github_reconciliation_interval_seconds{job="researchtrack-services", instance="github:8080"}
+          )
+          or
+          (
+            github_reconciliation_last_completed_timestamp_seconds{job="researchtrack-services", instance="github:8080"} > 0
+            and
+            (time() - github_reconciliation_last_completed_timestamp_seconds{job="researchtrack-services", instance="github:8080"})
+              > 2 * github_reconciliation_interval_seconds{job="researchtrack-services", instance="github:8080"}
+          )
+        for: 5m
+        labels:
+          severity: warning
+          category: github
+        annotations:
+          summary: "GitHub reconciliation appears to have missed scheduled runs"
+          description: "No GitHub reconciliation cycle has completed within twice the configured reconciliation interval."
