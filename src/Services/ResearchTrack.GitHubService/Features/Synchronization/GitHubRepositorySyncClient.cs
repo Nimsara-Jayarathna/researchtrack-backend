@@ -396,6 +396,7 @@ public sealed class GitHubRepositorySyncClient : IGitHubRepositorySyncClient
     private static GitHubSyncPullRequest ParsePullRequest(JsonElement element)
     {
         var user = OptionalObject(element, "user");
+        var mergedBy = OptionalObject(element, "merged_by");
         var head = RequiredObject(element, "head");
         var target = RequiredObject(element, "base");
 
@@ -409,7 +410,9 @@ public sealed class GitHubRepositorySyncClient : IGitHubRepositorySyncClient
             Bool(element, "merged") || NullableDate(element, "merged_at") is not null,
             user is null ? null : NullableInt64(user.Value, "id"),
             user is null ? null : NullableString(user.Value, "login"),
-            RequiredString(head, "ref"),
+            mergedBy is null ? null : NullableInt64(mergedBy.Value, "id"),
+            mergedBy is null ? null : NullableString(mergedBy.Value, "login"),
+            NullableString(head, "label") ?? RequiredString(head, "ref"),
             RequiredString(head, "sha"),
             RequiredString(target, "ref"),
             RequiredString(target, "sha"),

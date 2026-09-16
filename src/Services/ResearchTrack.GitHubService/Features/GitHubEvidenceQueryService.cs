@@ -97,14 +97,51 @@ public sealed class GitHubEvidenceQueryService : IGitHubEvidenceQueryService
         Guid linkedRepositoryId,
         int page,
         int size,
+        string? status,
+        string? search,
         CancellationToken cancellationToken)
     {
         await EnsureRepositoryAsync(projectId, linkedRepositoryId, page, size, cancellationToken);
+        var normalizedStatus = NormalizePullRequestStatus(status);
+        var normalizedSearch = string.IsNullOrWhiteSpace(search) ? null : search.Trim();
+        if (normalizedSearch is { Length: > 200 })
+        {
+            throw new ApiValidationException([
+                new ApiFieldError("search", ["Pull request search text cannot exceed 200 characters."])
+            ]);
+        }
+
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
         var query = dbContext.PullRequests
             .AsNoTracking()
-            .Where(item => item.RepositoryLinkId == linkedRepositoryId)
-            .OrderByDescending(item => item.UpdatedAt);
+            .Where(item => item.RepositoryLinkId == linkedRepositoryId);
+
+        query = normalizedStatus switch
+        {
+            "OPEN" => query.Where(item => !item.IsMerged && !item.IsDraft && item.State == "OPEN"),
+            "DRAFT" => query.Where(item => !item.IsMerged && item.IsDraft && item.State == "OPEN"),
+            "MERGED" => query.Where(item => item.IsMerged),
+            "CLOSED" => query.Where(item => !item.IsMerged && item.State == "CLOSED"),
+            _ => query
+        };
+
+        if (normalizedSearch is not null)
+        {
+            var numberSearch = normalizedSearch.TrimStart('#');
+            var hasNumber = int.TryParse(numberSearch, out var pullRequestNumber);
+
+            query = query.Where(item =>
+                item.Title.Contains(normalizedSearch)
+                || (item.AuthorLogin != null && item.AuthorLogin.Contains(normalizedSearch))
+                || item.SourceBranch.Contains(normalizedSearch)
+                || item.TargetBranch.Contains(normalizedSearch)
+                || (hasNumber && item.Number == pullRequestNumber));
+        }
+
+        query = query
+            .OrderByDescending(item => item.UpdatedAt)
+            .ThenByDescending(item => item.Number);
+
         var total = await query.CountAsync(cancellationToken);
         var items = await query
             .Skip((page - 1) * size)
@@ -118,6 +155,8 @@ public sealed class GitHubEvidenceQueryService : IGitHubEvidenceQueryService
                 item.IsDraft,
                 item.IsMerged,
                 item.AuthorLogin,
+                item.MergedByGitHubId,
+                item.MergedByLogin,
                 item.SourceBranch,
                 item.TargetBranch,
                 item.CreatedAt,
@@ -133,6 +172,24 @@ public sealed class GitHubEvidenceQueryService : IGitHubEvidenceQueryService
                 item.ReviewCommentsCount))
             .ToListAsync(cancellationToken);
         return Page(items, page, size, total);
+    }
+
+    private static string? NormalizePullRequestStatus(string? status)
+    {
+        if (string.IsNullOrWhiteSpace(status) || status.Equals("all", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        var normalized = status.Trim().ToUpperInvariant();
+        if (normalized is "OPEN" or "DRAFT" or "MERGED" or "CLOSED")
+        {
+            return normalized;
+        }
+
+        throw new ApiValidationException([
+            new ApiFieldError("status", ["Status must be one of: all, open, draft, merged, closed."])
+        ]);
     }
 
     public async Task<GitHubEvidencePage<GitHubSyncRunResponse>> GetSyncRunsAsync(

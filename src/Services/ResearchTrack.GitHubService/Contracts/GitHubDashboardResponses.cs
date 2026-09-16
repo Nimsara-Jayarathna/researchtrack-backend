@@ -11,7 +11,15 @@ public sealed record GitHubDashboardRepositoryResponse(
 
 public sealed record GitHubDashboardActivitySummaryResponse(
     int TotalCommits,
+    int TotalPullRequests,
+    int OpenPullRequests,
+    int DraftPullRequests,
+    int MergedPullRequests,
+    int ClosedPullRequests,
     DateTime? LastActivityAt,
+    string? LastActivityType,
+    int? LastActivityPullRequestNumber,
+    string? LastActivityPullRequestStatus,
     string Status);
 
 public sealed record GitHubDashboardContributorResponse(

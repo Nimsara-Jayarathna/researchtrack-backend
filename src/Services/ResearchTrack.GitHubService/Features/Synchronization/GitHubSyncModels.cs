@@ -51,6 +51,8 @@ public sealed record GitHubSyncPullRequest(
     bool Merged,
     long? AuthorGitHubId,
     string? AuthorLogin,
+    long? MergedByGitHubId,
+    string? MergedByLogin,
     string SourceBranch,
     string SourceSha,
     string TargetBranch,

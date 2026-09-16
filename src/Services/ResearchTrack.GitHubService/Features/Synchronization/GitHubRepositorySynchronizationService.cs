@@ -305,11 +305,16 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
         var knownUpdates = await dbContext.PullRequests
             .AsNoTracking()
             .Where(item => item.RepositoryLinkId == linkedRepositoryId)
-            .Select(item => new { item.GitHubPullRequestId, item.UpdatedAt })
+            .Select(item => new
+            {
+                item.GitHubPullRequestId,
+                item.UpdatedAt,
+                item.IsMerged,
+                item.MergedByLogin
+            })
             .ToListAsync(cancellationToken);
         var knownById = knownUpdates.ToDictionary(
-            item => item.GitHubPullRequestId,
-            item => item.UpdatedAt);
+            item => item.GitHubPullRequestId);
 
         var reviews = new Dictionary<long, IReadOnlyList<GitHubSyncReview>>();
         for (var index = 0; index < pullRequests.Count; index++)
@@ -317,13 +322,19 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
             var pullRequest = pullRequests[index];
             var hasKnownVersion = knownById.TryGetValue(
                 pullRequest.Id,
-                out var knownUpdatedAt);
+                out var known);
+            var needsMergeActorBackfill =
+                pullRequest.Merged
+                && (!hasKnownVersion
+                    || !known!.IsMerged
+                    || string.IsNullOrWhiteSpace(known.MergedByLogin));
             var needsDetail = string.Equals(
                     pullRequest.State,
                     "OPEN",
                     StringComparison.Ordinal)
                 || !hasKnownVersion
-                || knownUpdatedAt != pullRequest.UpdatedAt;
+                || known!.UpdatedAt != pullRequest.UpdatedAt
+                || needsMergeActorBackfill;
 
             if (!needsDetail)
             {
@@ -619,6 +630,8 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
             entity.IsMerged = pullRequest.Merged;
             entity.AuthorGitHubId = pullRequest.AuthorGitHubId;
             entity.AuthorLogin = pullRequest.AuthorLogin;
+            entity.MergedByGitHubId = pullRequest.MergedByGitHubId ?? entity.MergedByGitHubId;
+            entity.MergedByLogin = pullRequest.MergedByLogin ?? entity.MergedByLogin;
             entity.SourceBranch = pullRequest.SourceBranch;
             entity.SourceSha = pullRequest.SourceSha;
             entity.TargetBranch = pullRequest.TargetBranch;
