@@ -335,12 +335,35 @@ Kafka__BootstrapServers
 ```text
 Kafka__BootstrapServers
 GitHub__AppId
+GitHub__AppSlug
 GitHub__ClientId
 GitHub__ClientSecret
-GitHub__PrivateKeyPath
-GitHub__WebhookSecret
+GitHub__PrivateKeyBase64 (or GitHub__PrivateKeyPath for a mounted secret file)
+GitHub__SetupCallbackUrl
+GitHub__FrontendReturnOrigin
+GitHub__StateExpiryMinutes
+GitHub__AccessRequestExpiryHours
+GitHub__RepositoryLinks__MaxLinkedRepositories
+GitHub__RepositoryLinks__MaxEnabledRepositories
 GitHub__SyncIntervalMinutes
+GitHub__WebhookSecret
+GitHub__Webhook__MaxPayloadBytes
+GitHub__Webhook__MaxAttempts
+GitHub__Webhook__ProcessingLeaseSeconds
+GitHub__Webhook__PollIntervalSeconds
 ```
+
+`GitHub__RepositoryLinks__MaxLinkedRepositories` and `GitHub__RepositoryLinks__MaxEnabledRepositories` are required runtime values from the GitHub service environment. There is no appsettings fallback; startup fails when either is missing/invalid or when the enabled limit exceeds the linked limit.
+
+GitHub synchronization is webhook-driven for near-real-time updates, with manual sync available to supervisors and a lightweight scheduled reconciliation safety net. `GitHub__SyncIntervalMinutes` controls the reconciliation cadence (1-1440 minutes, default/canonical value 15). Each reconciliation cycle checks only the current default branch and its HEAD SHA; unchanged repositories are not fully synchronized. If the remote default branch or HEAD SHA differs from the last successfully synchronized values, the existing synchronization queue is used with trigger `RECONCILIATION`.
+
+The webhook receiver is `POST /api/github/webhooks` (also available under `/api/v1/github/webhooks`). It is intentionally anonymous at the ResearchTrack authentication layer because GitHub authenticates deliveries using `X-Hub-Signature-256`. ResearchTrack validates HMAC-SHA256 over the exact raw request body using `GitHub__WebhookSecret`, deduplicates `X-GitHub-Delivery`, persists the delivery before returning `202 Accepted`, and processes it asynchronously from the durable webhook inbox. Failed transient deliveries use bounded exponential retry and stale `PROCESSING` leases are recovered after service restart. `GitHub__Webhook__PollIntervalSeconds` defaults to 5 seconds and provides a bounded durable-inbox poll so webhook work persisted by another service instance is still discovered even though the in-process wake signal is local to one instance.
+
+Configure the GitHub App webhook URL to the public API route and subscribe to `push`, `pull_request`, `pull_request_review`, `pull_request_review_comment`, and `repository`. GitHub App lifecycle deliveries `installation` and `installation_repositories` are also handled. Push events synchronize only the linked default branch. Repository removal, installation suspension, and installation deletion preserve ResearchTrack history while blocking synchronization until GitHub access is restored. Unknown webhook events are acknowledged and marked ignored instead of failing the receiver.
+
+For SCRUM-15 GitHub App registration, least-privilege permissions, callback configuration, and manual QA, see [`docs/stories/SCRUM-15-connect-authorized-github-app.md`](docs/stories/SCRUM-15-connect-authorized-github-app.md).
+
+For the owner-granted GitHub App access-request contract—including pending/completed/failed/expired/revoked states, time-bounded shareable links, owner binding, shared GitHub App callback handling, and supervisor-side repository selection—see [`docs/stories/owner-granted-github-repository-access.md`](docs/stories/owner-granted-github-repository-access.md). A request grants no repository link by itself; every linked repository is still verified through the GitHub App installation token before persistence.
 
 ### Jira
 

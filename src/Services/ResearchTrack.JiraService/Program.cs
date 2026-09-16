@@ -1,3 +1,4 @@
+using Prometheus;
 using ResearchTrack.BuildingBlocks.Api.Extensions;
 using ResearchTrack.JiraService.Persistence;
 
@@ -8,7 +9,9 @@ builder.Services.AddResearchTrackApi("ResearchTrack Jira Service");
 builder.Services.AddJiraPersistence(builder.Configuration);
 
 var app = builder.Build();
+app.UseHttpMetrics();
 app.UseResearchTrackApi();
+app.MapMetrics();
 app.Run();
 
 public partial class Program;

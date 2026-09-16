@@ -43,6 +43,7 @@ jobs:
       SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
       EDGE_NETWORK: ${{ vars.NPM_NET_NAME }}
       DEPLOY_ROOT: ${{ vars.BACKEND_DEPLOY_ROOT }}
+      GRAFANA_MEMORY_LIMIT: ${{ vars.GRAFANA_MEMORY_LIMIT }}
       REMOTE_DOCKER_CONFIG: /tmp/researchtrack-ghcr-${{ github.run_id }}-${{ github.run_attempt }}
 
     steps:
@@ -107,6 +108,7 @@ jobs:
           MEETING_ENV_FILE: ${{ secrets.MEETING_ENV_FILE }}
           SUBMISSION_ENV_FILE: ${{ secrets.SUBMISSION_ENV_FILE }}
           GATEWAY_ENV_FILE: ${{ secrets.GATEWAY_ENV_FILE }}
+          GRAFANA_ENV_FILE: ${{ secrets.GRAFANA_ENV_FILE }}
         run: |
           set -euo pipefail
           umask 077
@@ -134,6 +136,7 @@ jobs:
           write_secret meeting.env "$MEETING_ENV_FILE"
           write_secret submission.env "$SUBMISSION_ENV_FILE"
           write_secret gateway.env "$GATEWAY_ENV_FILE"
+          write_secret grafana.env "$GRAFANA_ENV_FILE"
 
           ./deploy/validate-env-files.sh "$secret_dir" config/env "${{ inputs.environment_name }}"
 
@@ -146,9 +149,10 @@ jobs:
           image_prefix="ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
           edge_network="${EDGE_NETWORK:-npm_default}"
           deploy_env="${{ inputs.environment_name }}"
+          grafana_memory_limit="${GRAFANA_MEMORY_LIMIT:-512m}"
 
           validate_deploy_env() {
-            local file="$1" key deploy_env_value image_prefix_value edge_network_value
+            local file="$1" key deploy_env_value image_prefix_value edge_network_value grafana_memory_limit_value
             declare -A seen=()
 
             while IFS= read -r line || [[ -n "$line" ]]; do
@@ -157,7 +161,7 @@ jobs:
               [[ "$line" == *=* ]] || { echo "Invalid deploy.env entry: $line" >&2; exit 1; }
               key="${line%%=*}"
               case "$key" in
-                DEPLOY_ENV|IMAGE_PREFIX|EDGE_NETWORK) ;;
+                DEPLOY_ENV|IMAGE_PREFIX|EDGE_NETWORK|GRAFANA_HOST_PORT|GRAFANA_MEMORY_LIMIT) ;;
                 *) echo "deploy.env contains unsupported key '$key'." >&2; exit 1 ;;
               esac
               if [[ -n "${seen[$key]:-}" ]]; then
@@ -170,6 +174,7 @@ jobs:
             deploy_env_value="$(grep -E '^DEPLOY_ENV=' "$file" | cut -d= -f2- || true)"
             image_prefix_value="$(grep -E '^IMAGE_PREFIX=' "$file" | cut -d= -f2- || true)"
             edge_network_value="$(grep -E '^EDGE_NETWORK=' "$file" | cut -d= -f2- || true)"
+            grafana_memory_limit_value="$(grep -E '^GRAFANA_MEMORY_LIMIT=' "$file" | cut -d= -f2- || true)"
 
             case "$deploy_env_value" in
               test|production) ;;
@@ -181,17 +186,20 @@ jobs:
             }
             [[ -n "$image_prefix_value" ]] || { echo "deploy.env IMAGE_PREFIX is required." >&2; exit 1; }
             [[ -n "$edge_network_value" ]] || { echo "deploy.env EDGE_NETWORK is required." >&2; exit 1; }
+            [[ -n "$grafana_memory_limit_value" ]] || { echo "deploy.env GRAFANA_MEMORY_LIMIT is required." >&2; exit 1; }
           }
 
           cat > "$RUNNER_TEMP/deploy.env" <<EOF
           DEPLOY_ENV=$deploy_env
           IMAGE_PREFIX=$image_prefix
           EDGE_NETWORK=$edge_network
+          GRAFANA_HOST_PORT=${{ vars.GRAFANA_HOST_PORT }}
+          GRAFANA_MEMORY_LIMIT=$grafana_memory_limit
           EOF
           validate_deploy_env "$RUNNER_TEMP/deploy.env"
 
           tar -C deploy -czf "$RUNNER_TEMP/researchtrack-deploy.tgz" \
-            compose.yml mysql scripts
+            compose.yml mysql scripts monitoring
           tar -C "$secret_dir" -czf "$RUNNER_TEMP/researchtrack-env.tgz" .
 
           ssh \
@@ -221,8 +229,44 @@ jobs:
             "REMOTE='$remote' bash -s" <<'REMOTE_SCRIPT'
           set -euo pipefail
 
-          tar -xzf "$REMOTE/researchtrack-deploy.tgz" -C "$REMOTE"
+          deploy_next="$REMOTE/deploy.next"
+
+          rm -rf "$deploy_next"
+          mkdir -p "$deploy_next"
+          tar -xzf "$REMOTE/researchtrack-deploy.tgz" -C "$deploy_next"
+
+          validate_deploy_payload() {
+            local root="$1" path
+            local required_files=(
+              compose.yml
+              monitoring/prometheus.yml
+              monitoring/rules/researchtrack-alerts.yml
+              monitoring/grafana/provisioning/datasources/prometheus.yml
+              monitoring/grafana/provisioning/dashboards/dashboards.yml
+              monitoring/grafana/provisioning/dashboards/json/researchtrack-overview.json
+              monitoring/grafana/provisioning/dashboards/json/github-sync.json
+              mysql/reconcile-databases.sh
+              scripts/deploy-stack.sh
+              scripts/verify-health.sh
+            )
+
+            for path in "${required_files[@]}"; do
+              if [[ ! -f "$root/$path" ]]; then
+                echo "Deployment archive is missing required file or path is not a regular file: $path" >&2
+                exit 1
+              fi
+            done
+          }
+          validate_deploy_payload "$deploy_next"
+
           chmod 700 "$REMOTE"
+          rm -rf "$REMOTE/compose.yml" "$REMOTE/monitoring" "$REMOTE/scripts" "$REMOTE/mysql"
+          mv "$deploy_next/compose.yml" "$REMOTE/compose.yml"
+          mv "$deploy_next/monitoring" "$REMOTE/monitoring"
+          mv "$deploy_next/scripts" "$REMOTE/scripts"
+          mv "$deploy_next/mysql" "$REMOTE/mysql"
+          rm -rf "$deploy_next"
+
           chmod 700 "$REMOTE/mysql"
           chmod 700 "$REMOTE/mysql/reconcile-databases.sh"
           chmod 700 "$REMOTE/scripts"
@@ -231,7 +275,7 @@ jobs:
           chmod 640 "$REMOTE/deploy.env"
 
           validate_deploy_env() {
-            local file="$1" key deploy_env_value image_prefix_value edge_network_value
+            local file="$1" key deploy_env_value image_prefix_value edge_network_value grafana_memory_limit_value
             declare -A seen=()
 
             while IFS= read -r line || [[ -n "$line" ]]; do
@@ -240,7 +284,7 @@ jobs:
               [[ "$line" == *=* ]] || { echo "Invalid deploy.env entry: $line" >&2; exit 1; }
               key="${line%%=*}"
               case "$key" in
-                DEPLOY_ENV|IMAGE_PREFIX|EDGE_NETWORK) ;;
+                DEPLOY_ENV|IMAGE_PREFIX|EDGE_NETWORK|GRAFANA_HOST_PORT|GRAFANA_MEMORY_LIMIT) ;;
                 *) echo "deploy.env contains unsupported key '$key'." >&2; exit 1 ;;
               esac
               if [[ -n "${seen[$key]:-}" ]]; then
@@ -253,6 +297,7 @@ jobs:
             deploy_env_value="$(grep -E '^DEPLOY_ENV=' "$file" | cut -d= -f2- || true)"
             image_prefix_value="$(grep -E '^IMAGE_PREFIX=' "$file" | cut -d= -f2- || true)"
             edge_network_value="$(grep -E '^EDGE_NETWORK=' "$file" | cut -d= -f2- || true)"
+            grafana_memory_limit_value="$(grep -E '^GRAFANA_MEMORY_LIMIT=' "$file" | cut -d= -f2- || true)"
 
             case "$deploy_env_value" in
               test|production) ;;
@@ -260,6 +305,7 @@ jobs:
             esac
             [[ -n "$image_prefix_value" ]] || { echo "deploy.env IMAGE_PREFIX is required." >&2; exit 1; }
             [[ -n "$edge_network_value" ]] || { echo "deploy.env EDGE_NETWORK is required." >&2; exit 1; }
+            [[ -n "$grafana_memory_limit_value" ]] || { echo "deploy.env GRAFANA_MEMORY_LIMIT is required." >&2; exit 1; }
           }
           validate_deploy_env "$REMOTE/deploy.env"
 

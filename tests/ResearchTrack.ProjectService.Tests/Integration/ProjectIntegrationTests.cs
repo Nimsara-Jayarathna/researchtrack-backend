@@ -388,6 +388,155 @@ public sealed class ProjectIntegrationTests : IAsyncLifetime
 
     [Fact]
     [Trait("Category", "DatabaseIntegration")]
+    public async Task Owning_supervisor_updates_milestone_status_and_project_aggregates()
+    {
+        var projectId = await CreateProjectAsync();
+
+        await using var lookupContext = await CreateDbContextAsync();
+        var firstMilestone = await lookupContext.ProjectMilestones
+            .Where(item => item.ProjectId == projectId)
+            .OrderBy(item => item.SequenceNo)
+            .FirstAsync(TestContext.Current.CancellationToken);
+
+        using var updateRequest = CreateJsonRequest(
+            HttpMethod.Put,
+            $"/api/v1/projects/{projectId}/milestones/{firstMilestone.Id}",
+            SupervisorA,
+            AuthSecurityConstants.Roles.Supervisor,
+            new
+            {
+                title = firstMilestone.Title,
+                description = firstMilestone.Description,
+                dueDate = firstMilestone.DueDate,
+                status = "COMPLETED"
+            });
+
+        using var updateResponse = await Client.SendAsync(
+            updateRequest,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, updateResponse.StatusCode);
+        var updatePayload =
+            await updateResponse.Content.ReadFromJsonAsync<ApiResponse<ProjectMilestoneResponse>>(
+                TestContext.Current.CancellationToken);
+        Assert.Equal("COMPLETED", updatePayload?.Data?.Status);
+
+        using var projectRequest = CreateRequest(
+            HttpMethod.Get,
+            $"/api/v1/projects/{projectId}",
+            SupervisorA,
+            AuthSecurityConstants.Roles.Supervisor);
+        using var projectResponse = await Client.SendAsync(
+            projectRequest,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, projectResponse.StatusCode);
+        var projectPayload =
+            await projectResponse.Content.ReadFromJsonAsync<ApiResponse<ProjectResponse>>(
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(50, projectPayload?.Data?.ProgressPercent);
+        Assert.Equal(new DateOnly(2027, 2, 10), projectPayload?.Data?.MilestoneDate);
+        Assert.Equal(
+            "COMPLETED",
+            projectPayload?.Data?.Milestones
+                .Single(item => item.Id == firstMilestone.Id)
+                .Status);
+    }
+
+    [Fact]
+    [Trait("Category", "DatabaseIntegration")]
+    public async Task Completed_milestone_cannot_be_moved_back_to_an_open_status()
+    {
+        var projectId = await CreateProjectAsync();
+
+        await using var lookupContext = await CreateDbContextAsync();
+        var firstMilestone = await lookupContext.ProjectMilestones
+            .Where(item => item.ProjectId == projectId)
+            .OrderBy(item => item.SequenceNo)
+            .FirstAsync(TestContext.Current.CancellationToken);
+
+        using (var completeRequest = CreateJsonRequest(
+            HttpMethod.Put,
+            $"/api/v1/projects/{projectId}/milestones/{firstMilestone.Id}",
+            SupervisorA,
+            AuthSecurityConstants.Roles.Supervisor,
+            new
+            {
+                title = firstMilestone.Title,
+                description = firstMilestone.Description,
+                dueDate = firstMilestone.DueDate,
+                status = "COMPLETED"
+            }))
+        using (var completeResponse = await Client.SendAsync(
+            completeRequest,
+            TestContext.Current.CancellationToken))
+        {
+            Assert.Equal(HttpStatusCode.OK, completeResponse.StatusCode);
+        }
+
+        using var reopenRequest = CreateJsonRequest(
+            HttpMethod.Put,
+            $"/api/v1/projects/{projectId}/milestones/{firstMilestone.Id}",
+            SupervisorA,
+            AuthSecurityConstants.Roles.Supervisor,
+            new
+            {
+                title = firstMilestone.Title,
+                description = firstMilestone.Description,
+                dueDate = firstMilestone.DueDate,
+                status = "PLANNED"
+            });
+
+        using var reopenResponse = await Client.SendAsync(
+            reopenRequest,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.BadRequest, reopenResponse.StatusCode);
+
+        await using var verifyContext = await CreateDbContextAsync();
+        var persisted = await verifyContext.ProjectMilestones
+            .SingleAsync(
+                item => item.Id == firstMilestone.Id,
+                TestContext.Current.CancellationToken);
+        Assert.Equal("COMPLETED", persisted.Status);
+    }
+
+    [Fact]
+    [Trait("Category", "DatabaseIntegration")]
+    public async Task Milestone_due_date_update_must_preserve_sequence_chronology()
+    {
+        var projectId = await CreateProjectAsync();
+
+        await using var lookupContext = await CreateDbContextAsync();
+        var milestones = await lookupContext.ProjectMilestones
+            .Where(item => item.ProjectId == projectId)
+            .OrderBy(item => item.SequenceNo)
+            .ToListAsync(TestContext.Current.CancellationToken);
+        var firstMilestone = milestones[0];
+
+        using var request = CreateJsonRequest(
+            HttpMethod.Put,
+            $"/api/v1/projects/{projectId}/milestones/{firstMilestone.Id}",
+            SupervisorA,
+            AuthSecurityConstants.Roles.Supervisor,
+            new
+            {
+                title = firstMilestone.Title,
+                description = firstMilestone.Description,
+                dueDate = "2027-03-01",
+                status = "PLANNED"
+            });
+
+        using var response = await Client.SendAsync(
+            request,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    [Trait("Category", "DatabaseIntegration")]
     public async Task Owning_supervisor_adds_registered_student_and_student_gains_access()
     {
         var projectId = await CreateProjectAsync();

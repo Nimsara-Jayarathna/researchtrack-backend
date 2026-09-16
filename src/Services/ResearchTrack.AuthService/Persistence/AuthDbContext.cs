@@ -14,6 +14,7 @@ public sealed class AuthDbContext : DbContext
     public DbSet<EmailOtp> EmailOtps => Set<EmailOtp>();
     public DbSet<RegistrationSession> RegistrationSessions => Set<RegistrationSession>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+    public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

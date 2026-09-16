@@ -16,6 +16,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Validate deployment scripts and dashboard JSON
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n \
+            deploy/scripts/deploy-stack.sh \
+            deploy/scripts/verify-health.sh \
+            deploy/validate-env-files.sh \
+            deploy/mysql/reconcile-databases.sh
+          python -m json.tool deploy/monitoring/grafana/provisioning/dashboards/json/researchtrack-overview.json >/dev/null
+          python -m json.tool deploy/monitoring/grafana/provisioning/dashboards/json/github-sync.json >/dev/null
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:

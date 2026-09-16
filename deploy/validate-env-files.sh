@@ -265,6 +265,19 @@ auth_url="$(require_value "$ENV_DIR/project.env" Services__Auth__BaseUrl)"
   exit 1
 }
 
+project_url="$(require_value "$ENV_DIR/github.env" Services__Project__BaseUrl)"
+[[ "$project_url" == "http://project:8080" ]] || {
+  echo "github.env Services__Project__BaseUrl must be 'http://project:8080' inside Compose." >&2
+  exit 1
+}
+
+github_sync_interval="$(require_value "$ENV_DIR/github.env" GitHub__SyncIntervalMinutes)"
+if [[ ! "$github_sync_interval" =~ ^[0-9]+$ ]] ||
+   (( github_sync_interval < 1 || github_sync_interval > 1440 )); then
+  echo "github.env GitHub__SyncIntervalMinutes must be between 1 and 1440." >&2
+  exit 1
+fi
+
 case "$DEPLOY_ENVIRONMENT" in
   test) expected_runtime_environment="Test" ;;
   production) expected_runtime_environment="Production" ;;
@@ -294,5 +307,17 @@ for service in gateway auth project github jira meeting submission; do
     exit 1
   }
 done
+
+grafana_file="$ENV_DIR/grafana.env"
+grafana_contract="$CONTRACT_ROOT/grafana/.env.example"
+
+[[ -f "$grafana_file" ]] || { echo "Missing deployment environment file: grafana.env" >&2; exit 1; }
+[[ -f "$grafana_contract" ]] || { echo "Missing canonical environment contract: $grafana_contract" >&2; exit 1; }
+
+validate_file_format "$grafana_file"
+validate_file_format "$grafana_contract"
+validate_contract_shape "$grafana_file" "$grafana_contract"
+
+require_value "$grafana_file" GF_SECURITY_ADMIN_PASSWORD >/dev/null
 
 echo "Deployment environment files match config/env contracts and passed deployment validation."

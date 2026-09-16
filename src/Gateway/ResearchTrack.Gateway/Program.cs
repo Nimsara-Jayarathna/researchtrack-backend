@@ -1,10 +1,30 @@
+using Prometheus;
 using System.Threading.RateLimiting;
 using ResearchTrack.BuildingBlocks.Api.Constants;
 using ResearchTrack.BuildingBlocks.Api.Extensions;
 using ResearchTrack.BuildingBlocks.Api.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
-builder.WebHost.ConfigureKestrel(options => options.AddServerHeader = false);
+builder.WebHost.ConfigureKestrel(options =>
+{
+    options.AddServerHeader = false;
+
+    var urls = Environment.GetEnvironmentVariable("ASPNETCORE_URLS");
+    if (!string.IsNullOrWhiteSpace(urls))
+    {
+        foreach (var url in urls.Split(';', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var uri = new Uri(url.Replace("+", "0.0.0.0").Replace("*", "0.0.0.0"));
+            options.Listen(System.Net.IPAddress.Any, uri.Port);
+        }
+    }
+    else
+    {
+        options.ListenAnyIP(5000); // local fallback, matches launchSettings default
+    }
+
+    options.ListenAnyIP(9100); // internal-only metrics port, never published to host or edge
+});
 
 // Keep config/env/gateway/.env.example as the single gateway configuration contract.
 // Local scripts already map these friendly variables to ASP.NET configuration keys;
@@ -55,6 +75,10 @@ builder.Services.AddRateLimiter(options =>
         {
             "/api/v1/auth/login" => ("auth-login", 10),
             "/api/v1/auth/refresh" => ("auth-refresh", 30),
+            "/api/v1/auth/forgot-password" => ("auth-forgot-password", 5),
+            "/api/v1/auth/reset-password" => ("auth-reset-password", 10),
+            "/api/github/webhooks" => ("github-webhooks", 600),
+            "/api/v1/github/webhooks" => ("github-webhooks", 600),
             _ => ("general", 120)
         };
 
@@ -82,10 +106,12 @@ builder.Services.AddRateLimiter(options =>
 });
 
 var app = builder.Build();
+app.UseHttpMetrics();
 app.UseResearchTrackApi();
 app.UseCors("frontend");
 app.UseRateLimiter();
 app.MapReverseProxy();
+app.MapMetrics().RequireHost("*:9100"); // only answers on 9100, not the public 8080
 app.Run();
 
 public partial class Program;

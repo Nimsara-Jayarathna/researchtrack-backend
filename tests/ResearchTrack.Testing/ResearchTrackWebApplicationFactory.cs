@@ -120,6 +120,10 @@ public sealed class ResearchTrackWebApplicationFactory<TProgram> : WebApplicatio
             ["PasswordHashing:SaltSizeBytes"] = "16",
             ["PasswordHashing:HashSizeBytes"] = "32",
 
+            // Password reset
+            ["PasswordReset:TokenExpiryMinutes"] = "30",
+            ["PasswordReset:FrontendBaseUrl"] = "http://localhost:5173",
+
             // Brevo
             ["Brevo:BaseUrl"] = "https://api.example.test/v3/",
             ["Brevo:ApiKey"] = "test-api-key",
@@ -137,8 +141,17 @@ public sealed class ResearchTrackWebApplicationFactory<TProgram> : WebApplicatio
             // Cookie
             ["Cookie:Secure"] = "false",
 
+            // GitHub repository limits are required runtime configuration.
+            ["GitHub:RepositoryLinks:MaxLinkedRepositories"] = "5",
+            ["GitHub:RepositoryLinks:MaxEnabledRepositories"] = "5",
+            ["GitHub:WebhookSecret"] = "test-webhook-secret-that-is-at-least-32-characters-long",
+            ["GitHub:Webhook:MaxPayloadBytes"] = "1048576",
+            ["GitHub:Webhook:MaxAttempts"] = "5",
+            ["GitHub:Webhook:ProcessingLeaseSeconds"] = "300",
+
             // Services
-            ["Services:Auth:BaseUrl"] = "http://localhost:5101/"
+            ["Services:Auth:BaseUrl"] = "http://localhost:5101/",
+            ["Services:Project:BaseUrl"] = "http://localhost:5102/"
         };
 
         values["ConnectionStrings:DefaultConnection"] =

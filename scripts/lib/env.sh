@@ -30,7 +30,7 @@ rt_shared_env_file() {
 
 rt_service_uses_shared_auth() {
   case "${1,,}" in
-    auth|project) return 0 ;;
+    auth|project|github) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -126,6 +126,12 @@ rt_load_dev_env() {
     rt_validate_shared_auth_environment
   fi
 
+  if [[ "${service,,}" == "github" ]]; then
+    rt_validate_github_repository_limits_environment
+    rt_validate_github_sync_environment
+    rt_validate_github_webhook_environment
+  fi
+
   export ASPNETCORE_ENVIRONMENT="${ASPNETCORE_ENVIRONMENT:-Development}"
   export DOTNET_ENVIRONMENT="${DOTNET_ENVIRONMENT:-Development}"
   if [[ "${service,,}" != "gateway" ]]; then
@@ -182,6 +188,77 @@ rt_validate_shared_auth_environment() {
   rt_reject_placeholder Jwt__Issuer
   rt_reject_placeholder Jwt__Audience
   rt_reject_placeholder Jwt__SigningKey
+}
+
+rt_validate_github_repository_limits_environment() {
+  rt_require_env \
+    GitHub__RepositoryLinks__MaxLinkedRepositories \
+    GitHub__RepositoryLinks__MaxEnabledRepositories
+
+  rt_reject_placeholder GitHub__RepositoryLinks__MaxLinkedRepositories
+  rt_reject_placeholder GitHub__RepositoryLinks__MaxEnabledRepositories
+
+  if [[ ! "$GitHub__RepositoryLinks__MaxLinkedRepositories" =~ ^[1-9][0-9]*$ ]]; then
+    echo "GitHub__RepositoryLinks__MaxLinkedRepositories must be a positive integer." >&2
+    return 1
+  fi
+  if [[ ! "$GitHub__RepositoryLinks__MaxEnabledRepositories" =~ ^[1-9][0-9]*$ ]]; then
+    echo "GitHub__RepositoryLinks__MaxEnabledRepositories must be a positive integer." >&2
+    return 1
+  fi
+  if (( GitHub__RepositoryLinks__MaxEnabledRepositories > GitHub__RepositoryLinks__MaxLinkedRepositories )); then
+    echo "GitHub enabled repository limit cannot exceed the linked repository limit." >&2
+    return 1
+  fi
+}
+
+rt_validate_github_sync_environment() {
+  rt_require_env GitHub__SyncIntervalMinutes
+  rt_reject_placeholder GitHub__SyncIntervalMinutes
+
+  if [[ ! "$GitHub__SyncIntervalMinutes" =~ ^[0-9]+$ ]] ||
+     (( GitHub__SyncIntervalMinutes < 1 || GitHub__SyncIntervalMinutes > 1440 )); then
+    echo "GitHub__SyncIntervalMinutes must be between 1 and 1440." >&2
+    return 1
+  fi
+}
+
+rt_validate_github_webhook_environment() {
+  rt_require_env GitHub__WebhookSecret
+  rt_reject_placeholder GitHub__WebhookSecret
+
+  if (( ${#GitHub__WebhookSecret} < 32 )); then
+    echo "GitHub__WebhookSecret must contain at least 32 characters." >&2
+    return 1
+  fi
+
+  if [[ -n "${GitHub__Webhook__MaxPayloadBytes:-}" ]] &&
+     { [[ ! "$GitHub__Webhook__MaxPayloadBytes" =~ ^[0-9]+$ ]] ||
+       (( GitHub__Webhook__MaxPayloadBytes < 16384 || GitHub__Webhook__MaxPayloadBytes > 10485760 )); }; then
+    echo "GitHub__Webhook__MaxPayloadBytes must be between 16384 and 10485760." >&2
+    return 1
+  fi
+
+  if [[ -n "${GitHub__Webhook__MaxAttempts:-}" ]] &&
+     { [[ ! "$GitHub__Webhook__MaxAttempts" =~ ^[0-9]+$ ]] ||
+       (( GitHub__Webhook__MaxAttempts < 1 || GitHub__Webhook__MaxAttempts > 10 )); }; then
+    echo "GitHub__Webhook__MaxAttempts must be between 1 and 10." >&2
+    return 1
+  fi
+
+  if [[ -n "${GitHub__Webhook__ProcessingLeaseSeconds:-}" ]] &&
+     { [[ ! "$GitHub__Webhook__ProcessingLeaseSeconds" =~ ^[0-9]+$ ]] ||
+       (( GitHub__Webhook__ProcessingLeaseSeconds < 30 || GitHub__Webhook__ProcessingLeaseSeconds > 3600 )); }; then
+    echo "GitHub__Webhook__ProcessingLeaseSeconds must be between 30 and 3600." >&2
+    return 1
+  fi
+
+  if [[ -n "${GitHub__Webhook__PollIntervalSeconds:-}" ]] &&
+     { [[ ! "$GitHub__Webhook__PollIntervalSeconds" =~ ^[0-9]+$ ]] ||
+       (( GitHub__Webhook__PollIntervalSeconds < 1 || GitHub__Webhook__PollIntervalSeconds > 60 )); }; then
+    echo "GitHub__Webhook__PollIntervalSeconds must be between 1 and 60." >&2
+    return 1
+  fi
 }
 
 rt_validate_db_environment() {

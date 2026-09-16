@@ -1,0 +1,276 @@
+using ResearchTrack.BuildingBlocks.Api.Constants;
+using ResearchTrack.BuildingBlocks.Api.Contracts;
+using ResearchTrack.BuildingBlocks.Api.Exceptions;
+using ResearchTrack.GitHubService.Contracts;
+using ResearchTrack.GitHubService.Features.Installation;
+using ResearchTrack.GitHubService.Features.Synchronization;
+using ResearchTrack.GitHubService.Infrastructure;
+
+namespace ResearchTrack.GitHubService.Features;
+
+public sealed class RepositoryLinkService : IRepositoryLinkService
+{
+    private readonly IProjectAuthorizationClient _projectAuthorization;
+    private readonly IRepositoryLinkStore _store;
+    private readonly IGitHubInstallationRepositoryService _installationRepositoryService;
+    private readonly IInitialRepositorySyncRequester _syncRequester;
+    private readonly IRepositorySyncQueue _syncQueue;
+    private readonly TimeProvider _timeProvider;
+    private readonly ILogger<RepositoryLinkService> _logger;
+
+    public RepositoryLinkService(
+        IProjectAuthorizationClient projectAuthorization,
+        IRepositoryLinkStore store,
+        IGitHubInstallationRepositoryService installationRepositoryService,
+        IInitialRepositorySyncRequester syncRequester,
+        IRepositorySyncQueue syncQueue,
+        TimeProvider timeProvider,
+        ILogger<RepositoryLinkService> logger)
+    {
+        _projectAuthorization = projectAuthorization;
+        _store = store;
+        _installationRepositoryService = installationRepositoryService;
+        _syncRequester = syncRequester;
+        _syncQueue = syncQueue;
+        _timeProvider = timeProvider;
+        _logger = logger;
+    }
+
+    public async Task<ProjectGitHubRepositoriesResponse> LinkAsync(
+        Guid userId,
+        LinkGitHubRepositoriesRequest request,
+        CancellationToken cancellationToken)
+    {
+        Validate(request);
+        await _projectAuthorization.EnsureCanManageAsync(request.ProjectId, cancellationToken);
+
+        // Re-verify the GitHub App installation and selected repository immediately
+        // before persistence so every linked repository has an authorized source.
+        await _installationRepositoryService.TryVerifyForLinkAsync(
+            userId,
+            request.ProjectId,
+            request.SourceId,
+            request.Repositories!,
+            cancellationToken);
+
+        var persisted = await _store.CreateLinksAsync(
+            request.ProjectId,
+            request.SourceId,
+            userId,
+            request.Repositories!,
+            _timeProvider.GetUtcNow().UtcDateTime,
+            cancellationToken);
+
+        var handoffFailed = false;
+        foreach (var syncRequest in persisted.SyncRequests)
+        {
+            try
+            {
+                await _syncRequester.RequestAsync(syncRequest, CancellationToken.None);
+            }
+            catch (Exception exception)
+            {
+                handoffFailed = true;
+                _logger.LogError(
+                    exception,
+                    "Initial repository synchronization handoff failed. LinkedRepositoryId={LinkedRepositoryId}",
+                    syncRequest.LinkedRepositoryId);
+
+                try
+                {
+                    await _store.MarkSyncFailedAsync(
+                        syncRequest.LinkedRepositoryId,
+                        _timeProvider.GetUtcNow().UtcDateTime,
+                        CancellationToken.None);
+                }
+                catch (Exception statusException)
+                {
+                    _logger.LogError(
+                        statusException,
+                        "Unable to mark failed synchronization handoff. LinkedRepositoryId={LinkedRepositoryId}",
+                        syncRequest.LinkedRepositoryId);
+                }
+            }
+        }
+
+        return handoffFailed
+            ? await _store.GetProjectAsync(request.ProjectId, CancellationToken.None)
+            : persisted.Response;
+    }
+
+    public async Task<ProjectGitHubRepositoriesResponse> GetProjectAsync(
+        Guid userId,
+        Guid projectId,
+        CancellationToken cancellationToken)
+    {
+        if (projectId == Guid.Empty)
+        {
+            throw new ApiValidationException([
+                new ApiFieldError("projectId", ["Project id is required."])
+            ]);
+        }
+
+        await _projectAuthorization.EnsureCanViewAsync(projectId, cancellationToken);
+        return await _store.GetProjectAsync(projectId, cancellationToken);
+    }
+
+    public async Task EnsureBelongsToProjectAsync(
+        Guid userId,
+        Guid projectId,
+        Guid linkedRepositoryId,
+        CancellationToken cancellationToken)
+    {
+        if (projectId == Guid.Empty || linkedRepositoryId == Guid.Empty)
+        {
+            throw new ApiValidationException([
+                new ApiFieldError(
+                    "repository",
+                    ["Project id and linked repository id are required."])
+            ]);
+        }
+
+        await _projectAuthorization.EnsureCanManageAsync(projectId, cancellationToken);
+        var project = await _store.GetProjectAsync(projectId, cancellationToken);
+        if (!project.Repositories.Any(repository => repository.Id == linkedRepositoryId))
+        {
+            throw new ApiException(
+                StatusCodes.Status404NotFound,
+                ErrorCodes.NotFound,
+                "The linked GitHub repository was not found for this project.");
+        }
+    }
+
+
+public async Task<ProjectGitHubRepositoriesResponse> UnlinkAsync(Guid userId, Guid linkedRepositoryId, CancellationToken cancellationToken)
+{
+    var projectId = await RequireLinkProjectAsync(linkedRepositoryId, cancellationToken);
+    await _projectAuthorization.EnsureCanManageAsync(projectId, cancellationToken);
+    return await _store.UnlinkAsync(linkedRepositoryId, Now(), cancellationToken);
+}
+
+public async Task<ProjectGitHubRepositoriesResponse> SetEnabledAsync(Guid userId, Guid linkedRepositoryId, bool enabled, CancellationToken cancellationToken)
+{
+    var projectId = await RequireLinkProjectAsync(linkedRepositoryId, cancellationToken);
+    await _projectAuthorization.EnsureCanManageAsync(projectId, cancellationToken);
+    var result = await _store.SetEnabledAsync(linkedRepositoryId, enabled, Now(), cancellationToken);
+    if (!enabled || !result.Changed)
+    {
+        return result.Response;
+    }
+
+    try
+    {
+        await _syncQueue.EnqueueAsync(
+            new RepositorySyncWorkItem(linkedRepositoryId, ResearchTrack.GitHubService.Domain.GitHubSyncTriggers.Manual),
+            cancellationToken);
+        return result.Response;
+    }
+    catch
+    {
+        await _store.MarkSyncFailedAsync(linkedRepositoryId, Now(), CancellationToken.None);
+        throw;
+    }
+}
+
+public async Task<ProjectGitHubRepositoriesResponse> SelectPrimaryAsync(Guid userId, Guid linkedRepositoryId, CancellationToken cancellationToken)
+{
+    var projectId = await RequireLinkProjectAsync(linkedRepositoryId, cancellationToken);
+    await _projectAuthorization.EnsureCanManageAsync(projectId, cancellationToken);
+    return await _store.SelectPrimaryAsync(linkedRepositoryId, Now(), cancellationToken);
+}
+
+public async Task<ProjectGitHubRepositoriesResponse> UpdateDisplayNameAsync(Guid userId, Guid linkedRepositoryId, string? customName, CancellationToken cancellationToken)
+{
+    if (customName?.Trim().Length > 255)
+    {
+        throw new ApiValidationException([new ApiFieldError("customName", ["Display name must be 255 characters or less."])]);
+    }
+    var projectId = await RequireLinkProjectAsync(linkedRepositoryId, cancellationToken);
+    await _projectAuthorization.EnsureCanManageAsync(projectId, cancellationToken);
+    return await _store.UpdateDisplayNameAsync(linkedRepositoryId, customName, Now(), cancellationToken);
+}
+
+public async Task<ProjectGitHubRepositoriesResponse> DisconnectSourceAsync(Guid userId, Guid sourceId, CancellationToken cancellationToken)
+{
+    if (sourceId == Guid.Empty) throw new ApiValidationException([new ApiFieldError("sourceId", ["Access source id is required."])]);
+    var projectId = await _store.GetSourceProjectIdAsync(sourceId, cancellationToken)
+        ?? throw new ApiException(StatusCodes.Status404NotFound, ErrorCodes.NotFound, "The active GitHub access source was not found.");
+    await _projectAuthorization.EnsureCanManageAsync(projectId, cancellationToken);
+    return await _store.DisconnectSourceAsync(sourceId, Now(), cancellationToken);
+}
+
+public async Task RequestManualSyncAsync(Guid userId, Guid projectId, Guid linkedRepositoryId, CancellationToken cancellationToken)
+{
+    await _projectAuthorization.EnsureCanManageAsync(projectId, cancellationToken);
+    await _store.PrepareManualSyncAsync(projectId, linkedRepositoryId, Now(), cancellationToken);
+    try
+    {
+        await _syncQueue.EnqueueAsync(new RepositorySyncWorkItem(linkedRepositoryId, ResearchTrack.GitHubService.Domain.GitHubSyncTriggers.Manual), cancellationToken);
+    }
+    catch
+    {
+        await _store.MarkSyncFailedAsync(linkedRepositoryId, Now(), CancellationToken.None);
+        throw;
+    }
+}
+
+private async Task<Guid> RequireLinkProjectAsync(Guid linkedRepositoryId, CancellationToken cancellationToken)
+{
+    if (linkedRepositoryId == Guid.Empty) throw new ApiValidationException([new ApiFieldError("linkedRepositoryId", ["Linked repository id is required."])]);
+    return await _store.GetLinkProjectIdAsync(linkedRepositoryId, cancellationToken)
+        ?? throw new ApiException(StatusCodes.Status404NotFound, ErrorCodes.NotFound, "The linked GitHub repository was not found.");
+}
+
+private DateTime Now() => _timeProvider.GetUtcNow().UtcDateTime;
+
+    private static void Validate(LinkGitHubRepositoriesRequest request)
+    {
+        var errors = new List<ApiFieldError>();
+        if (request.ProjectId == Guid.Empty)
+        {
+            errors.Add(new ApiFieldError("projectId", ["Project id is required."]));
+        }
+        if (request.SourceId == Guid.Empty)
+        {
+            errors.Add(new ApiFieldError("sourceId", ["Access source id is required."]));
+        }
+        if (request.Repositories is null || request.Repositories.Count == 0)
+        {
+            errors.Add(new ApiFieldError("repositories", ["Select at least one repository."]));
+        }
+        else
+        {
+            if (request.Repositories.Any(repository => repository.GitHubRepositoryId == Guid.Empty))
+            {
+                errors.Add(new ApiFieldError(
+                    "repositories.githubRepositoryId",
+                    ["Repository id is required."]));
+            }
+            if (request.Repositories
+                .GroupBy(repository => repository.GitHubRepositoryId)
+                .Any(group => group.Count() > 1))
+            {
+                errors.Add(new ApiFieldError(
+                    "repositories",
+                    ["The same repository cannot be selected more than once."]));
+            }
+            if (request.Repositories.Count(repository => repository.Primary == true) > 1)
+            {
+                errors.Add(new ApiFieldError(
+                    "repositories.primary",
+                    ["Only one repository can be selected as primary."]));
+            }
+            if (request.Repositories.Any(repository => repository.CustomName?.Trim().Length > 255))
+            {
+                errors.Add(new ApiFieldError(
+                    "repositories.customName",
+                    ["Display name must be 255 characters or less."]));
+            }
+        }
+
+        if (errors.Count > 0)
+        {
+            throw new ApiValidationException(errors);
+        }
+    }
+}

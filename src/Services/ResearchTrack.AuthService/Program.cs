@@ -1,3 +1,4 @@
+using Prometheus;
 using ResearchTrack.AuthService.Configuration;
 using ResearchTrack.AuthService.Persistence;
 using ResearchTrack.BuildingBlocks.Api.Extensions;
@@ -12,7 +13,9 @@ builder.Services.AddAuthPersistence(builder.Configuration);
 builder.Services.AddAuthFeatures(builder.Configuration);
 
 var app = builder.Build();
+app.UseHttpMetrics();
 app.UseResearchTrackApi();
+app.MapMetrics();
 app.Run();
 
 public partial class Program;

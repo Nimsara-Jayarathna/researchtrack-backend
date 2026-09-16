@@ -1,0 +1,18 @@
+global:
+  scrape_interval: 15s
+
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+scrape_configs:
+  - job_name: 'researchtrack-services'
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - 'gateway:9100'
+          - 'auth:8080'
+          - 'project:8080'
+          - 'github:8080'
+          - 'jira:8080'
+          - 'meeting:8080'
+          - 'submission:8080'

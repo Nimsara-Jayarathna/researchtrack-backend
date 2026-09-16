@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using Microsoft.Extensions.DependencyInjection;
+using ResearchTrack.Gateway;
 using ResearchTrack.Testing;
 using Yarp.ReverseProxy.Configuration;
 
@@ -8,12 +9,12 @@ namespace ResearchTrack.Gateway.Tests.Integration;
 
 public sealed class InfrastructureSmokeTests : IAsyncLifetime
 {
-    private ResearchTrackWebApplicationFactory<Program>? _factory;
+    private ResearchTrackWebApplicationFactory<GatewayAssemblyMarker>? _factory;
     private HttpClient? _client;
 
     public ValueTask InitializeAsync()
     {
-        _factory = new ResearchTrackWebApplicationFactory<Program>();
+        _factory = new ResearchTrackWebApplicationFactory<GatewayAssemblyMarker>();
         _client = _factory.CreateClient();
         return ValueTask.CompletedTask;
     }
@@ -58,6 +59,50 @@ public sealed class InfrastructureSmokeTests : IAsyncLifetime
         Assert.Equal("/api/v1/supervisor/dashboard", route.Match.Path);
     }
 
+    [Fact]
+    public void Frontend_github_contract_route_targets_github_service()
+    {
+        var proxyConfigProvider = Factory.Services
+            .GetRequiredService<IProxyConfigProvider>();
+        var proxyConfig = proxyConfigProvider.GetConfig();
+        var route = Assert.Single(
+            proxyConfig.Routes,
+            item => item.RouteId == "github-frontend-contract-route");
+
+        Assert.Equal("github", route.ClusterId);
+        Assert.Equal("/api/github/{**catch-all}", route.Match.Path);
+    }
+
+    [Fact]
+    public void Project_github_repositories_route_targets_github_service_before_project_route()
+    {
+        var proxyConfigProvider = Factory.Services
+            .GetRequiredService<IProxyConfigProvider>();
+        var proxyConfig = proxyConfigProvider.GetConfig();
+        var route = Assert.Single(
+            proxyConfig.Routes,
+            item => item.RouteId == "project-github-repositories-route");
+
+        Assert.Equal("github", route.ClusterId);
+        Assert.Equal(-15, route.Order);
+        Assert.Equal("/api/v1/projects/{projectId}/github-repositories", route.Match.Path);
+    }
+
+    [Fact]
+    public void Frontend_project_github_repositories_contract_targets_github_service()
+    {
+        var proxyConfigProvider = Factory.Services
+            .GetRequiredService<IProxyConfigProvider>();
+        var proxyConfig = proxyConfigProvider.GetConfig();
+        var route = Assert.Single(
+            proxyConfig.Routes,
+            item => item.RouteId == "project-github-repositories-frontend-contract-route");
+
+        Assert.Equal("github", route.ClusterId);
+        Assert.Equal(-15, route.Order);
+        Assert.Equal("/api/projects/{projectId}/github-repositories", route.Match.Path);
+    }
+
     public async ValueTask DisposeAsync()
     {
         _client?.Dispose();
@@ -68,7 +113,7 @@ public sealed class InfrastructureSmokeTests : IAsyncLifetime
     }
 
     private HttpClient Client => _client ?? throw new InvalidOperationException("Test client is not initialized.");
-    private ResearchTrackWebApplicationFactory<Program> Factory => _factory ?? throw new InvalidOperationException("Test factory is not initialized.");
+    private ResearchTrackWebApplicationFactory<GatewayAssemblyMarker> Factory => _factory ?? throw new InvalidOperationException("Test factory is not initialized.");
 
     public sealed record ErrorEnvelope(bool Success, ErrorBody? Error, MetaBody? Meta);
     public sealed record ErrorBody(string Code, string Message);

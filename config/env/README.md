@@ -15,7 +15,8 @@ config/env/
 ├── github/.env.example
 ├── jira/.env.example
 ├── meeting/.env.example
-└── submission/.env.example
+├── submission/.env.example
+└── grafana/.env.example
 ```
 
 There is deliberately **no second set of deployment templates under `deploy/`**.
@@ -54,6 +55,7 @@ The same committed contracts are used to prepare GitHub Environment multiline se
 | `jira/.env.example` | `JIRA_ENV_FILE` | `jira.env` |
 | `meeting/.env.example` | `MEETING_ENV_FILE` | `meeting.env` |
 | `submission/.env.example` | `SUBMISSION_ENV_FILE` | `submission.env` |
+| `grafana/.env.example` | `GRAFANA_ENV_FILE` | `grafana.env` |
 
 Copy the complete example shape, then change values for the target environment. Do not commit the completed files.
 
@@ -63,6 +65,7 @@ Remote application files must use:
 - Production: `ASPNETCORE_ENVIRONMENT=Production`, `DOTNET_ENVIRONMENT=Production`, `ASPNETCORE_URLS=http://+:8080`
 - DB services: `ConnectionStrings__DefaultConnection` with `Server=mysql`, `Port=3306`, and `SslMode=Disabled`
 - Project: `Services__Auth__BaseUrl=http://auth:8080`
+- GitHub: `Services__Project__BaseUrl=http://project:8080`
 - Gateway internal URLs: `http://<compose-service>:8080`
 
 `deploy/validate-env-files.sh` verifies that every runtime deployment file still contains every key in its canonical `.env.example` and then performs deployment-specific consistency checks.
@@ -85,7 +88,7 @@ Local scripts map those values into the ASP.NET/YARP hierarchy. The Gateway also
 
 ## Shared JWT configuration
 
-Auth and Project receive the same `Jwt__Issuer`, `Jwt__Audience`, and `Jwt__SigningKey` from `config/env/shared/.env.example`. Test and Production must use different signing keys.
+Auth, Project, and GitHub receive the same `Jwt__Issuer`, `Jwt__Audience`, and `Jwt__SigningKey` from `config/env/shared/.env.example`. Test and Production must use different signing keys.
 
 ## Future integration keys
 
