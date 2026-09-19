@@ -30,7 +30,7 @@ rt_shared_env_file() {
 
 rt_service_uses_shared_auth() {
   case "${1,,}" in
-    auth|project|github|jira) return 0 ;;
+    auth|project|github|jira|meeting|submission) return 0 ;;
     *) return 1 ;;
   esac
 }
