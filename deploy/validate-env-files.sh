@@ -271,6 +271,40 @@ project_url="$(require_value "$ENV_DIR/github.env" Services__Project__BaseUrl)"
   exit 1
 }
 
+# Jira project linking is an active feature, so reject placeholders during the
+# deployment preflight rather than discovering them after the new container starts.
+jira_file="$ENV_DIR/jira.env"
+for key in \
+  Jira__ClientId \
+  Jira__ClientSecret \
+  Jira__RedirectUri \
+  Jira__Scope \
+  Jira__Audience \
+  Jira__AuthorizationUrl \
+  Jira__TokenUrl \
+  Jira__AccessibleResourcesUrl \
+  Jira__ApiBaseUrl; do
+  require_value "$jira_file" "$key" >/dev/null
+done
+
+jira_project_url="$(require_value "$jira_file" Services__Project__BaseUrl)"
+[[ "$jira_project_url" == "http://project:8080" ]] || {
+  echo "jira.env Services__Project__BaseUrl must be 'http://project:8080' inside Compose." >&2
+  exit 1
+}
+
+for key in \
+  Jira__OAuthStateTtlMinutes \
+  Jira__SelectionTtlMinutes \
+  Jira__AtlassianTimeoutSeconds \
+  Jira__ProjectServiceTimeoutSeconds; do
+  value="$(require_value "$jira_file" "$key")"
+  if [[ ! "$value" =~ ^[0-9]+$ ]] || (( value <= 0 )); then
+    echo "jira.env $key must be a positive integer." >&2
+    exit 1
+  fi
+done
+
 github_sync_interval="$(require_value "$ENV_DIR/github.env" GitHub__SyncIntervalMinutes)"
 if [[ ! "$github_sync_interval" =~ ^[0-9]+$ ]] ||
    (( github_sync_interval < 1 || github_sync_interval > 1440 )); then

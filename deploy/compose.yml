@@ -63,6 +63,7 @@ services:
     image: ${IMAGE_PREFIX}/researchtrack-jira:${DEPLOY_ENV}
     restart: unless-stopped
     env_file:
+      - ./env/shared-auth.env
       - ./env/jira.env
     networks:
       backend: {}
@@ -77,6 +78,7 @@ services:
     image: ${IMAGE_PREFIX}/researchtrack-meeting:${DEPLOY_ENV}
     restart: unless-stopped
     env_file:
+      - ./env/shared-auth.env
       - ./env/meeting.env
     networks:
       backend: {}
@@ -91,6 +93,7 @@ services:
     image: ${IMAGE_PREFIX}/researchtrack-submission:${DEPLOY_ENV}
     restart: unless-stopped
     env_file:
+      - ./env/shared-auth.env
       - ./env/submission.env
     networks:
       backend: {}
