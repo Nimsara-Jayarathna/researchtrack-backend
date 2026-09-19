@@ -8,7 +8,7 @@ public sealed class ProjectAuthorizationClient : IProjectAuthorizationClient
     public ProjectAuthorizationClient(HttpClient httpClient, IHttpContextAccessor context) { _httpClient=httpClient; _context=context; }
     public async Task EnsureCanManageAsync(Guid projectId, CancellationToken ct)
     {
-        using var request=new HttpRequestMessage(HttpMethod.Get,$"api/v1/projects/{projectId}"); ForwardAuthentication(request);
+        using var request=new HttpRequestMessage(HttpMethod.Get,$"api/v1/projects/{projectId}/authorization/manage"); ForwardAuthentication(request);
         HttpResponseMessage response; try { response=await _httpClient.SendAsync(request,ct); } catch(Exception ex) when(ex is HttpRequestException or TaskCanceledException) { throw new ApiException(503,ErrorCodes.DependencyUnavailable,"Project Service is unavailable.",innerException:ex); }
         using(response) { if(response.IsSuccessStatusCode) return; if(response.StatusCode==System.Net.HttpStatusCode.Unauthorized) throw new ApiException(401,ErrorCodes.Unauthorized,"Authentication is required."); if(response.StatusCode is System.Net.HttpStatusCode.Forbidden or System.Net.HttpStatusCode.NotFound) throw new ApiException(403,ErrorCodes.Forbidden,"Only the owning Supervisor can manage this project's Jira integration."); throw new ApiException(503,ErrorCodes.DependencyUnavailable,"Unable to verify project authorization with Project Service."); }
     }

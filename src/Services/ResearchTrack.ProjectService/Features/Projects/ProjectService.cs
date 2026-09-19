@@ -178,6 +178,29 @@ public sealed class ProjectService : IProjectService
     }
 
     // ============================================================
+    // LIGHTWEIGHT SUPERVISOR OWNERSHIP CHECK
+    // Used by integration services that only need authorization and
+    // must not load members, milestones, or the full project graph.
+    // ============================================================
+
+    public async Task<bool> CanSupervisorManageAsync(
+        Guid supervisorUserId,
+        Guid projectId,
+        CancellationToken cancellationToken)
+    {
+        await using var dbContext =
+            await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+
+        return await dbContext.Projects
+            .AsNoTracking()
+            .AnyAsync(
+                project =>
+                    project.Id == projectId &&
+                    project.SupervisorUserId == supervisorUserId,
+                cancellationToken);
+    }
+
+    // ============================================================
     // GET ALL ACCESSIBLE PROJECTS
     // ============================================================
 
