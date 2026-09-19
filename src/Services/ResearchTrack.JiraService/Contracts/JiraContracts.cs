@@ -1,0 +1,10 @@
+namespace ResearchTrack.JiraService.Contracts;
+public sealed record JiraAuthUrlResponse(string Url);
+public sealed record JiraOAuthCompleteRequest(string? Code, string? State, string? Error, string? ErrorDescription, string? SelectionToken, string? SelectedCloudId);
+public sealed record JiraWorkspaceOption(string CloudId, string WorkspaceName, string? WorkspaceUrl);
+public sealed record JiraProjectOption(string Id, string Key, string Name);
+public sealed record JiraBoardOption(long Id, string Name, string Type);
+public sealed record JiraOAuthCompleteResponse(Guid ProjectId, bool RequiresWorkspaceSelection, bool RequiresProjectSelection, string SelectionToken, IReadOnlyList<JiraWorkspaceOption> WorkspaceOptions, IReadOnlyList<JiraProjectOption> ProjectOptions, string? WorkspaceName);
+public sealed record JiraBoardListResponse(IReadOnlyList<JiraBoardOption> Boards);
+public sealed record LinkJiraProjectRequest(string SelectionToken, string JiraProjectId, long? JiraBoardId);
+public sealed record JiraConnectionResponse(bool Connected, Guid ProjectId, string WorkspaceName, string? WorkspaceUrl, string JiraProjectId, string JiraProjectKey, string JiraProjectName, long? JiraBoardId, string? JiraBoardName, string? JiraBoardType, string SyncStatus, DateTimeOffset? LastSyncedAt, DateTimeOffset ConnectedAt);

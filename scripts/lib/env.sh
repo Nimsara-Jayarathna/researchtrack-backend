@@ -30,7 +30,7 @@ rt_shared_env_file() {
 
 rt_service_uses_shared_auth() {
   case "${1,,}" in
-    auth|project|github) return 0 ;;
+    auth|project|github|jira) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -130,6 +130,10 @@ rt_load_dev_env() {
     rt_validate_github_repository_limits_environment
     rt_validate_github_sync_environment
     rt_validate_github_webhook_environment
+  fi
+
+  if [[ "${service,,}" == "jira" ]]; then
+    rt_validate_jira_environment
   fi
 
   export ASPNETCORE_ENVIRONMENT="${ASPNETCORE_ENVIRONMENT:-Development}"
@@ -259,6 +263,69 @@ rt_validate_github_webhook_environment() {
     echo "GitHub__Webhook__PollIntervalSeconds must be between 1 and 60." >&2
     return 1
   fi
+}
+
+rt_validate_jira_environment() {
+  rt_require_env \
+    Jira__ClientId \
+    Jira__ClientSecret \
+    Jira__RedirectUri \
+    Jira__Scope \
+    Jira__Audience \
+    Jira__AuthorizationUrl \
+    Jira__TokenUrl \
+    Jira__AccessibleResourcesUrl \
+    Jira__ApiBaseUrl \
+    Jira__OAuthStateTtlMinutes \
+    Jira__SelectionTtlMinutes \
+    Jira__AtlassianTimeoutSeconds \
+    Jira__ProjectServiceTimeoutSeconds \
+    Services__Project__BaseUrl
+
+  local key
+  for key in \
+    Jira__ClientId \
+    Jira__ClientSecret \
+    Jira__RedirectUri \
+    Jira__Scope \
+    Jira__Audience \
+    Jira__AuthorizationUrl \
+    Jira__TokenUrl \
+    Jira__AccessibleResourcesUrl \
+    Jira__ApiBaseUrl \
+    Services__Project__BaseUrl; do
+    rt_reject_placeholder "$key"
+  done
+
+  local required_scope
+  for required_scope in \
+    read:jira-user \
+    read:jira-work \
+    read:project:jira \
+    read:sprint:jira-software \
+    read:board-scope:jira-software \
+    read:issue-details:jira \
+    offline_access; do
+    if [[ " ${Jira__Scope} " != *" ${required_scope} "* ]]; then
+      echo "Jira__Scope must include '${required_scope}'." >&2
+      return 1
+    fi
+  done
+
+  for key in Jira__OAuthStateTtlMinutes Jira__SelectionTtlMinutes Jira__AtlassianTimeoutSeconds Jira__ProjectServiceTimeoutSeconds; do
+    rt_reject_placeholder "$key"
+    if [[ ! "${!key}" =~ ^[1-9][0-9]*$ ]]; then
+      echo "$key must be a positive integer." >&2
+      return 1
+    fi
+  done
+
+  for key in Jira__RedirectUri Jira__AuthorizationUrl Jira__TokenUrl Jira__AccessibleResourcesUrl Jira__ApiBaseUrl Services__Project__BaseUrl; do
+    if [[ ! "${!key}" =~ ^https?:// ]]; then
+      echo "$key must be an absolute http(s) URL." >&2
+      return 1
+    fi
+  done
 }
 
 rt_validate_db_environment() {

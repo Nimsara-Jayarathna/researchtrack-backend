@@ -108,6 +108,37 @@ public sealed class ProjectsController : ApiControllerBase
     }
 
     // ============================================================
+    // VERIFY SUPERVISOR MANAGEMENT ACCESS
+    // GET: /api/v1/projects/{projectId}/authorization/manage
+    // Lightweight endpoint for trusted integration-service checks.
+    // ============================================================
+
+    [Authorize(Policy = AuthSecurityConstants.Policies.SupervisorOnly)]
+    [HttpGet("{projectId:guid}/authorization/manage")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> VerifyManageAccess(
+        Guid projectId,
+        CancellationToken cancellationToken)
+    {
+        var canManage = await _projectService.CanSupervisorManageAsync(
+            GetRequiredUserId(),
+            projectId,
+            cancellationToken);
+
+        if (!canManage)
+        {
+            throw new ApiException(
+                StatusCodes.Status403Forbidden,
+                ErrorCodes.Forbidden,
+                "Only the owning Supervisor can manage this project.");
+        }
+
+        return NoContent();
+    }
+
+    // ============================================================
     // UPDATE PROJECT METADATA
     // PUT: /api/v1/projects/{projectId}
     //
