@@ -372,7 +372,17 @@ Kafka__BootstrapServers
 Jira__ClientId
 Jira__ClientSecret
 Jira__RedirectUri
-Jira__SyncIntervalMinutes
+Jira__Scope
+Jira__Audience
+Jira__AuthorizationUrl
+Jira__TokenUrl
+Jira__AccessibleResourcesUrl
+Jira__ApiBaseUrl
+Jira__OAuthStateTtlMinutes
+Jira__SelectionTtlMinutes
+Jira__AtlassianTimeoutSeconds
+Jira__ProjectServiceTimeoutSeconds
+Services__Project__BaseUrl
 ```
 
 ### Meeting
