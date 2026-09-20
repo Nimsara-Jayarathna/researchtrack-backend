@@ -18,6 +18,7 @@ public static class JiraFeatureExtensions
         services.AddScoped<IJiraConnectionService, JiraConnectionService>();
         services.AddScoped<IJiraSyncService, JiraSyncService>();
         services.AddScoped<IJiraIssueQueryService, JiraIssueQueryService>();
+        services.AddScoped<IJiraSprintProgressService, JiraSprintProgressService>();
 
         var projectUrl = configuration["Services:Project:BaseUrl"]!;
         services.AddHttpClient<IProjectAuthorizationClient, ProjectAuthorizationClient>(client =>

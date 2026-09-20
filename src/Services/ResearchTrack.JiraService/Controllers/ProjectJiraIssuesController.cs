@@ -9,10 +9,11 @@ namespace ResearchTrack.JiraService.Controllers;
 [Route("api/v1/projects/{projectId:guid}/jira")]
 public sealed class ProjectJiraIssuesController:ApiControllerBase
 {
- private readonly IJiraIssueQueryService _query;private readonly IJiraSyncService _sync;private readonly Infrastructure.IProjectAuthorizationClient _auth;
- public ProjectJiraIssuesController(IJiraIssueQueryService query,IJiraSyncService sync,Infrastructure.IProjectAuthorizationClient auth){_query=query;_sync=sync;_auth=auth;}
+ private readonly IJiraIssueQueryService _query;private readonly IJiraSyncService _sync;private readonly IJiraSprintProgressService _sprintProgress;private readonly Infrastructure.IProjectAuthorizationClient _auth;
+ public ProjectJiraIssuesController(IJiraIssueQueryService query,IJiraSyncService sync,IJiraSprintProgressService sprintProgress,Infrastructure.IProjectAuthorizationClient auth){_query=query;_sync=sync;_sprintProgress=sprintProgress;_auth=auth;}
  [HttpGet("issues")]public async Task<ActionResult<ApiResponse<JiraIssueListResponse>>> Issues(Guid projectId,CancellationToken ct)=>ApiOk(await _query.GetIssuesAsync(projectId,ct));
  [HttpGet("health")]public async Task<ActionResult<ApiResponse<JiraHealthResponse>>> Health(Guid projectId,CancellationToken ct)=>ApiOk(await _query.GetHealthAsync(projectId,ct));
+ [HttpGet("sprint-progress")]public async Task<ActionResult<ApiResponse<JiraSprintProgressResponse>>> SprintProgress(Guid projectId,CancellationToken ct)=>ApiOk(await _sprintProgress.GetAsync(projectId,ct));
  [Authorize(Policy=ResearchTrack.BuildingBlocks.Api.Security.AuthSecurityConstants.Policies.SupervisorOnly)]
  [HttpPost("refresh")]public async Task<ActionResult<ApiResponse<JiraHealthResponse>>> Refresh(Guid projectId,CancellationToken ct){await _auth.EnsureCanManageAsync(projectId,ct);await _sync.SynchronizeAsync(projectId,ct);return ApiOk(await _query.GetHealthAsync(projectId,ct));}
 }

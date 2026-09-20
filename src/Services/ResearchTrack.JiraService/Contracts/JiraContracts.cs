@@ -17,3 +17,25 @@ public sealed record JiraSyncResponse(int IssuesSynced,int SprintsSynced,DateTim
 public sealed record JiraStatusBreakdownResponse(int ToDo,int InProgress,int Done);
 public sealed record JiraTypeDistributionItemResponse(string Type,int Count);
 public sealed record JiraHealthResponse(int CompletionPercent,int OpenIssues,int OverdueIssues,int HighPriorityOpen,JiraStatusBreakdownResponse StatusBreakdown,IReadOnlyList<JiraTypeDistributionItemResponse> TypeDistribution,double BugRatio,DateTimeOffset? LastSyncedAt);
+
+public sealed record JiraSprintStatusBreakdownResponse(int ToDo, int InProgress, int Done);
+public sealed record JiraCurrentSprintResponse(
+    long SprintId,
+    string SprintName,
+    string SprintState,
+    string? Goal,
+    DateTimeOffset? StartDate,
+    DateTimeOffset? EndDate,
+    DateTimeOffset? CompleteDate,
+    JiraSprintStatusBreakdownResponse StatusBreakdown,
+    int IssuesTotal,
+    int IssuesDone,
+    int IssuesRemaining,
+    int CompletionPercent,
+    bool SprintPointsAvailable,
+    decimal SprintPointsTotal,
+    decimal SprintPointsDone);
+public sealed record JiraSprintProgressResponse(
+    bool HasActiveSprint,
+    JiraCurrentSprintResponse? ActiveSprint,
+    JiraSyncStateResponse Sync);
