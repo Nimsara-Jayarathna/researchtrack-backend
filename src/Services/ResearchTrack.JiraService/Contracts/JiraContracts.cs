@@ -39,3 +39,22 @@ public sealed record JiraSprintProgressResponse(
     bool HasActiveSprint,
     JiraCurrentSprintResponse? ActiveSprint,
     JiraSyncStateResponse Sync);
+
+public sealed record JiraWorkloadIssueResponse(string IssueKey, string Summary, string Status, string? StatusCategory, bool Completed);
+public sealed record JiraWorkloadMemberResponse(
+    string AccountId,
+    string DisplayName,
+    int Total,
+    int Active,
+    int ToDo,
+    int InProgress,
+    int Done,
+    decimal? ActiveStoryPoints,
+    IReadOnlyList<JiraWorkloadIssueResponse> Issues);
+public sealed record JiraUnassignedWorkloadResponse(int Total, int Active, int Done);
+public sealed record JiraWorkloadSummaryResponse(int TotalIssues, int ActiveIssues, int DoneIssues, int AssignedActiveIssues, int UnassignedActiveIssues);
+public sealed record JiraWorkloadResponse(
+    IReadOnlyList<JiraWorkloadMemberResponse> Members,
+    JiraUnassignedWorkloadResponse Unassigned,
+    JiraWorkloadSummaryResponse Summary,
+    JiraSyncStateResponse Sync);
