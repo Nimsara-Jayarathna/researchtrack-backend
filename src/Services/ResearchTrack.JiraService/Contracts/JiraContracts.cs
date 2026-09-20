@@ -9,7 +9,7 @@ public sealed record JiraBoardListResponse(IReadOnlyList<JiraBoardOption> Boards
 public sealed record LinkJiraProjectRequest(string SelectionToken, string JiraProjectId, long? JiraBoardId);
 public sealed record JiraConnectionResponse(bool Connected, Guid ProjectId, string WorkspaceName, string? WorkspaceUrl, string JiraProjectId, string JiraProjectKey, string JiraProjectName, long? JiraBoardId, string? JiraBoardName, string? JiraBoardType, string SyncStatus, DateTimeOffset? LastSyncedAt, DateTimeOffset ConnectedAt);
 
-public sealed record JiraIssueResponse(string IssueKey,string Summary,string IssueType,string Status,string? StatusCategory,string? Priority,string? AssigneeDisplayName,decimal? StoryPoints,string? ParentIssueKey,DateTimeOffset? DueDate,DateTimeOffset? UpdatedAt);
+public sealed record JiraIssueResponse(string IssueKey,string Summary,string IssueType,bool IsSubtask,string Status,string? StatusCategory,string? Priority,string? AssigneeDisplayName,decimal? StoryPoints,string? ParentIssueKey,DateTimeOffset? DueDate,DateTimeOffset? UpdatedAt);
 public sealed record JiraIssueSummaryResponse(int Total,int ToDo,int InProgress,int Done);
 public sealed record JiraSyncStateResponse(string Status,DateTimeOffset? LastSyncedAt,string? LastSyncError);
 public sealed record JiraIssueListResponse(IReadOnlyList<JiraIssueResponse> Items,JiraIssueSummaryResponse Summary,JiraSyncStateResponse Sync);

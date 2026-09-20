@@ -19,12 +19,14 @@ public sealed class JiraSyncService : IJiraSyncService
     private readonly IDbContextFactory<JiraDbContext> _factory;
     private readonly AtlassianClient _client;
     private readonly IJiraTokenProtector _protector;
+    private readonly ILogger<JiraSyncService> _logger;
 
-    public JiraSyncService(IDbContextFactory<JiraDbContext> factory, AtlassianClient client, IJiraTokenProtector protector)
+    public JiraSyncService(IDbContextFactory<JiraDbContext> factory, AtlassianClient client, IJiraTokenProtector protector, ILogger<JiraSyncService> logger)
     {
         _factory = factory;
         _client = client;
         _protector = protector;
+        _logger = logger;
     }
 
     public async Task<JiraSyncResponse> SynchronizeAsync(Guid projectId, CancellationToken ct)
@@ -56,14 +58,42 @@ public sealed class JiraSyncService : IJiraSyncService
 
             IReadOnlyList<JsonElement> remoteSprints = Array.Empty<JsonElement>();
             var sprintMembers = new Dictionary<long, IReadOnlyList<string>>();
-            var supportsSprints = connection.JiraBoardId.HasValue &&
-                string.Equals(connection.JiraBoardType, "scrum", StringComparison.OrdinalIgnoreCase);
 
-            // Kanban/non-Scrum boards are valid Jira connections. They simply do not expose
-            // the Scrum sprint model required by the current-sprint feature.
+            // Re-resolve board metadata on every synchronization. Board selection is persisted
+            // during linking, but Jira remains the authority for board type and a connection
+            // created without an explicit board still needs a deterministic Scrum context.
+            var boards = await _client.GetBoardsAsync(token, connection.CloudId, connection.JiraProjectKey, ct);
+            JiraBoardOption? sprintBoard = null;
+            if (connection.JiraBoardId.HasValue)
+                sprintBoard = boards.FirstOrDefault(x => x.Id == connection.JiraBoardId.Value);
+
+            if (sprintBoard is not null)
+            {
+                connection.JiraBoardName = sprintBoard.Name;
+                connection.JiraBoardType = sprintBoard.Type;
+            }
+            else
+            {
+                // The stored board can disappear or older connections may not have selected one.
+                // Prefer an available Scrum board so current-sprint data does not silently vanish.
+                sprintBoard = boards
+                    .Where(x => string.Equals(x.Type, "scrum", StringComparison.OrdinalIgnoreCase))
+                    .OrderBy(x => x.Id)
+                    .FirstOrDefault();
+                if (sprintBoard is not null)
+                {
+                    connection.JiraBoardId = sprintBoard.Id;
+                    connection.JiraBoardName = sprintBoard.Name;
+                    connection.JiraBoardType = sprintBoard.Type;
+                }
+            }
+
+            var supportsSprints = sprintBoard is not null &&
+                string.Equals(sprintBoard.Type, "scrum", StringComparison.OrdinalIgnoreCase);
+
             if (supportsSprints)
             {
-                remoteSprints = await _client.GetSprintsAsync(token, connection.CloudId, connection.JiraBoardId!.Value, ct);
+                remoteSprints = await _client.GetSprintsAsync(token, connection.CloudId, sprintBoard!.Id, ct);
                 foreach (var sprint in remoteSprints)
                 {
                     if (!sprint.TryGetProperty("id", out var idElement) || !idElement.TryGetInt64(out var sprintId))
@@ -71,6 +101,10 @@ public sealed class JiraSyncService : IJiraSyncService
                     sprintMembers[sprintId] = await _client.GetSprintIssueIdsAsync(token, connection.CloudId, sprintId, ct);
                 }
             }
+
+            _logger.LogInformation(
+                "Jira snapshot for project {ProjectId}: {IssueCount} issues, {BoardCount} boards, sprint board {BoardId} ({BoardType}), {SprintCount} sprints, {MembershipCount} sprint memberships.",
+                projectId, remoteIssues.Count, boards.Count, sprintBoard?.Id, sprintBoard?.Type ?? "none", remoteSprints.Count, sprintMembers.Values.Sum(x => x.Count));
 
             var now = DateTimeOffset.UtcNow;
             var seenIssueIds = new HashSet<string>(StringComparer.Ordinal);
@@ -144,7 +178,7 @@ public sealed class JiraSyncService : IJiraSyncService
                             JiraConnectionId = connection.Id,
                             ResearchProjectId = projectId,
                             JiraSprintId = sprintId,
-                            JiraBoardId = connection.JiraBoardId!.Value
+                            JiraBoardId = sprintBoard!.Id
                         };
                         db.JiraSprints.Add(sprint);
                         existingSprints[sprintId] = sprint;
