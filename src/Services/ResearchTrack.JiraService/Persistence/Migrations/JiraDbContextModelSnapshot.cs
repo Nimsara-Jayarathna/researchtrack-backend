@@ -198,6 +198,24 @@ namespace ResearchTrack.JiraService.Persistence.Migrations
 
                     b.ToTable("jira_oauth_states", (string)null);
                 });
+
+            modelBuilder.Entity("ResearchTrack.JiraService.Domain.JiraIssue", b =>
+                {
+                    b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("char(36)");
+                    b.Property<string>("AssigneeAccountId").HasColumnType("longtext"); b.Property<string>("AssigneeDisplayName").HasMaxLength(255).HasColumnType("varchar(255)");
+                    b.Property<string>("DescriptionJson").HasColumnType("longtext"); b.Property<DateTimeOffset?>("DueDate").HasColumnType("datetime"); b.Property<bool>("IsSubtask").HasColumnType("tinyint(1)");
+                    b.Property<string>("IssueKey").IsRequired().HasMaxLength(64).HasColumnType("varchar(64)"); b.Property<string>("IssueTypeId").HasColumnType("longtext"); b.Property<string>("IssueTypeName").IsRequired().HasMaxLength(128).HasColumnType("varchar(128)");
+                    b.Property<Guid>("JiraConnectionId").HasColumnType("char(36)"); b.Property<DateTimeOffset?>("JiraCreatedAt").HasColumnType("datetime"); b.Property<string>("JiraIssueId").IsRequired().HasMaxLength(128).HasColumnType("varchar(128)"); b.Property<DateTimeOffset?>("JiraUpdatedAt").HasColumnType("datetime");
+                    b.Property<long?>("OriginalEstimateSeconds").HasColumnType("bigint"); b.Property<string>("ParentIssueId").HasColumnType("longtext"); b.Property<string>("ParentIssueKey").HasColumnType("longtext"); b.Property<string>("PriorityId").HasColumnType("longtext"); b.Property<string>("PriorityName").HasMaxLength(128).HasColumnType("varchar(128)");
+                    b.Property<long?>("RemainingEstimateSeconds").HasColumnType("bigint"); b.Property<string>("ReporterAccountId").HasColumnType("longtext"); b.Property<string>("ReporterDisplayName").HasMaxLength(255).HasColumnType("varchar(255)"); b.Property<Guid>("ResearchProjectId").HasColumnType("char(36)"); b.Property<DateTimeOffset?>("ResolutionDate").HasColumnType("datetime"); b.Property<string>("ResolutionId").HasColumnType("longtext"); b.Property<string>("ResolutionName").HasColumnType("longtext");
+                    b.Property<string>("StatusCategoryId").HasColumnType("longtext"); b.Property<string>("StatusCategoryKey").HasMaxLength(64).HasColumnType("varchar(64)"); b.Property<string>("StatusCategoryName").HasColumnType("longtext"); b.Property<string>("StatusId").HasColumnType("longtext"); b.Property<string>("StatusName").IsRequired().HasMaxLength(128).HasColumnType("varchar(128)"); b.Property<decimal?>("StoryPoints").HasPrecision(12,2).HasColumnType("decimal(12,2)"); b.Property<string>("Summary").IsRequired().HasMaxLength(1024).HasColumnType("varchar(1024)"); b.Property<DateTimeOffset>("SyncedAt").HasColumnType("datetime"); b.Property<long?>("TimeSpentSeconds").HasColumnType("bigint");
+                    b.HasKey("Id"); b.HasIndex("JiraConnectionId"); b.HasIndex("ResearchProjectId"); b.HasIndex("ResearchProjectId","IssueKey"); b.HasIndex("ResearchProjectId","JiraIssueId").IsUnique(); b.HasIndex("ResearchProjectId","StatusCategoryKey"); b.ToTable("jira_issues",(string)null);
+                });
+            modelBuilder.Entity("ResearchTrack.JiraService.Domain.JiraSprint", b =>
+                { b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("char(36)"); b.Property<DateTimeOffset?>("CompleteDate").HasColumnType("datetime"); b.Property<DateTimeOffset?>("EndDate").HasColumnType("datetime"); b.Property<string>("Goal").HasMaxLength(2048).HasColumnType("varchar(2048)"); b.Property<long>("JiraBoardId").HasColumnType("bigint"); b.Property<Guid>("JiraConnectionId").HasColumnType("char(36)"); b.Property<long>("JiraSprintId").HasColumnType("bigint"); b.Property<string>("Name").IsRequired().HasMaxLength(255).HasColumnType("varchar(255)"); b.Property<Guid>("ResearchProjectId").HasColumnType("char(36)"); b.Property<DateTimeOffset?>("StartDate").HasColumnType("datetime"); b.Property<string>("State").IsRequired().HasMaxLength(32).HasColumnType("varchar(32)"); b.Property<DateTimeOffset>("SyncedAt").HasColumnType("datetime"); b.HasKey("Id"); b.HasIndex("JiraConnectionId"); b.HasIndex("ResearchProjectId","JiraSprintId").IsUnique(); b.ToTable("jira_sprints",(string)null); });
+            modelBuilder.Entity("ResearchTrack.JiraService.Domain.JiraIssueSprint", b =>
+                { b.Property<Guid>("JiraIssueId").HasColumnType("char(36)"); b.Property<Guid>("JiraSprintId").HasColumnType("char(36)"); b.HasKey("JiraIssueId","JiraSprintId"); b.HasIndex("JiraSprintId"); b.ToTable("jira_issue_sprints",(string)null); });
+
 #pragma warning restore 612, 618
         }
     }
