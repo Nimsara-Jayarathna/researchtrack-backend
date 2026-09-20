@@ -26,6 +26,8 @@ public interface IProjectService
         Guid projectId,
         CancellationToken cancellationToken);
 
+    Task<bool> CanAccessAsync(Guid userId, string role, Guid projectId, CancellationToken cancellationToken);
+
     Task<ProjectResponse> UpdateAsync(
         Guid supervisorUserId,
         Guid projectId,

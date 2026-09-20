@@ -138,6 +138,16 @@ public sealed class ProjectsController : ApiControllerBase
         return NoContent();
     }
 
+    [HttpGet("{projectId:guid}/authorization/access")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> VerifyReadAccess(Guid projectId,CancellationToken cancellationToken)
+    {
+        var canAccess=await _projectService.CanAccessAsync(GetRequiredUserId(),GetRequiredRole(),projectId,cancellationToken);
+        if(!canAccess) throw new ApiException(StatusCodes.Status403Forbidden,ErrorCodes.Forbidden,"You do not have access to this project.");
+        return NoContent();
+    }
+
     // ============================================================
     // UPDATE PROJECT METADATA
     // PUT: /api/v1/projects/{projectId}
