@@ -366,12 +366,29 @@ rt_database_name() {
 }
 
 rt_db_connection() {
-  local mode="${2:-${1:-dev}}" db
+  local mode="${2:-${1:-dev}}" db ssl_mode
+
   rt_validate_db_environment
   db="$(rt_database_name "$mode")"
+
+  # ResearchTrack local configuration historically uses "None".
+  # MySql.Data's SslMode enum uses "Disabled" for the same behavior.
+  ssl_mode="$Database__SslMode"
+
+  case "${ssl_mode,,}" in
+    none|disabled)
+      ssl_mode="Disabled"
+      ;;
+  esac
+
   printf 'Server=%s;Port=%s;Database=%s;User=%s;Password=%s;SslMode=%s;AllowPublicKeyRetrieval=%s;\n' \
-    "$Database__Host" "$Database__Port" "$db" "$Database__Username" "$Database__Password" \
-    "$Database__SslMode" "$Database__AllowPublicKeyRetrieval"
+    "$Database__Host" \
+    "$Database__Port" \
+    "$db" \
+    "$Database__Username" \
+    "$Database__Password" \
+    "$ssl_mode" \
+    "$Database__AllowPublicKeyRetrieval"
 }
 
 rt_db_connection_for_service() (
