@@ -13,7 +13,34 @@ public sealed class AtlassianClient
     public async Task<IReadOnlyList<JiraFieldDefinition>> GetFieldsAsync(string token,string cloudId,CancellationToken ct){using var req=Authorized(HttpMethod.Get,$"{_options.ApiBaseUrl.TrimEnd('/')}/ex/jira/{Uri.EscapeDataString(cloudId)}/rest/api/3/field",token);using var res=await _http.SendAsync(req,ct);if(!res.IsSuccessStatusCode)throw Failure("Unable to discover Jira fields.");using var doc=JsonDocument.Parse(await res.Content.ReadAsStringAsync(ct));var list=new List<JiraFieldDefinition>();foreach(var x in doc.RootElement.EnumerateArray()){var id=GetString(x,"id");var name=GetString(x,"name");if(id is null||name is null)continue;string? custom=null;if(x.TryGetProperty("schema",out var schema))custom=GetString(schema,"custom");list.Add(new(id,name,custom));}return list;}
     public async Task<IReadOnlyList<JsonElement>> GetProjectIssuesAsync(string token,string cloudId,string projectKey,string? storyPointsFieldId,CancellationToken ct){var list=new List<JsonElement>();string? next=null;do{var fields=new List<string>{"summary","description","issuetype","status","priority","assignee","reporter","timetracking","parent","resolution","resolutiondate","duedate","created","updated"};if(!string.IsNullOrWhiteSpace(storyPointsFieldId))fields.Add(storyPointsFieldId);var url=$"{_options.ApiBaseUrl.TrimEnd('/')}/ex/jira/{Uri.EscapeDataString(cloudId)}/rest/api/3/search/jql?jql={Uri.EscapeDataString($"project = {projectKey} ORDER BY key ASC")}&maxResults=100&fields={Uri.EscapeDataString(string.Join(',',fields))}";if(!string.IsNullOrWhiteSpace(next))url+=$"&nextPageToken={Uri.EscapeDataString(next)}";using var req=Authorized(HttpMethod.Get,url,token);using var res=await _http.SendAsync(req,ct);if(!res.IsSuccessStatusCode)throw Failure("Unable to synchronize Jira issues.");using var doc=JsonDocument.Parse(await res.Content.ReadAsStringAsync(ct));if(doc.RootElement.TryGetProperty("issues",out var issues))foreach(var x in issues.EnumerateArray())list.Add(x.Clone());next=GetString(doc.RootElement,"nextPageToken");}while(!string.IsNullOrWhiteSpace(next));return list;}
     public async Task<IReadOnlyList<JsonElement>> GetSprintsAsync(string token,string cloudId,long boardId,CancellationToken ct){var list=new List<JsonElement>();var start=0;while(true){using var req=Authorized(HttpMethod.Get,$"{_options.ApiBaseUrl.TrimEnd('/')}/ex/jira/{Uri.EscapeDataString(cloudId)}/rest/agile/1.0/board/{boardId}/sprint?startAt={start}&maxResults=50",token);using var res=await _http.SendAsync(req,ct);if(!res.IsSuccessStatusCode)throw Failure("Unable to synchronize Jira sprints.");using var doc=JsonDocument.Parse(await res.Content.ReadAsStringAsync(ct));if(!doc.RootElement.TryGetProperty("values",out var values))break;foreach(var x in values.EnumerateArray())list.Add(x.Clone());var count=values.GetArrayLength();var isLast=doc.RootElement.TryGetProperty("isLast",out var l)&&l.ValueKind==JsonValueKind.True;start+=count;if(isLast||count==0)break;}return list;}
-    public async Task<IReadOnlyList<string>> GetSprintIssueIdsAsync(string token,string cloudId,long sprintId,CancellationToken ct){var list=new List<string>();var start=0;while(true){using var req=Authorized(HttpMethod.Get,$"{_options.ApiBaseUrl.TrimEnd('/')}/ex/jira/{Uri.EscapeDataString(cloudId)}/rest/agile/1.0/sprint/{sprintId}/issue?startAt={start}&maxResults=100&fields=id",token);using var res=await _http.SendAsync(req,ct);if(!res.IsSuccessStatusCode)throw Failure("Unable to synchronize Jira sprint membership.");using var doc=JsonDocument.Parse(await res.Content.ReadAsStringAsync(ct));if(!doc.RootElement.TryGetProperty("issues",out var issues))break;foreach(var x in issues.EnumerateArray()){var id=GetString(x,"id");if(id is not null)list.Add(id);}var count=issues.GetArrayLength();var total=doc.RootElement.TryGetProperty("total",out var totalEl)&&totalEl.TryGetInt32(out var n)?n:start+count;start+=count;if(count==0||start>=total)break;}return list;}
+    // Sprint membership is resolved through Jira's normal issue-search API instead of
+    // /rest/agile/1.0/sprint/{id}/issue. The latter requires additional Agile issue
+    // permissions in some Atlassian installations even when board/sprint metadata is
+    // readable. Search is already required by the issue mirror and gives us stable issue
+    // ids without making the whole synchronization dependent on that extra endpoint.
+    public async Task<IReadOnlyList<string>> GetSprintIssueIdsAsync(string token,string cloudId,long sprintId,CancellationToken ct)
+    {
+        var list=new List<string>();
+        string? next=null;
+        do
+        {
+            var jql=$"sprint = {sprintId} ORDER BY key ASC";
+            var url=$"{_options.ApiBaseUrl.TrimEnd('/')}/ex/jira/{Uri.EscapeDataString(cloudId)}/rest/api/3/search/jql?jql={Uri.EscapeDataString(jql)}&maxResults=100&fields=id";
+            if(!string.IsNullOrWhiteSpace(next))url+=$"&nextPageToken={Uri.EscapeDataString(next)}";
+            using var req=Authorized(HttpMethod.Get,url,token);
+            using var res=await _http.SendAsync(req,ct);
+            if(!res.IsSuccessStatusCode)throw Failure("Unable to synchronize Jira sprint membership.");
+            using var doc=JsonDocument.Parse(await res.Content.ReadAsStringAsync(ct));
+            if(doc.RootElement.TryGetProperty("issues",out var issues))
+                foreach(var x in issues.EnumerateArray())
+                {
+                    var id=GetString(x,"id");
+                    if(id is not null)list.Add(id);
+                }
+            next=GetString(doc.RootElement,"nextPageToken");
+        }while(!string.IsNullOrWhiteSpace(next));
+        return list;
+    }
     public sealed record JiraFieldDefinition(string Id,string Name,string? CustomSchema);
     private static HttpRequestMessage Authorized(HttpMethod method,string url,string token){var r=new HttpRequestMessage(method,url);r.Headers.Authorization=new AuthenticationHeaderValue("Bearer",token);r.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));return r;}
     private static string? GetString(JsonElement e,string n)=>e.TryGetProperty(n,out var p)&&p.ValueKind==JsonValueKind.String?p.GetString():null;
