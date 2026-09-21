@@ -283,9 +283,22 @@ for key in \
   Jira__AuthorizationUrl \
   Jira__TokenUrl \
   Jira__AccessibleResourcesUrl \
-  Jira__ApiBaseUrl; do
+  Jira__ApiBaseUrl \
+  Jira__WebhookUrl; do
   require_value "$jira_file" "$key" >/dev/null
 done
+
+jira_scope="$(require_value "$jira_file" Jira__Scope)"
+[[ " $jira_scope " == *" manage:jira-webhook "* ]] || {
+  echo "jira.env Jira__Scope must include manage:jira-webhook." >&2
+  exit 1
+}
+
+jira_webhook_url="$(require_value "$jira_file" Jira__WebhookUrl)"
+[[ "$jira_webhook_url" == https://* ]] || {
+  echo "jira.env Jira__WebhookUrl must be a public HTTPS URL." >&2
+  exit 1
+}
 
 jira_project_url="$(require_value "$jira_file" Services__Project__BaseUrl)"
 [[ "$jira_project_url" == "http://project:8080" ]] || {
@@ -297,7 +310,10 @@ for key in \
   Jira__OAuthStateTtlMinutes \
   Jira__SelectionTtlMinutes \
   Jira__AtlassianTimeoutSeconds \
-  Jira__ProjectServiceTimeoutSeconds; do
+  Jira__ProjectServiceTimeoutSeconds \
+  Jira__ReconciliationIntervalMinutes \
+  Jira__WebhookCoalesceSeconds \
+  Jira__SyncWorkerPollSeconds; do
   value="$(require_value "$jira_file" "$key")"
   if [[ ! "$value" =~ ^[0-9]+$ ]] || (( value <= 0 )); then
     echo "jira.env $key must be a positive integer." >&2

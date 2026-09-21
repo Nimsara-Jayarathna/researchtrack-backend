@@ -20,6 +20,8 @@ public static class JiraFeatureExtensions
         services.AddScoped<IJiraIssueQueryService, JiraIssueQueryService>();
         services.AddScoped<IJiraSprintProgressService, JiraSprintProgressService>();
         services.AddScoped<IJiraWorkloadService, JiraWorkloadService>();
+        services.AddScoped<IJiraWebhookService, JiraWebhookService>();
+        services.AddHostedService<JiraSyncWorker>();
 
         var projectUrl = configuration["Services:Project:BaseUrl"]!;
         services.AddHttpClient<IProjectAuthorizationClient, ProjectAuthorizationClient>(client =>
@@ -58,5 +60,9 @@ public static class JiraFeatureExtensions
         if (options.SelectionTtlMinutes <= 0) throw new InvalidOperationException("Jira__SelectionTtlMinutes must be greater than zero.");
         if (options.AtlassianTimeoutSeconds <= 0) throw new InvalidOperationException("Jira__AtlassianTimeoutSeconds must be greater than zero.");
         if (options.ProjectServiceTimeoutSeconds <= 0) throw new InvalidOperationException("Jira__ProjectServiceTimeoutSeconds must be greater than zero.");
+        if (options.ReconciliationIntervalMinutes <= 0) throw new InvalidOperationException("Jira__ReconciliationIntervalMinutes must be greater than zero.");
+        if (options.WebhookCoalesceSeconds <= 0) throw new InvalidOperationException("Jira__WebhookCoalesceSeconds must be greater than zero.");
+        if (options.SyncWorkerPollSeconds <= 0) throw new InvalidOperationException("Jira__SyncWorkerPollSeconds must be greater than zero.");
+        if (!string.IsNullOrWhiteSpace(options.WebhookUrl) && !options.WebhookUrl.Equals("CHANGE_ME", StringComparison.OrdinalIgnoreCase) && (!Uri.TryCreate(options.WebhookUrl, UriKind.Absolute, out var webhookUri) || webhookUri.Scheme != Uri.UriSchemeHttps)) throw new InvalidOperationException("Jira__WebhookUrl must be a public HTTPS URL.");
     }
 }

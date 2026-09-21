@@ -62,6 +62,34 @@ public sealed class AtlassianClient
         }while(!string.IsNullOrWhiteSpace(next));
         return list;
     }
+    public async Task<(long Id, DateTimeOffset? ExpiresAt)> RegisterWebhookAsync(string token,string cloudId,string projectKey,string callbackUrl,CancellationToken ct)
+    {
+        var url=$"{_options.ApiBaseUrl.TrimEnd('/')}/ex/jira/{Uri.EscapeDataString(cloudId)}/rest/api/3/webhook";
+        var body=new { url=callbackUrl, webhooks=new[]{new { jqlFilter=$"project = {projectKey}", events=new[]{"jira:issue_created","jira:issue_updated","jira:issue_deleted"} }} };
+        using var req=Authorized(HttpMethod.Post,url,token); req.Content=JsonContent.Create(body);
+        using var res=await _http.SendAsync(req,ct); if(!res.IsSuccessStatusCode)throw Failure("Unable to register Jira webhook. Ensure manage:jira-webhook is authorized and the callback uses public HTTPS.");
+        using var doc=JsonDocument.Parse(await res.Content.ReadAsStringAsync(ct));
+        if(!doc.RootElement.TryGetProperty("webhookRegistrationResult",out var results)||results.GetArrayLength()==0)throw Failure("Jira did not return a webhook registration result.");
+        var first=results[0]; if(first.TryGetProperty("errors",out var errors)&&errors.ValueKind==JsonValueKind.Array&&errors.GetArrayLength()>0)throw Failure("Jira rejected webhook registration.");
+        if(!first.TryGetProperty("createdWebhookId",out var id)||!id.TryGetInt64(out var webhookId))throw Failure("Jira did not return a webhook id.");
+        return (webhookId,DateTimeOffset.UtcNow.AddDays(30));
+    }
+    public async Task<DateTimeOffset?> RefreshWebhooksAsync(string token,string cloudId,IReadOnlyCollection<long> webhookIds,CancellationToken ct)
+    {
+        if(webhookIds.Count==0)return null;
+        var url=$"{_options.ApiBaseUrl.TrimEnd('/')}/ex/jira/{Uri.EscapeDataString(cloudId)}/rest/api/3/webhook/refresh";
+        using var req=Authorized(HttpMethod.Put,url,token); req.Content=JsonContent.Create(new { webhookIds });
+        using var res=await _http.SendAsync(req,ct); if(!res.IsSuccessStatusCode)throw Failure("Unable to refresh Jira webhook registration.");
+        using var doc=JsonDocument.Parse(await res.Content.ReadAsStringAsync(ct)); var raw=GetString(doc.RootElement,"expirationDate");
+        return DateTimeOffset.TryParse(raw,out var value)?value:DateTimeOffset.UtcNow.AddDays(30);
+    }
+    public async Task DeleteWebhooksAsync(string token,string cloudId,IReadOnlyCollection<long> webhookIds,CancellationToken ct)
+    {
+        if(webhookIds.Count==0)return;
+        var url=$"{_options.ApiBaseUrl.TrimEnd('/')}/ex/jira/{Uri.EscapeDataString(cloudId)}/rest/api/3/webhook";
+        using var req=Authorized(HttpMethod.Delete,url,token); req.Content=JsonContent.Create(new { webhookIds });
+        using var res=await _http.SendAsync(req,ct); if(!res.IsSuccessStatusCode)throw Failure("Unable to remove Jira webhook registration.");
+    }
     public sealed record JiraFieldDefinition(string Id,string Name,string? CustomSchema);
     private static HttpRequestMessage Authorized(HttpMethod method,string url,string token){var r=new HttpRequestMessage(method,url);r.Headers.Authorization=new AuthenticationHeaderValue("Bearer",token);r.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));return r;}
     private static string? GetString(JsonElement e,string n)=>e.TryGetProperty(n,out var p)&&p.ValueKind==JsonValueKind.String?p.GetString():null;

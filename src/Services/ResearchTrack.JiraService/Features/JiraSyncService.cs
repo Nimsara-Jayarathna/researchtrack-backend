@@ -258,6 +258,7 @@ public sealed class JiraSyncService : IJiraSyncService
             connection.SyncStatus = "SYNCED";
             connection.LastSyncedAt = now;
             connection.LastSyncError = null;
+            connection.LastReconciledAt = now;
             connection.UpdatedAt = now;
             await db.SaveChangesAsync(ct);
             await transaction.CommitAsync(ct);

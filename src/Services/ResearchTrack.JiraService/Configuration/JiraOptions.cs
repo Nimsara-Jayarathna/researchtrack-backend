@@ -17,4 +17,8 @@ public sealed class JiraOptions
     public int SelectionTtlMinutes { get; init; }
     public int AtlassianTimeoutSeconds { get; init; }
     public int ProjectServiceTimeoutSeconds { get; init; }
+    public string WebhookUrl { get; init; } = string.Empty;
+    public int ReconciliationIntervalMinutes { get; init; } = 15;
+    public int WebhookCoalesceSeconds { get; init; } = 3;
+    public int SyncWorkerPollSeconds { get; init; } = 2;
 }
