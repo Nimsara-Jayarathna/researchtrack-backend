@@ -35,9 +35,12 @@ public sealed record JiraCurrentSprintResponse(
     bool SprintPointsAvailable,
     decimal SprintPointsTotal,
     decimal SprintPointsDone);
+public sealed record JiraSprintSummaryResponse(int Total, int Active, int Future, int Closed);
 public sealed record JiraSprintProgressResponse(
     bool HasActiveSprint,
     JiraCurrentSprintResponse? ActiveSprint,
+    IReadOnlyList<JiraCurrentSprintResponse> Sprints,
+    JiraSprintSummaryResponse Summary,
     JiraSyncStateResponse Sync);
 
 public sealed record JiraWorkloadIssueResponse(string IssueKey, string Summary, string Status, string? StatusCategory, bool Completed);
