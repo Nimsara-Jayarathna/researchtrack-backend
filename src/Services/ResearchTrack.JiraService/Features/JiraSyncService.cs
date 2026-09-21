@@ -63,33 +63,43 @@ public sealed class JiraSyncService : IJiraSyncService
             // during linking, but Jira remains the authority for board type and a connection
             // created without an explicit board still needs a deterministic Scrum context.
             var boards = await _client.GetBoardsAsync(token, connection.CloudId, connection.JiraProjectKey, ct);
-            JiraBoardOption? sprintBoard = null;
-            if (connection.JiraBoardId.HasValue)
-                sprintBoard = boards.FirstOrDefault(x => x.Id == connection.JiraBoardId.Value);
+            var selectedBoard = connection.JiraBoardId.HasValue
+                ? boards.FirstOrDefault(x => x.Id == connection.JiraBoardId.Value)
+                : null;
+
+            // Sprint synchronization must always use a Scrum board. Older connections and the
+            // original UI could persist the first returned board, which may be Kanban. In that
+            // case, recover deterministically by selecting a Scrum board from the same Jira
+            // project and persist that corrected board identity for subsequent synchronizations.
+            JiraBoardOption? sprintBoard = selectedBoard is not null &&
+                string.Equals(selectedBoard.Type, "scrum", StringComparison.OrdinalIgnoreCase)
+                    ? selectedBoard
+                    : boards
+                        .Where(x => string.Equals(x.Type, "scrum", StringComparison.OrdinalIgnoreCase))
+                        .OrderBy(x => x.Id)
+                        .FirstOrDefault();
 
             if (sprintBoard is not null)
             {
+                if (selectedBoard is not null && selectedBoard.Id != sprintBoard.Id)
+                    _logger.LogWarning(
+                        "Jira connection for project {ProjectId} selected non-Scrum board {SelectedBoardId} ({SelectedBoardType}); switching sprint synchronization to Scrum board {SprintBoardId}.",
+                        projectId, selectedBoard.Id, selectedBoard.Type, sprintBoard.Id);
+
+                connection.JiraBoardId = sprintBoard.Id;
                 connection.JiraBoardName = sprintBoard.Name;
                 connection.JiraBoardType = sprintBoard.Type;
             }
-            else
+            else if (selectedBoard is not null)
             {
-                // The stored board can disappear or older connections may not have selected one.
-                // Prefer an available Scrum board so current-sprint data does not silently vanish.
-                sprintBoard = boards
-                    .Where(x => string.Equals(x.Type, "scrum", StringComparison.OrdinalIgnoreCase))
-                    .OrderBy(x => x.Id)
-                    .FirstOrDefault();
-                if (sprintBoard is not null)
-                {
-                    connection.JiraBoardId = sprintBoard.Id;
-                    connection.JiraBoardName = sprintBoard.Name;
-                    connection.JiraBoardType = sprintBoard.Type;
-                }
+                // Keep the selected board metadata accurate for issue-only projects, but do not
+                // destroy a previously valid sprint snapshot merely because no Scrum board can
+                // currently be resolved.
+                connection.JiraBoardName = selectedBoard.Name;
+                connection.JiraBoardType = selectedBoard.Type;
             }
 
-            var supportsSprints = sprintBoard is not null &&
-                string.Equals(sprintBoard.Type, "scrum", StringComparison.OrdinalIgnoreCase);
+            var supportsSprints = sprintBoard is not null;
 
             if (supportsSprints)
             {
@@ -207,10 +217,12 @@ public sealed class JiraSyncService : IJiraSyncService
             }
             else
             {
-                // A selected non-Scrum board has no meaningful sprint snapshot. Clear any old
-                // sprint data left from a previous board selection only after the issue fetch succeeded.
-                if (existingSprints.Count > 0)
-                    db.JiraSprints.RemoveRange(existingSprints.Values);
+                // Jira projects without a Scrum board still synchronize issues successfully.
+                // Preserve any last known sprint snapshot instead of destructively erasing it;
+                // a later refresh can reconcile it once a Scrum board is available again.
+                _logger.LogInformation(
+                    "No Scrum board is available for Jira project {JiraProjectKey}; sprint snapshot was left unchanged.",
+                    connection.JiraProjectKey);
             }
 
             connection.SyncStatus = "SYNCED";
