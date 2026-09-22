@@ -21,5 +21,10 @@ public sealed class JiraConnection
     public string SyncStatus { get; set; } = "PENDING";
     public DateTimeOffset? LastSyncedAt { get; set; }
     public string? LastSyncError { get; set; }
+    public string WebhookStatus { get; set; } = "NOT_REGISTERED";
+    public long? WebhookId { get; set; }
+    public DateTimeOffset? WebhookExpiresAt { get; set; }
+    public DateTimeOffset? LastWebhookAt { get; set; }
+    public DateTimeOffset? LastReconciledAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
 }

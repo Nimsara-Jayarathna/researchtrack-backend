@@ -32,6 +32,15 @@ public sealed class JiraSyncService : IJiraSyncService
     public async Task<JiraSyncResponse> SynchronizeAsync(Guid projectId, CancellationToken ct)
     {
         await using var db = await _factory.CreateDbContextAsync(ct);
+
+        // Single-writer boundary for the complete project snapshot. MySQL GET_LOCK is
+        // connection-scoped and therefore coordinates both concurrent requests in this
+        // process and JiraService replicas sharing the same database. Keep the unique
+        // issue/sprint indexes as the final data-integrity boundary.
+        await using var syncLease = await JiraDatabaseLock.TryAcquireAsync(
+            db, JiraDatabaseLock.ProjectSync(projectId), 120, ct)
+            ?? throw new ApiException(409, ErrorCodes.ValidationError, "A Jira synchronization is already running for this project. Please retry shortly.");
+
         var connection = await db.JiraConnections.SingleOrDefaultAsync(x => x.ResearchProjectId == projectId, ct)
             ?? throw new ApiException(400, ErrorCodes.ValidationError, "Jira is not connected for this project.");
 
@@ -258,6 +267,7 @@ public sealed class JiraSyncService : IJiraSyncService
             connection.SyncStatus = "SYNCED";
             connection.LastSyncedAt = now;
             connection.LastSyncError = null;
+            connection.LastReconciledAt = now;
             connection.UpdatedAt = now;
             await db.SaveChangesAsync(ct);
             await transaction.CommitAsync(ct);
