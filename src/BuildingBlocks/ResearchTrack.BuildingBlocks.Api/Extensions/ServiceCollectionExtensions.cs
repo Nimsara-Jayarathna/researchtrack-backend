@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.OpenApi;
 using ResearchTrack.BuildingBlocks.Api.Constants;
 using ResearchTrack.BuildingBlocks.Api.Contracts;
+using ResearchTrack.BuildingBlocks.Api.RuntimeLogging;
 
 namespace ResearchTrack.BuildingBlocks.Api.Extensions;
 
@@ -10,6 +11,9 @@ public static class ServiceCollectionExtensions
 {
     public static IServiceCollection AddResearchTrackApi(this IServiceCollection services, string serviceName)
     {
+        services.AddSingleton<RuntimeLogStore>();
+        services.AddSingleton<ILoggerProvider, RuntimeLogLoggerProvider>();
+
         services
             .AddControllers()
             .ConfigureApiBehaviorOptions(options =>

@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using ResearchTrack.BuildingBlocks.Api.Health;
 using ResearchTrack.BuildingBlocks.Api.Infrastructure;
 using ResearchTrack.BuildingBlocks.Api.Middleware;
+using ResearchTrack.BuildingBlocks.Api.RuntimeLogging;
 
 namespace ResearchTrack.BuildingBlocks.Api.Extensions;
 
@@ -28,6 +29,10 @@ public static class ApplicationBuilderExtensions
         app.UseAuthentication();
         app.UseAuthorization();
 
+        if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Testing"))
+        {
+            app.MapRuntimeLogViewer();
+        }
 
         if (app.Environment.IsDevelopment() || app.Configuration.GetValue<bool>("OpenApi:Enabled"))
         {
