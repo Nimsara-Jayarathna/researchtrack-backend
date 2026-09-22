@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Routing;
-using ResearchTrack.BuildingBlocks.Api.RuntimeLogging;
 
 namespace ResearchTrack.BuildingBlocks.Api.Middleware;
 
@@ -23,12 +22,6 @@ public sealed class RequestLoggingMiddleware
 
     public async Task InvokeAsync(HttpContext context)
     {
-        if (context.Request.Path.StartsWithSegments(RuntimeLogEndpoints.RoutePrefix))
-        {
-            await _next(context);
-            return;
-        }
-
         var stopwatch = Stopwatch.StartNew();
         _logger.LogInformation(
             "HTTP {Method} {Path} started Service={Service} Environment={Environment} TraceId={TraceId}",

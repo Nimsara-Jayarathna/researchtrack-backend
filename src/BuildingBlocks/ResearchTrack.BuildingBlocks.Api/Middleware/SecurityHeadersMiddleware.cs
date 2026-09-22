@@ -1,7 +1,5 @@
 namespace ResearchTrack.BuildingBlocks.Api.Middleware;
 
-using ResearchTrack.BuildingBlocks.Api.RuntimeLogging;
-
 public sealed class SecurityHeadersMiddleware
 {
     private readonly RequestDelegate _next;
@@ -22,13 +20,7 @@ public sealed class SecurityHeadersMiddleware
             headers.TryAdd("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
 
             // Swagger UI requires scripts/styles. CSP is therefore applied only to non-Swagger API responses.
-            if (context.Request.Path.StartsWithSegments(RuntimeLogEndpoints.RoutePrefix))
-            {
-                headers.TryAdd(
-                    "Content-Security-Policy",
-                    "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'");
-            }
-            else if (!context.Request.Path.StartsWithSegments("/swagger"))
+            if (!context.Request.Path.StartsWithSegments("/swagger"))
             {
                 headers.TryAdd("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; base-uri 'none'");
             }

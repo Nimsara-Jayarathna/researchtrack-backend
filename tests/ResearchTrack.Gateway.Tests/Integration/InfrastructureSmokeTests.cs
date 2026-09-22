@@ -1,8 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
-using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 using ResearchTrack.Gateway;
 using ResearchTrack.Testing;
 using Yarp.ReverseProxy.Configuration;
@@ -45,47 +43,6 @@ public sealed class InfrastructureSmokeTests : IAsyncLifetime
         Assert.False(payload!.Success);
         Assert.Equal("NOT_FOUND", payload.Error?.Code);
         Assert.False(string.IsNullOrWhiteSpace(payload.Meta?.TraceId));
-    }
-
-    [Fact]
-    public async Task Runtime_log_viewer_exposes_recent_logs_without_persistence()
-    {
-        await Client.GetAsync("/health/live", TestContext.Current.CancellationToken);
-
-        var viewer = await Client.GetAsync("/_runtime-logs", TestContext.Current.CancellationToken);
-        Assert.Equal(HttpStatusCode.OK, viewer.StatusCode);
-        Assert.Equal("text/html", viewer.Content.Headers.ContentType?.MediaType);
-
-        var entries = await Client.GetFromJsonAsync<JsonElement[]>(
-            "/_runtime-logs/api/entries",
-            TestContext.Current.CancellationToken);
-
-        Assert.NotNull(entries);
-        Assert.Contains(entries, entry =>
-            entry.GetProperty("message").GetString()?.Contains("/health/live", StringComparison.Ordinal) == true);
-    }
-
-    [Fact]
-    public async Task Runtime_log_viewer_does_not_log_its_own_requests()
-    {
-        await Client.PostAsync("/_runtime-logs/api/clear", null, TestContext.Current.CancellationToken);
-        var logger = Factory.Services.GetRequiredService<ILoggerFactory>().CreateLogger("ViewerDiagnostics");
-        using (logger.BeginScope(new Dictionary<string, object?>
-        {
-            ["RequestPath"] = "/_runtime-logs/assets/app.js"
-        }))
-        {
-            logger.LogInformation("Framework diagnostic for runtime viewer request");
-        }
-        await Client.GetAsync("/_runtime-logs", TestContext.Current.CancellationToken);
-
-        var entries = await Client.GetFromJsonAsync<JsonElement[]>(
-            "/_runtime-logs/api/entries",
-            TestContext.Current.CancellationToken);
-
-        Assert.NotNull(entries);
-        Assert.DoesNotContain(entries, entry =>
-            entry.GetProperty("message").GetString()?.Contains("/_runtime-logs", StringComparison.Ordinal) == true);
     }
 
     [Fact]
