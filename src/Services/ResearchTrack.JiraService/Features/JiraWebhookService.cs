@@ -19,12 +19,12 @@ public interface IJiraWebhookService
 
 public sealed class JiraWebhookService : IJiraWebhookService
 {
-    private readonly IDbContextFactory<JiraDbContext> _factory; private readonly AtlassianClient _client; private readonly IJiraTokenProtector _protector; private readonly JiraOptions _options; private readonly ILogger<JiraWebhookService> _logger;
-    public JiraWebhookService(IDbContextFactory<JiraDbContext> factory,AtlassianClient client,IJiraTokenProtector protector,JiraOptions options,ILogger<JiraWebhookService> logger){_factory=factory;_client=client;_protector=protector;_options=options;_logger=logger;}
+    private readonly IDbContextFactory<JiraDbContext> _factory; private readonly AtlassianClient _client; private readonly IJiraTokenProtector _protector; private readonly JiraOptions _options; private readonly IJiraSyncScheduler _scheduler; private readonly ILogger<JiraWebhookService> _logger;
+    public JiraWebhookService(IDbContextFactory<JiraDbContext> factory,AtlassianClient client,IJiraTokenProtector protector,JiraOptions options,IJiraSyncScheduler scheduler,ILogger<JiraWebhookService> logger){_factory=factory;_client=client;_protector=protector;_options=options;_scheduler=scheduler;_logger=logger;}
 
     public async Task EnsureRegisteredAsync(Guid projectId,CancellationToken ct)
     {
-        await using var db=await _factory.CreateDbContextAsync(ct); var c=await db.JiraConnections.SingleOrDefaultAsync(x=>x.ResearchProjectId==projectId,ct); if(c is null)return;
+        await using var db=await _factory.CreateDbContextAsync(ct); await using var webhookLease=await JiraDatabaseLock.TryAcquireAsync(db,JiraDatabaseLock.ProjectWebhook(projectId),30,ct); if(webhookLease is null)return; var c=await db.JiraConnections.SingleOrDefaultAsync(x=>x.ResearchProjectId==projectId,ct); if(c is null)return;
         if(string.IsNullOrWhiteSpace(_options.WebhookUrl)||_options.WebhookUrl.Equals("CHANGE_ME",StringComparison.OrdinalIgnoreCase)){c.WebhookStatus="NOT_CONFIGURED";await db.SaveChangesAsync(ct);return;}
         try
         {
@@ -41,7 +41,7 @@ public sealed class JiraWebhookService : IJiraWebhookService
     }
     public async Task RemoveAsync(Guid projectId,CancellationToken ct)
     {
-        await using var db=await _factory.CreateDbContextAsync(ct);var c=await db.JiraConnections.SingleOrDefaultAsync(x=>x.ResearchProjectId==projectId,ct);if(c is null||!c.WebhookId.HasValue)return;
+        await using var db=await _factory.CreateDbContextAsync(ct);await using var webhookLease=await JiraDatabaseLock.TryAcquireAsync(db,JiraDatabaseLock.ProjectWebhook(projectId),30,ct);if(webhookLease is null)return;var c=await db.JiraConnections.SingleOrDefaultAsync(x=>x.ResearchProjectId==projectId,ct);if(c is null||!c.WebhookId.HasValue)return;
         try{var token=await ValidTokenAsync(db,c,ct);await _client.DeleteWebhooksAsync(token,c.CloudId,new[]{c.WebhookId.Value},ct);}catch(Exception ex){_logger.LogWarning(ex,"Best-effort Jira webhook cleanup failed for project {ProjectId}.",projectId);}
     }
     public async Task<bool> ReceiveAsync(string? authorization,string? deliveryId,string payload,CancellationToken ct)
@@ -57,13 +57,16 @@ public sealed class JiraWebhookService : IJiraWebhookService
         var cloudId=connection?.CloudId??"unknown";var id=string.IsNullOrWhiteSpace(deliveryId)?"body-"+Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload))):deliveryId;
         if(await db.JiraWebhookEvents.AnyAsync(x=>x.DeliveryId==id,ct))return true;
         var now=DateTimeOffset.UtcNow;db.JiraWebhookEvents.Add(new JiraWebhookEvent{Id=Guid.NewGuid(),DeliveryId=id,CloudId=cloudId,ResearchProjectId=connection?.ResearchProjectId,EventType=eventType,JiraIssueId=jiraIssueId,IssueKey=issueKey,PayloadJson=payload,ReceivedAt=now,Status=connection is null?"IGNORED":"RECEIVED"});
+        Guid? projectId=null;
         if(connection is not null)
         {
+            projectId=connection.ResearchProjectId;
             connection.LastWebhookAt=now;connection.WebhookStatus="ACTIVE";
-            var pending=await db.JiraSyncJobs.AnyAsync(x=>x.ResearchProjectId==connection.ResearchProjectId&&(x.Status=="PENDING"||x.Status=="RUNNING"),ct);
-            if(!pending)db.JiraSyncJobs.Add(new JiraSyncJob{Id=Guid.NewGuid(),ResearchProjectId=connection.ResearchProjectId,Reason="WEBHOOK",Scope="FULL_PROJECT",EntityId=jiraIssueId,Status="PENDING",RequestedAt=now,AvailableAt=now.AddSeconds(Math.Max(1,_options.WebhookCoalesceSeconds))});
         }
-        await db.SaveChangesAsync(ct);return true;
+        await db.SaveChangesAsync(ct);
+        if(projectId.HasValue)
+            await _scheduler.RequestAsync(projectId.Value,"WEBHOOK",now.AddSeconds(Math.Max(1,_options.WebhookCoalesceSeconds)),jiraIssueId,ct);
+        return true;
     }
     private bool ValidateBearer(string? authorizationHeader)
     {

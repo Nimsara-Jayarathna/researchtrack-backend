@@ -17,6 +17,7 @@ public static class JiraFeatureExtensions
         services.AddScoped<IJiraTokenProtector, JiraTokenProtector>();
         services.AddScoped<IJiraConnectionService, JiraConnectionService>();
         services.AddScoped<IJiraSyncService, JiraSyncService>();
+        services.AddScoped<IJiraSyncScheduler, JiraSyncScheduler>();
         services.AddScoped<IJiraIssueQueryService, JiraIssueQueryService>();
         services.AddScoped<IJiraSprintProgressService, JiraSprintProgressService>();
         services.AddScoped<IJiraWorkloadService, JiraWorkloadService>();
