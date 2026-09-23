@@ -25,6 +25,7 @@ public sealed class ProjectRepositoryLink
     public DateTime? LastFailedSyncAt { get; set; }
     public string? LastSyncError { get; set; }
     public string? LastKnownHeadSha { get; set; }
+    public long SyncRevision { get; set; }
     public required string SyncStatus { get; set; }
     public DateTime UpdatedAt { get; set; }
 }

@@ -22,13 +22,16 @@ public sealed class ProjectGitHubReadController : ApiControllerBase
 {
     private readonly IGitHubEvidenceQueryService _evidenceQueryService;
     private readonly IGitHubDashboardQueryService _dashboardQueryService;
+    private readonly IGitHubSyncStateQueryService _syncStateQueryService;
 
     public ProjectGitHubReadController(
         IGitHubEvidenceQueryService evidenceQueryService,
-        IGitHubDashboardQueryService dashboardQueryService)
+        IGitHubDashboardQueryService dashboardQueryService,
+        IGitHubSyncStateQueryService syncStateQueryService)
     {
         _evidenceQueryService = evidenceQueryService;
         _dashboardQueryService = dashboardQueryService;
+        _syncStateQueryService = syncStateQueryService;
     }
 
     [HttpGet]
@@ -53,6 +56,15 @@ public sealed class ProjectGitHubReadController : ApiControllerBase
         };
 
         return ApiOk(dashboard);
+    }
+
+    [HttpGet("sync-state")]
+    [ProducesResponseType<ApiResponse<GitHubSyncStateResponse>>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<GitHubSyncStateResponse>>> GetSyncState(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        return ApiOk(await _syncStateQueryService.GetAsync(projectId, cancellationToken));
     }
 
     [HttpGet("activity")]

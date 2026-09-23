@@ -433,6 +433,7 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
             ?.HeadSha
             ?? commits.FirstOrDefault()?.Sha;
         link.LastSyncedAt = now;
+        link.SyncRevision = checked(link.SyncRevision + 1);
         link.SyncStatus = GitHubSyncStatuses.Success;
         link.LastSyncError = null;
         link.UpdatedAt = now;
