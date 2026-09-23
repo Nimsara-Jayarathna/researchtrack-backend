@@ -21,6 +21,7 @@ public static class JiraFeatureExtensions
         services.AddScoped<IJiraIssueQueryService, JiraIssueQueryService>();
         services.AddScoped<IJiraSprintProgressService, JiraSprintProgressService>();
         services.AddScoped<IJiraWorkloadService, JiraWorkloadService>();
+        services.AddScoped<IJiraSyncStateQueryService, JiraSyncStateQueryService>();
         services.AddScoped<IJiraWebhookService, JiraWebhookService>();
         services.AddHostedService<JiraSyncWorker>();
 

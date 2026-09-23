@@ -265,6 +265,7 @@ public sealed class JiraSyncService : IJiraSyncService
             }
 
             connection.SyncStatus = "SYNCED";
+            connection.SyncRevision = checked(connection.SyncRevision + 1);
             connection.LastSyncedAt = now;
             connection.LastSyncError = null;
             connection.LastReconciledAt = now;
