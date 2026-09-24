@@ -40,6 +40,9 @@ jobs:
       - name: Test Azure Production env validator (synthetic values)
         run: ./deploy/azure/validation/test-validate-azure-env-files.sh
 
+      - name: Test Kafka TLS smoke-test logic (stubbed Kafka)
+        run: ./deploy/azure/validation/test-kafka-smoke.sh
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
