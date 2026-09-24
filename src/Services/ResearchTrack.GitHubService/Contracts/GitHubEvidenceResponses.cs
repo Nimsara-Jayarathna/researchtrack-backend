@@ -1,11 +1,11 @@
 namespace ResearchTrack.GitHubService.Contracts;
 
-public sealed record GitHubEvidencePage<T>(
+public sealed record GitHubPage<T>(
     IReadOnlyList<T> Items,
     int Page,
     int Size,
-    int TotalCount,
-    bool HasNext);
+    int Total,
+    bool HasMore);
 
 public sealed record GitHubCommitResponse(
     string Sha,

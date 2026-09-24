@@ -22,13 +22,16 @@ public sealed class ProjectGitHubReadController : ApiControllerBase
 {
     private readonly IGitHubEvidenceQueryService _evidenceQueryService;
     private readonly IGitHubDashboardQueryService _dashboardQueryService;
+    private readonly IGitHubSyncStateQueryService _syncStateQueryService;
 
     public ProjectGitHubReadController(
         IGitHubEvidenceQueryService evidenceQueryService,
-        IGitHubDashboardQueryService dashboardQueryService)
+        IGitHubDashboardQueryService dashboardQueryService,
+        IGitHubSyncStateQueryService syncStateQueryService)
     {
         _evidenceQueryService = evidenceQueryService;
         _dashboardQueryService = dashboardQueryService;
+        _syncStateQueryService = syncStateQueryService;
     }
 
     [HttpGet]
@@ -55,8 +58,17 @@ public sealed class ProjectGitHubReadController : ApiControllerBase
         return ApiOk(dashboard);
     }
 
+    [HttpGet("sync-state")]
+    [ProducesResponseType<ApiResponse<GitHubSyncStateResponse>>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<GitHubSyncStateResponse>>> GetSyncState(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        return ApiOk(await _syncStateQueryService.GetAsync(projectId, cancellationToken));
+    }
+
     [HttpGet("activity")]
-    public async Task<ActionResult<ApiResponse<GitHubCompatibilityPage<GitHubDashboardCommitResponse>>>> GetActivity(
+    public async Task<ActionResult<ApiResponse<GitHubPage<GitHubDashboardCommitResponse>>>> GetActivity(
         Guid projectId,
         [FromQuery] Guid? linkedRepositoryId = null,
         [FromQuery] int page = 1,
@@ -73,7 +85,7 @@ public sealed class ProjectGitHubReadController : ApiControllerBase
     }
 
     [HttpGet("contributors")]
-    public async Task<ActionResult<ApiResponse<GitHubCompatibilityPage<GitHubDashboardContributorResponse>>>> GetContributors(
+    public async Task<ActionResult<ApiResponse<GitHubPage<GitHubDashboardContributorResponse>>>> GetContributors(
         Guid projectId,
         [FromQuery] Guid? linkedRepositoryId = null,
         [FromQuery] int page = 1,
@@ -90,7 +102,7 @@ public sealed class ProjectGitHubReadController : ApiControllerBase
     }
 
     [HttpGet("repositories/{linkedRepositoryId:guid}/commits")]
-    public async Task<ActionResult<ApiResponse<GitHubEvidencePage<GitHubCommitResponse>>>> GetCommits(
+    public async Task<ActionResult<ApiResponse<GitHubPage<GitHubCommitResponse>>>> GetCommits(
         Guid projectId,
         Guid linkedRepositoryId,
         [FromQuery] int page = 1,
@@ -107,7 +119,7 @@ public sealed class ProjectGitHubReadController : ApiControllerBase
     }
 
     [HttpGet("repositories/{linkedRepositoryId:guid}/contributors")]
-    public async Task<ActionResult<ApiResponse<GitHubEvidencePage<GitHubContributorResponse>>>> GetRepositoryContributors(
+    public async Task<ActionResult<ApiResponse<GitHubPage<GitHubContributorResponse>>>> GetRepositoryContributors(
         Guid projectId,
         Guid linkedRepositoryId,
         [FromQuery] int page = 1,
@@ -124,7 +136,7 @@ public sealed class ProjectGitHubReadController : ApiControllerBase
     }
 
     [HttpGet("repositories/{linkedRepositoryId:guid}/pull-requests")]
-    public async Task<ActionResult<ApiResponse<GitHubEvidencePage<GitHubPullRequestResponse>>>> GetPullRequests(
+    public async Task<ActionResult<ApiResponse<GitHubPage<GitHubPullRequestResponse>>>> GetPullRequests(
         Guid projectId,
         Guid linkedRepositoryId,
         [FromQuery] int page = 1,

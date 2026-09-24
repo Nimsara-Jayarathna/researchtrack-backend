@@ -26,5 +26,6 @@ public sealed class JiraConnection
     public DateTimeOffset? WebhookExpiresAt { get; set; }
     public DateTimeOffset? LastWebhookAt { get; set; }
     public DateTimeOffset? LastReconciledAt { get; set; }
+    public long SyncRevision { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
 }

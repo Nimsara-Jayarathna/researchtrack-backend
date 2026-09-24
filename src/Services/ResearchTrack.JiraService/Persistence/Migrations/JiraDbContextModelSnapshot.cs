@@ -87,6 +87,9 @@ namespace ResearchTrack.JiraService.Persistence.Migrations
                     b.Property<string>("Scope")
                         .HasColumnType("longtext");
 
+                    b.Property<long>("SyncRevision")
+                        .HasColumnType("bigint");
+
                     b.Property<string>("SyncStatus")
                         .IsRequired()
                         .HasMaxLength(32)
