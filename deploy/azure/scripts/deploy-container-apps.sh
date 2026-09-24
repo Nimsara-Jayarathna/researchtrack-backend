@@ -2,19 +2,24 @@
 # Deploys ResearchTrack services to Azure Container Apps.
 #
 # Each app is applied through deploy/azure/modules/container-app.bicep (Bicep
-# owns the app definition). Only services whose desired spec changed (image,
-# env, secrets, resources) are touched, so a Jira-only change updates
-# rt-jira-prod and nothing else. For each such DB-owning service,
+# owns the app definition). Every service targets the image published for its
+# current source fingerprint (IMAGE_TAGS, from deploy/build/service-impact.py
+# plan), pinned by digest and checked against its provenance labels; there is
+# no fallback to the image an app already runs. Only services whose desired
+# spec changed (image, env, secrets, resources) are touched, so a Jira-only
+# change updates rt-jira-prod and nothing else. For each such DB-owning service,
 # /app/dbcheck and /app/migrate run first as a Container Apps Job with the same
 # image; a failure stops before any revision changes. A new revision that does
 # not become healthy is deactivated and the previous healthy revision kept.
 #
 # Required environment:
 #   RESOURCE_GROUP, ACA_ENVIRONMENT, IMAGE_PREFIX, GIT_SHA, ENV_DIR, WORK_DIR
+#   IMAGE_TAGS                 JSON map service -> source-fingerprint image tag
 # Optional:
 #   REBUILT_SERVICES           space-separated services built in this run
 #   REGISTRY_USERNAME/REGISTRY_PASSWORD  GHCR pull credential (private packages)
 #   FORCE_REDEPLOY=true        migrate and roll out every service regardless of changes
+#   PLAN_ONLY=true             print the plan and summary, change nothing
 set -Eeuo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -22,9 +27,11 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$script_dir/aca-job.sh"
 app_template="$script_dir/../modules/container-app.bicep"
 
-for key in RESOURCE_GROUP ACA_ENVIRONMENT IMAGE_PREFIX GIT_SHA ENV_DIR WORK_DIR; do
+for key in RESOURCE_GROUP ACA_ENVIRONMENT IMAGE_PREFIX GIT_SHA ENV_DIR WORK_DIR IMAGE_TAGS; do
   [[ -n "${!key:-}" ]] || { echo "$key is required." >&2; exit 1; }
 done
+jq -e 'type == "object"' <<<"$IMAGE_TAGS" >/dev/null 2>&1 \
+  || { echo "IMAGE_TAGS must be the JSON service -> image tag map from the build job." >&2; exit 1; }
 
 REBUILT_SERVICES="${REBUILT_SERVICES:-}"
 # One replica per service until statelessness/background workers are reviewed
@@ -32,6 +39,7 @@ REBUILT_SERVICES="${REBUILT_SERVICES:-}"
 MIN_REPLICAS=1
 MAX_REPLICAS=1
 FORCE_REDEPLOY="${FORCE_REDEPLOY:-false}"
+PLAN_ONLY="${PLAN_ONLY:-false}"
 summary="${GITHUB_STEP_SUMMARY:-/dev/null}"
 
 # Backends first so the Gateway never routes to a service that is not deployed.
@@ -69,6 +77,15 @@ resolve_image_digest() {
   echo "${ref%:*}@$digest"
 }
 
+# OCI labels of an image: a single-platform manifest, or an index (buildx adds
+# a provenance attestation) where linux/amd64 is preferred over other platforms.
+image_labels() {
+  docker buildx imagetools inspect "$1" --format '{{json .Image}}' | jq -c '
+    (if has("config") then .
+     else (.["linux/amd64"] // ([to_entries[] | select(.key | startswith("unknown/") | not) | .value][0]) // {})
+     end) | .config.Labels // {}'
+}
+
 render() {
   local kind="$1" service="$2" name="$3" image="$4" output="$5"
   local args=() file cpu memory
@@ -94,8 +111,22 @@ render() {
 # ---------------------------------------------------------------------------
 # Plan
 # ---------------------------------------------------------------------------
-declare -A target_image=() previous_revision=()
+declare -A target_image=() previous_revision=() source_commit=() deploy_reason=()
 planned=()
+
+{
+  echo "### Azure Container Apps deployment"
+  echo
+  echo "Source commit: \`$GIT_SHA\`"
+  echo
+  echo "| Service | Action | Reason | Image built from | Image | Previous revision | New revision |"
+  echo "|---|---|---|---|---|---|---|"
+} >> "$summary"
+
+summary_row() {
+  local service="$1" action="$2" reason="$3" new_revision="$4"
+  echo "| $service | $action | $reason | ${source_commit[$service]:0:12} | ${target_image[$service]} | ${previous_revision[$service]:-none} | $new_revision |" >> "$summary"
+}
 
 echo "== Planning"
 for service in "${services[@]}"; do
@@ -112,37 +143,54 @@ for service in "${services[@]}"; do
     previous_revision[$service]=""
   fi
 
+  # Always the image for the current source, never "whatever is running now".
+  tag="$(jq -r --arg s "$service" '.[$s] // ""' <<<"$IMAGE_TAGS")"
+  [[ -n "$tag" ]] || { echo "No source image tag for $service; refusing to deploy an image of unknown provenance." >&2; exit 1; }
+  ref="$IMAGE_PREFIX/researchtrack-$service:$tag"
+  image="$(resolve_image_digest "$ref")" \
+    || { echo "Image $ref for the current $service source is not published." >&2; exit 1; }
+  labels="$(image_labels "$ref")"
+  labelled_tag="$(jq -r '."io.researchtrack.source-tag" // ""' <<<"$labels")"
+  labelled_service="$(jq -r '."io.researchtrack.service" // ""' <<<"$labels")"
+  if [[ "$labelled_tag" != "$tag" || "$labelled_service" != "$service" ]]; then
+    echo "Image $ref is labelled service='$labelled_service' source-tag='$labelled_tag'; expected '$service' '$tag'." >&2
+    exit 1
+  fi
+  source_commit[$service]="$(jq -r '."org.opencontainers.image.revision" // "unknown"' <<<"$labels")"
+  target_image[$service]="$image"
+
   if [[ " $REBUILT_SERVICES " == *" $service "* ]]; then
-    image="$IMAGE_PREFIX/researchtrack-$service:$GIT_SHA"
-  elif [[ -n "$current_image" ]]; then
-    image="$current_image"
+    origin="built in this run"
   else
-    # First deployment of a service that was not rebuilt: pin the current
-    # production tag by digest so the revision still has an immutable image.
-    image="$(resolve_image_digest "$IMAGE_PREFIX/researchtrack-$service:production")"
+    origin="reused image built from ${source_commit[$service]:0:12}"
   fi
 
   hash="$(render app "$service" "$app" "$image" "$WORK_DIR/$service.app.json")"
   if [[ "$hash" == "$current_hash" && "$FORCE_REDEPLOY" != "true" ]]; then
-    printf '   %-11s unchanged (%s)\n' "$service" "$image"
+    printf '   %-11s unchanged  %s (source %s)\n' "$service" "$image" "${source_commit[$service]:0:12}"
+    summary_row "$service" unchanged "running image already matches current source" -
     continue
   fi
 
-  target_image[$service]="$image"
+  if [[ -z "$current" ]]; then
+    deploy_reason[$service]="first deployment ($origin)"
+  elif [[ "$FORCE_REDEPLOY" == "true" && "$hash" == "$current_hash" ]]; then
+    deploy_reason[$service]="force_redeploy=true"
+  elif [[ "$current_image" != "$image" ]]; then
+    deploy_reason[$service]="running image is not the current source ($origin)"
+  else
+    deploy_reason[$service]="configuration changed (env, secrets or resources)"
+  fi
   planned+=("$service")
-  printf '   %-11s deploy    %s\n' "$service" "$image"
+  printf '   %-11s deploy     %s - %s\n' "$service" "$image" "${deploy_reason[$service]}"
 done
-
-{
-  echo "### Azure Container Apps deployment"
-  echo
-  echo "| Service | Action | Image | Previous revision | New revision |"
-  echo "|---|---|---|---|---|"
-} >> "$summary"
 
 if ((${#planned[@]} == 0)); then
   echo "Nothing to deploy: every Container App already matches the desired spec."
-  echo "| _all_ | unchanged | | | |" >> "$summary"
+  exit 0
+fi
+if [[ "$PLAN_ONLY" == "true" ]]; then
+  echo "PLAN_ONLY=true: stopping before migrations and rollout."
   exit 0
 fi
 
@@ -189,7 +237,7 @@ rollback() {
     az containerapp revision activate -g "$RESOURCE_GROUP" -n "$app" --revision "$previous" -o none || true
     echo "   $app kept on previous healthy revision $previous" >&2
   fi
-  echo "| $service | **failed, rolled back** | ${target_image[$service]} | ${previous:-none} | $failed |" >> "$summary"
+  summary_row "$service" "**failed, rolled back**" "${deploy_reason[$service]}" "${failed:-none}"
 }
 
 wait_for_revision() {
@@ -247,7 +295,7 @@ for service in "${planned[@]}"; do
 
   if new_revision="$(wait_for_revision "$service" "$app" "${target_image[$service]}")"; then
     echo "   $app ready on $new_revision"
-    echo "| $service | deployed | ${target_image[$service]} | ${previous_revision[$service]:-none} | $new_revision |" >> "$summary"
+    summary_row "$service" deployed "${deploy_reason[$service]}" "$new_revision"
   else
     az containerapp logs show -g "$RESOURCE_GROUP" -n "$app" --revision "$new_revision" --tail 100 2>/dev/null || true
     rollback "$service" "$app" "$new_revision"

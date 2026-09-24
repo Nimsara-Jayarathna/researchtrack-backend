@@ -10,6 +10,13 @@ on:
         required: false
         type: boolean
         default: false
+      selection:
+        # diff:        build services affected by this push's changes (Test).
+        # fingerprint: build every service whose image for the current source
+        #              is not published yet, independent of push history (Production).
+        required: false
+        type: string
+        default: diff
     outputs:
       services:
         description: Space-separated Compose services whose images were rebuilt.
@@ -17,6 +24,9 @@ on:
       has_changes:
         description: Whether any backend deployable image needed rebuilding.
         value: ${{ jobs.detect.outputs.has_changes }}
+      image_tags:
+        description: JSON map service -> source-fingerprint image tag (fingerprint selection only).
+        value: ${{ jobs.detect.outputs.image_tags }}
 
 permissions:
   contents: read
@@ -26,10 +36,14 @@ jobs:
   detect:
     name: Detect Affected Services
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
     outputs:
       matrix: ${{ steps.changes.outputs.matrix }}
       services: ${{ steps.changes.outputs.services }}
       has_changes: ${{ steps.changes.outputs.has_changes }}
+      image_tags: ${{ steps.changes.outputs.image_tags }}
 
     steps:
       - name: Checkout full history
@@ -37,63 +51,41 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Login to GitHub Container Registry
+        if: inputs.selection == 'fingerprint'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # The dependency model (project references, shared build inputs, known
+      # non-image paths, conservative fallback) lives in deploy/build/service-impact.py.
       - name: Detect affected deployables
         id: changes
         shell: bash
+        env:
+          SELECTION: ${{ inputs.selection }}
+          FORCE_FULL_BUILD: ${{ inputs.force_full_build }}
+          BEFORE_SHA: ${{ github.event.before }}
+          OWNER: ${{ github.repository_owner }}
         run: |
           set -euo pipefail
-
-          before="${{ github.event.before }}"
-          after="${{ github.sha }}"
-
-          if [[ "${{ inputs.force_full_build }}" == "true" ]]; then
-            services=(gateway auth project github jira meeting submission)
-            matrix="$(printf '%s\n' "${services[@]}" | jq -R . | jq -sc .)"
-            echo "Force full backend image build requested."
-            echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
-            echo "services=${services[*]}" >> "$GITHUB_OUTPUT"
-            echo 'has_changes=true' >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          if [[ -z "$before" || "$before" =~ ^0+$ ]]; then
-            before="$(git rev-parse "${after}^" 2>/dev/null || echo "$after")"
-          fi
-
-          changed="$(git diff --name-only "$before" "$after" || true)"
-          echo "Changed files:"
-          printf '%s\n' "$changed"
-
-          services=()
-          add_service() {
-            local service="$1"
-            [[ " ${services[*]} " == *" $service "* ]] || services+=("$service")
-          }
-
-          # Shared compilation/deployment-image inputs can affect every executable.
-          if grep -Eq '^(src/BuildingBlocks/|tools/ResearchTrack\.DbCheck/|Directory\.Build\.props$|Directory\.Packages\.props$|global\.json$|ResearchTrack\.sln$|dotnet-tools\.json$|deploy/Dockerfile\.service$)' <<<"$changed"; then
-            services=(gateway auth project github jira meeting submission)
-          else
-            grep -q '^src/Gateway/ResearchTrack.Gateway/' <<<"$changed" && add_service gateway || true
-            grep -q '^src/Services/ResearchTrack.AuthService/' <<<"$changed" && add_service auth || true
-            grep -q '^src/Services/ResearchTrack.ProjectService/' <<<"$changed" && add_service project || true
-            grep -q '^src/Services/ResearchTrack.GitHubService/' <<<"$changed" && add_service github || true
-            grep -q '^src/Services/ResearchTrack.JiraService/' <<<"$changed" && add_service jira || true
-            grep -q '^src/Services/ResearchTrack.MeetingService/' <<<"$changed" && add_service meeting || true
-            grep -q '^src/Services/ResearchTrack.SubmissionService/' <<<"$changed" && add_service submission || true
-          fi
-
-          if ((${#services[@]} == 0)); then
-            echo 'matrix=[]' >> "$GITHUB_OUTPUT"
-            echo 'services=' >> "$GITHUB_OUTPUT"
-            echo 'has_changes=false' >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          matrix="$(printf '%s\n' "${services[@]}" | jq -R . | jq -sc .)"
-          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
-          echo "services=${services[*]}" >> "$GITHUB_OUTPUT"
-          echo 'has_changes=true' >> "$GITHUB_OUTPUT"
+          case "$SELECTION" in
+            diff)
+              python3 deploy/build/service-impact.py impact \
+                --head "$GITHUB_SHA" --base "$BEFORE_SHA" --force "$FORCE_FULL_BUILD"
+              ;;
+            fingerprint)
+              python3 deploy/build/service-impact.py plan \
+                --head "$GITHUB_SHA" --base "$BEFORE_SHA" --force "$FORCE_FULL_BUILD" \
+                --image-prefix "ghcr.io/${OWNER,,}"
+              ;;
+            *)
+              echo "Unknown selection '$SELECTION' (expected diff or fingerprint)." >&2
+              exit 1
+              ;;
+          esac
 
   build:
     name: Build ${{ matrix.service }}
@@ -116,65 +108,29 @@ jobs:
       - name: Resolve service metadata
         id: meta
         shell: bash
+        env:
+          SERVICE: ${{ matrix.service }}
+          SOURCE_TAG: ${{ fromJSON(needs.detect.outputs.image_tags || '{}')[matrix.service] || '' }}
+          IMAGE_TAG: ${{ inputs.image_tag }}
+          OWNER: ${{ github.repository_owner }}
         run: |
           set -euo pipefail
+          python3 deploy/build/service-impact.py meta --service "$SERVICE" > "$RUNNER_TEMP/meta"
+          # shellcheck disable=SC1091
+          . "$RUNNER_TEMP/meta"
+          image_repo="ghcr.io/${OWNER,,}/$image"
 
-          case "${{ matrix.service }}" in
-            gateway)
-              project='src/Gateway/ResearchTrack.Gateway/ResearchTrack.Gateway.csproj'
-              dll='ResearchTrack.Gateway.dll'
-              context=''
-              image='researchtrack-gateway'
-              ;;
-            auth)
-              project='src/Services/ResearchTrack.AuthService/ResearchTrack.AuthService.csproj'
-              dll='ResearchTrack.AuthService.dll'
-              context='AuthDbContext'
-              image='researchtrack-auth'
-              ;;
-            project)
-              project='src/Services/ResearchTrack.ProjectService/ResearchTrack.ProjectService.csproj'
-              dll='ResearchTrack.ProjectService.dll'
-              context='ProjectDbContext'
-              image='researchtrack-project'
-              ;;
-            github)
-              project='src/Services/ResearchTrack.GitHubService/ResearchTrack.GitHubService.csproj'
-              dll='ResearchTrack.GitHubService.dll'
-              context='GitHubDbContext'
-              image='researchtrack-github'
-              ;;
-            jira)
-              project='src/Services/ResearchTrack.JiraService/ResearchTrack.JiraService.csproj'
-              dll='ResearchTrack.JiraService.dll'
-              context='JiraDbContext'
-              image='researchtrack-jira'
-              ;;
-            meeting)
-              project='src/Services/ResearchTrack.MeetingService/ResearchTrack.MeetingService.csproj'
-              dll='ResearchTrack.MeetingService.dll'
-              context='MeetingDbContext'
-              image='researchtrack-meeting'
-              ;;
-            submission)
-              project='src/Services/ResearchTrack.SubmissionService/ResearchTrack.SubmissionService.csproj'
-              dll='ResearchTrack.SubmissionService.dll'
-              context='SubmissionDbContext'
-              image='researchtrack-submission'
-              ;;
-            *)
-              echo "Unknown service: ${{ matrix.service }}" >&2
-              exit 1
-              ;;
-          esac
-
-          owner="$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
-          image_repo="ghcr.io/$owner/$image"
-
-          echo "project=$project" >> "$GITHUB_OUTPUT"
-          echo "dll=$dll" >> "$GITHUB_OUTPUT"
-          echo "context=$context" >> "$GITHUB_OUTPUT"
-          echo "image_repo=$image_repo" >> "$GITHUB_OUTPUT"
+          {
+            echo "project=$project"
+            echo "dll=$dll"
+            echo "context=$context"
+            echo "image_repo=$image_repo"
+            echo 'tags<<EOF'
+            echo "$image_repo:$IMAGE_TAG"
+            echo "$image_repo:$GITHUB_SHA"
+            [[ -z "$SOURCE_TAG" ]] || echo "$image_repo:$SOURCE_TAG"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
 
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -196,8 +152,13 @@ jobs:
             PROJECT_PATH=${{ steps.meta.outputs.project }}
             APP_DLL=${{ steps.meta.outputs.dll }}
             DB_CONTEXT=${{ steps.meta.outputs.context }}
-          tags: |
-            ${{ steps.meta.outputs.image_repo }}:${{ inputs.image_tag }}
-            ${{ steps.meta.outputs.image_repo }}:${{ github.sha }}
+          tags: ${{ steps.meta.outputs.tags }}
+          # Provenance: lets the deployment prove which commit/source an image holds.
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.title=researchtrack-${{ matrix.service }}
+            io.researchtrack.service=${{ matrix.service }}
+            io.researchtrack.source-tag=${{ fromJSON(needs.detect.outputs.image_tags || '{}')[matrix.service] || '' }}
           cache-from: type=gha,scope=backend-${{ matrix.service }}
           cache-to: type=gha,scope=backend-${{ matrix.service }},mode=max
