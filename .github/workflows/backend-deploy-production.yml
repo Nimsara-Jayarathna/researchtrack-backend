@@ -2,8 +2,7 @@ name: Backend Deploy - Production
 
 on:
   push:
-    # Temporarily deploys Production from the Azure migration branch instead of main.
-    branches: ["devops/azure-production-deployment"]
+    branches: ["main"]
   workflow_dispatch:
     inputs:
       force_full_build:

@@ -6,8 +6,7 @@ name: Azure Infrastructure - Production
 
 on:
   push:
-    # Temporarily deploys Production from the Azure migration branch instead of main.
-    branches: ["devops/azure-production-deployment"]
+    branches: ["main"]
     paths:
       - "deploy/azure/main.bicep"
       - "deploy/azure/modules/**"

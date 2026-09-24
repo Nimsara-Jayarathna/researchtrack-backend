@@ -68,7 +68,7 @@ None.
 
 Configuration and operator documentation: `docs/devops/configuration/` (added 2026-09-24).
 
-- **Temporary deviation, Production trigger branch:** `backend-deploy-production.yml` and `azure-infrastructure.yml` run on pushes to `devops/azure-production-deployment` instead of `main`. Revert both `on.push.branches` to `main` when the branch is merged.
+- **Production trigger branch (2026-09-24):** the temporary `devops/azure-production-deployment` trigger was removed. `backend-deploy-production.yml` and `azure-infrastructure.yml` now run on pushes to `main`, as designed.
 
 ## First real Azure run: VM stack findings (2026-09-24)
 

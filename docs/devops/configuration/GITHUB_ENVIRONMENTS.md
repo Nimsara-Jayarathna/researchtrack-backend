@@ -7,10 +7,10 @@ This is the authoritative inventory, derived from `secrets.*` and `vars.*` refer
 | GitHub Environment | Branch | Entry workflow | Implementation | Target |
 |---|---|---|---|---|
 | `test` | `develop` (push) or manual | `backend-deploy-test.yml` | `backend-deploy-reusable.yml` | Existing VPS, Docker Compose project `researchtrack-test` |
-| `production` | `devops/azure-production-deployment` (push; **temporary, see below**) or manual | `backend-deploy-production.yml` | `backend-deploy-azure-production.yml` | Azure Container Apps + infrastructure VM |
-| `production` | `devops/azure-production-deployment` pushes touching infrastructure paths (**temporary**), or manual | `azure-infrastructure.yml` | same file | Azure infrastructure (Bicep) + VM stack |
+| `production` | `main` (push) or manual | `backend-deploy-production.yml` | `backend-deploy-azure-production.yml` | Azure Container Apps + infrastructure VM |
+| `production` | `main` pushes touching infrastructure paths, or manual | `azure-infrastructure.yml` | same file | Azure infrastructure (Bicep) + VM stack |
 
-> **Temporary trigger:** during the Azure migration, both Production workflows run on pushes to `devops/azure-production-deployment` instead of `main`. The target design is `main` (see `../azure-production/DECISIONS.md`). Switch the `on.push.branches` of both workflows back to `main` when the branch is merged. The OIDC federated credential is bound to the `production` Environment, not a branch, so it keeps working. If the `production` Environment has "Deployment branches" restricted to `main`, add this branch as well, or the jobs will be rejected.
+> Both Production workflows trigger on pushes to `main` (see `../azure-production/DECISIONS.md`). The OIDC federated credential is bound to the `production` Environment, not a branch. If the `production` Environment's "Deployment branches" rule was widened for the temporary migration branch, it can be narrowed back to `main`.
 
 `backend-ci.yml` (pull requests) and `backend-build-images.yml` use no environment secrets. Image pushes use the automatic `GITHUB_TOKEN`.
 
