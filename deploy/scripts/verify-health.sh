@@ -8,6 +8,67 @@ set -a
 set +a
 
 compose=(docker compose --env-file deploy.env -f compose.yml)
+
+if [[ "$DEPLOY_ENV" == "test" ]]; then
+  echo "Checking Kafka..."
+
+  kafka_container_id="$("${compose[@]}" ps -a -q kafka)"
+
+  if [[ -z "$kafka_container_id" ]]; then
+    echo "Kafka container was never created." >&2
+    echo
+    echo "Current Compose state:"
+    "${compose[@]}" ps -a
+    exit 1
+  fi
+
+  kafka_running="$(
+    docker inspect \
+      --format='{{.State.Running}}' \
+      "$kafka_container_id" 2>/dev/null ||
+      true
+  )"
+
+  kafka_health="$(
+    docker inspect \
+      --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' \
+      "$kafka_container_id" 2>/dev/null ||
+      true
+  )"
+
+  if [[ "$kafka_running" != "true" ]]; then
+    echo "Kafka container exists but has stopped." >&2
+    echo
+    echo "Container status:"
+    docker inspect \
+      --format='Status={{.State.Status}} ExitCode={{.State.ExitCode}} Error={{.State.Error}}' \
+      "$kafka_container_id" || true
+
+    echo
+    echo "Last 200 Kafka log lines:"
+    docker logs --tail 200 "$kafka_container_id" || true
+    exit 1
+  fi
+
+  if [[ "$kafka_health" != "healthy" ]]; then
+    echo "Kafka container is running but is not healthy." >&2
+    echo "Kafka health status: ${kafka_health:-unknown}" >&2
+    docker logs --tail 200 "$kafka_container_id" || true
+    exit 1
+  fi
+
+  if ! "${compose[@]}" exec -T kafka \
+    /opt/kafka/bin/kafka-topics.sh \
+    --bootstrap-server kafka:9092 \
+    --list >/dev/null; then
+    echo "Kafka broker connectivity verification failed." >&2
+    docker logs --tail 200 "$kafka_container_id" || true
+    exit 1
+  fi
+
+  echo "Kafka is running, healthy, and accepting broker connections."
+fi
+
 services=(gateway auth project github jira meeting submission)
 observability_services=(prometheus grafana)
 
@@ -25,8 +86,21 @@ for service in "${services[@]}"; do
   fi
 
   image="${IMAGE_PREFIX}/researchtrack-${service}:${DEPLOY_ENV}"
-  expected_image_id="$(docker image inspect --format='{{.Id}}' "$image" 2>/dev/null || true)"
-  running_image_id="$(docker inspect --format='{{.Image}}' "$container_id" 2>/dev/null || true)"
+
+  expected_image_id="$(
+    docker image inspect \
+      --format='{{.Id}}' \
+      "$image" 2>/dev/null ||
+      true
+  )"
+
+  running_image_id="$(
+    docker inspect \
+      --format='{{.Image}}' \
+      "$container_id" 2>/dev/null ||
+      true
+  )"
+
   if [[ -z "$expected_image_id" || "$running_image_id" != "$expected_image_id" ]]; then
     echo "$service is not running the exact image currently resolved by $image." >&2
     echo "Expected image ID: ${expected_image_id:-missing}" >&2
@@ -35,9 +109,21 @@ for service in "${services[@]}"; do
   fi
 
   healthy=false
+
   for attempt in $(seq 1 35); do
-    running="$(docker inspect --format='{{.State.Running}}' "$container_id" 2>/dev/null || true)"
-    health="$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$container_id" 2>/dev/null || true)"
+    running="$(
+      docker inspect \
+        --format='{{.State.Running}}' \
+        "$container_id" 2>/dev/null ||
+        true
+    )"
+
+    health="$(
+      docker inspect \
+        --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' \
+        "$container_id" 2>/dev/null ||
+        true
+    )"
 
     if [[ "$running" != "true" ]]; then
       echo "$service container exists but has stopped." >&2
@@ -73,7 +159,8 @@ for service in "${services[@]}"; do
     exit 1
   }
 
-  if ! docker exec "$container_id" curl -fsS http://127.0.0.1:8080/health/ready >/dev/null; then
+  if ! docker exec "$container_id" \
+    curl -fsS http://127.0.0.1:8080/health/ready >/dev/null; then
     echo "$service is live but not ready." >&2
     docker logs --tail 200 "$container_id" || true
     exit 1
@@ -83,7 +170,11 @@ for service in "${services[@]}"; do
 done
 
 probe_container_id="$("${compose[@]}" ps -a -q gateway)"
-[[ -n "$probe_container_id" ]] || { echo "Cannot run observability HTTP checks because gateway container was not found." >&2; exit 1; }
+
+[[ -n "$probe_container_id" ]] || {
+  echo "Cannot run observability HTTP checks because gateway container was not found." >&2
+  exit 1
+}
 
 wait_for_observability_http() {
   local service="$1"
@@ -92,7 +183,13 @@ wait_for_observability_http() {
   local ready=false
 
   for attempt in $(seq 1 35); do
-    running="$(docker inspect --format='{{.State.Running}}' "$container_id" 2>/dev/null || true)"
+    running="$(
+      docker inspect \
+        --format='{{.State.Running}}' \
+        "$container_id" 2>/dev/null ||
+        true
+    )"
+
     if [[ "$running" != "true" ]]; then
       echo "$service container exists but has stopped." >&2
       echo
@@ -135,7 +232,13 @@ for service in "${observability_services[@]}"; do
     exit 1
   fi
 
-  running="$(docker inspect --format='{{.State.Running}}' "$container_id" 2>/dev/null || true)"
+  running="$(
+    docker inspect \
+      --format='{{.State.Running}}' \
+      "$container_id" 2>/dev/null ||
+      true
+  )"
+
   if [[ "$running" != "true" ]]; then
     echo "$service container exists but has stopped." >&2
     echo
@@ -152,10 +255,21 @@ for service in "${observability_services[@]}"; do
 
   case "$service" in
     prometheus)
-      wait_for_observability_http "$service" "http://prometheus:9090/-/ready" "$container_id"
+      wait_for_observability_http \
+        "$service" \
+        "http://prometheus:9090/-/ready" \
+        "$container_id"
 
-      rules_payload="$(docker exec "$probe_container_id" curl -fsS http://prometheus:9090/api/v1/rules)"
-      expected_rule_groups=(researchtrack-availability researchtrack-github-integration)
+      rules_payload="$(
+        docker exec "$probe_container_id" \
+          curl -fsS http://prometheus:9090/api/v1/rules
+      )"
+
+      expected_rule_groups=(
+        researchtrack-availability
+        researchtrack-github-integration
+      )
+
       expected_alerts=(
         ResearchTrackServiceUnavailable
         ResearchTrackApiGatewayUnavailable
@@ -183,11 +297,25 @@ for service in "${observability_services[@]}"; do
 
       echo "$service is running, ready, and has all ResearchTrack operational alert rules loaded."
       ;;
-    grafana)
-      wait_for_observability_http "$service" "http://grafana:3000/api/health" "$container_id"
 
-      grafana_admin_user="$(docker exec "$container_id" printenv GF_SECURITY_ADMIN_USER 2>/dev/null || true)"
-      grafana_admin_password="$(docker exec "$container_id" printenv GF_SECURITY_ADMIN_PASSWORD 2>/dev/null || true)"
+    grafana)
+      wait_for_observability_http \
+        "$service" \
+        "http://grafana:3000/api/health" \
+        "$container_id"
+
+      grafana_admin_user="$(
+        docker exec "$container_id" \
+          printenv GF_SECURITY_ADMIN_USER 2>/dev/null ||
+          true
+      )"
+
+      grafana_admin_password="$(
+        docker exec "$container_id" \
+          printenv GF_SECURITY_ADMIN_PASSWORD 2>/dev/null ||
+          true
+      )"
+
       if [[ -z "$grafana_admin_user" || -z "$grafana_admin_password" ]]; then
         echo "Cannot verify Grafana provisioning because Grafana admin credentials are missing from the container environment." >&2
         exit 1
@@ -216,4 +344,8 @@ for service in "${observability_services[@]}"; do
   esac
 done
 
-echo "All ResearchTrack backend and observability services are healthy and running the current deployment state."
+if [[ "$DEPLOY_ENV" == "test" ]]; then
+  echo "All ResearchTrack backend, Kafka, and observability services are healthy and running the current deployment state."
+else
+  echo "All ResearchTrack backend and observability services are healthy and running the current deployment state."
+fi
