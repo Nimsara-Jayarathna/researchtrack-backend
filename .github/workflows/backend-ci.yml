@@ -43,6 +43,9 @@ jobs:
       - name: Test Kafka TLS smoke-test logic (stubbed Kafka)
         run: ./deploy/azure/validation/test-kafka-smoke.sh
 
+      - name: Test VM private-IP safety check (stubbed ip)
+        run: ./deploy/azure/validation/test-private-ip-check.sh
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:

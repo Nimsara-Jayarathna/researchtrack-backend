@@ -92,6 +92,12 @@ Configuration and operator documentation: `docs/devops/configuration/` (added 20
   - The CA and broker private keys never enter the container. `reconcile-stack.sh` verifies readability from inside the container as uid 1000, and rejects credentials in the world-readable `client-ssl.properties`.
   - The infrastructure workflow's app-presence probe now counts only the seven exact app names and never fails. `EXPECT_APPS=true` only when all seven exist.
 
+- **Third run:** `reconcile-stack.sh` failed with `INFRA_PRIVATE_IP 10.20.10.4 is not assigned` although Azure confirms the NIC has static `10.20.10.4`.
+  - Cause: a guest-side false negative. `ip -4 -o addr show | grep -qw …` ran under `pipefail`. Once `grep -q` matched it exited, and later address records (`docker0`, `br-…`) sent `ip` a SIGPIPE (141), so the pipeline "failed". There was also no tolerance for the network settling right after Bicep and `configure-vm.sh` (apt upgrade, Docker restart).
+  - Fix: `global_ipv4_addresses` captures the list first and compares exactly. It retries up to 12×5 s, then fails with diagnostics (addresses, interfaces, routes). `INFRA_PRIVATE_IP` is normalized and validated. The same capture-first fix was applied to the partition check that guards the data-disk format in `configure-vm.sh`.
+  - Tests: `deploy/azure/validation/test-private-ip-check.sh` (also in CI).
+  - Azure networking/Bicep unchanged.
+
 ## Validation already performed (local, 2026-09-24)
 
 - `bicep build` for `main.bicep` and `modules/container-app.bicep`, `bicep build-params` for `production.bicepparam`, and `bicep lint`: clean.

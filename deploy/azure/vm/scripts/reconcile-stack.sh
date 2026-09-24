@@ -33,8 +33,55 @@ for key in API_HOSTNAME GRAFANA_HOSTNAME ACA_ENV_DOMAIN; do
 done
 [[ "$ACA_TLS_VERIFY" == "on" || "$ACA_TLS_VERIFY" == "off" ]] || { echo "ACA_TLS_VERIFY must be on or off." >&2; exit 1; }
 [[ "$KAFKA_RETENTION_HOURS" =~ ^[0-9]+$ ]] || { echo "KAFKA_RETENTION_HOURS must be numeric." >&2; exit 1; }
-ip -4 -o addr show | grep -qw "inet $INFRA_PRIVATE_IP/[0-9]*" \
-  || { echo "INFRA_PRIVATE_IP $INFRA_PRIVATE_IP is not assigned to this VM." >&2; exit 1; }
+
+# Safety check: MySQL and Kafka bind to INFRA_PRIVATE_IP, so it must be one of
+# this VM's addresses. Bounded retry: this Run Command starts right after Bicep
+# and configure-vm.sh (apt upgrade, Docker restart), while guest networking may
+# still be converging. The address list is captured before matching; a
+# `ip ... | grep -q` pipeline under pipefail reports a false negative whenever
+# grep exits early and ip is killed by SIGPIPE.
+# BEGIN private-ip-check
+global_ipv4_addresses() {
+  local listing
+  listing="$(ip -4 -o addr show scope global)" || return 1
+  awk '{ for (i = 1; i < NF; i++) if ($i == "inet") { split($(i + 1), a, "/"); print a[1] } }' <<<"$listing"
+}
+
+wait_for_private_ip() {
+  local expected="$1" attempts="${2:-12}" interval="${3:-5}" attempt addresses
+  for ((attempt = 1; attempt <= attempts; attempt++)); do
+    addresses="$(global_ipv4_addresses || true)"
+    if grep -Fxq -- "$expected" <<<"$addresses"; then
+      ((attempt == 1)) || log "      $expected present after $attempt attempts"
+      return 0
+    fi
+    ((attempt == attempts)) && break
+    log "      waiting for private IP $expected ($attempt/$attempts)"
+    sleep "$interval"
+  done
+  {
+    echo "INFRA_PRIVATE_IP $expected is not assigned to this VM (checked $attempts times, ${interval}s apart)."
+    echo "Global IPv4 addresses: $(tr '\n' ' ' <<<"${addresses:-<none>}")"
+    echo "Interfaces:"
+    ip -4 -o addr show 2>&1 | awk '{print "  " $2, $4}' || true
+    echo "Routes:"
+    ip -4 route show 2>&1 | sed 's/^/  /' || true
+  } >&2
+  return 1
+}
+
+# infra.env is generated, but never trust stray whitespace/CR in the value.
+normalize_ipv4() {
+  local value
+  value="$(tr -d '[:space:]' <<<"$1")"
+  [[ "$value" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || return 1
+  printf '%s' "$value"
+}
+# END private-ip-check
+
+INFRA_PRIVATE_IP="$(normalize_ipv4 "$INFRA_PRIVATE_IP")" \
+  || { echo "infra.env INFRA_PRIVATE_IP is not an IPv4 address." >&2; exit 1; }
+wait_for_private_ip "$INFRA_PRIVATE_IP" 12 5 || exit 1
 
 gateway_fqdn="rt-gateway-prod.$ACA_ENV_DOMAIN"
 

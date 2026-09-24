@@ -62,7 +62,10 @@ device="$(readlink -f "$data_disk")"
 fs_type="$(blkid -o value -s TYPE "$device" 2>/dev/null || true)"
 if [[ -z "$fs_type" ]]; then
   # Only a brand-new disk (no filesystem, no partitions) is ever formatted.
-  if lsblk -no NAME "$device" | tail -n +2 | grep -q .; then
+  # Captured first: under pipefail, `lsblk | ... | grep -q` can report a false
+  # "no partitions" (SIGPIPE), and this decision guards a format.
+  children="$(lsblk -no NAME "$device" | tail -n +2)"
+  if [[ -n "${children//[[:space:]]/}" ]]; then
     echo "Data disk $device has partitions but no filesystem on the whole device; refusing to format." >&2
     exit 1
   fi
