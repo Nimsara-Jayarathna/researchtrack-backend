@@ -20,7 +20,8 @@ env_id=/subscriptions/0/resourceGroups/rg/providers/Microsoft.App/managedEnviron
 location=westeurope
 
 mkdir -p "$work/bin" "$work/env" "$work/apps" "$work/images"
-printf 'Jwt__Issuer=https://issuer.example\n' > "$work/env/shared-auth.env"
+printf 'Jwt__Issuer=https://issuer.example\nJwt__Audience=researchtrack\nJwt__SigningKey=%s\n' \
+  "$(printf 'k%.0s' {1..48})" > "$work/env/shared-auth.env"
 for service in "${services[@]}"; do
   printf 'Service__Name=%s\n' "$service" > "$work/env/$service.env"
 done
@@ -97,9 +98,10 @@ set_app() {
 spec_hash() {
   local service="$1" image="$2" cpu memory args=()
   case "$service" in gateway|auth|project) cpu=0.5 memory=1Gi ;; *) cpu=0.25 memory=0.5Gi ;; esac
-  case "$service" in auth|project|github) args+=(--env-file "$work/env/shared-auth.env") ;; esac
-  args+=(--env-file "$work/env/$service.env")
-  [[ "$service" == gateway ]] && args=(--env-file "$work/env/gateway.env")
+  # Same composition as the deployer: the central service metadata.
+  for file in $(python3 "$repo_root/deploy/build/service-impact.py" meta --service "$service" | sed -n 's/^env_files=//p'); do
+    args+=(--env-file "$work/env/$file")
+  done
   python3 "$renderer" --kind app --service "$service" --name "rt-$service-prod" --location "$location" \
     --environment-id "$env_id" --image "$image" --cpu "$cpu" --memory "$memory" \
     --min-replicas 1 --max-replicas 1 --registry-server ghcr.io --registry-username "" \
@@ -184,5 +186,72 @@ if run_deployer env IMAGE_TAGS=""; then fail "empty IMAGE_TAGS accepted"; fi
 if run_deployer env IMAGE_TAGS='{"gateway":"src-x"}'; then fail "partial IMAGE_TAGS accepted"; fi
 grep -q 'refusing to deploy an image of unknown provenance' "$work/out" || fail "partial IMAGE_TAGS message"
 pass "missing image tags are refused"
+
+# 8. Plan logs each service's composed env files and required shared keys (names only).
+reset_state
+publish single
+run_deployer env IMAGE_TAGS="$(image_tags)" || fail "composition plan exited non-zero"
+grep -q '^   jira        env shared-auth.env jira.env (requires Jwt__Issuer,Jwt__Audience,Jwt__SigningKey)$' "$work/out" \
+  || fail "jira composition not logged"
+grep -q '^   gateway     env gateway.env$' "$work/out" || fail "gateway composition not logged"
+grep -q "$(printf 'k%.0s' {1..48})" "$work/out" && fail "signing key value printed"
+pass "plan logs composed env files and required shared-auth keys"
+
+# 9. Shared key missing: planning fails before any migration or revision.
+cp "$work/env/shared-auth.env" "$work/shared-auth.env.bak"
+sed -i.tmp '/^Jwt__SigningKey=/d' "$work/env/shared-auth.env" && rm -f "$work/env/shared-auth.env.tmp"
+if run_deployer env IMAGE_TAGS="$(image_tags)"; then fail "missing shared key accepted"; fi
+grep -q 'rt-auth-prod: required configuration missing or empty in composed env files (shared-auth.env, auth.env): Jwt__SigningKey' "$work/out" \
+  || fail "missing shared key message"
+grep -q 'PLAN_ONLY=true: stopping' "$work/out" && fail "planning continued after missing shared key"
+cp "$work/shared-auth.env.bak" "$work/env/shared-auth.env"
+pass "missing shared-auth key fails during planning, before any Azure change"
+
+# 10. Rollback is idempotent: an already-active previous revision is success.
+rollback_fns="$(sed -n '/^revision_active() {/,/^}/p; /^set_revision_active() {/,/^}/p; /^rollback() {/,/^}/p' "$deployer")"
+cat > "$work/bin/az" <<'STUB'
+#!/usr/bin/env bash
+# revision show --query properties.active | revision activate|deactivate
+echo "$*" >> "$STUB_DIR/az.log"
+revision="" ; prev=""
+for arg in "$@"; do [[ "$prev" == --revision ]] && revision="$arg"; prev="$arg"; done
+state_file="$STUB_DIR/revisions/$revision"
+case "$2 $3" in
+  "revision show") cat "$state_file" ;;
+  "revision activate")
+    [[ "$(cat "$state_file")" == true ]] && { echo "ERROR: (RevisionAlreadyInRequestedState) Revision $revision is already active!" >&2; exit 1; }
+    echo true > "$state_file" ;;
+  "revision deactivate")
+    [[ "$(cat "$state_file")" == false ]] && { echo "ERROR: (RevisionAlreadyInRequestedState) Revision $revision is already inactive!" >&2; exit 1; }
+    echo false > "$state_file" ;;
+  *) echo "unexpected az call: $*" >&2; exit 99 ;;
+esac
+STUB
+chmod +x "$work/bin/az"
+mkdir -p "$work/revisions"
+run_rollback() {
+  : > "$work/az.log"
+  PATH="$work/bin:$PATH" STUB_DIR="$work" RESOURCE_GROUP=rg bash -c '
+    set -Eeuo pipefail
+    summary=/dev/null
+    declare -A previous_revision=([jira]=rt-jira-prod--prev) target_image=([jira]=img) deploy_reason=([jira]=r) source_commit=([jira]=c)
+    summary_row() { :; }
+    '"$rollback_fns"'
+    rollback jira rt-jira-prod rt-jira-prod--new' > "$work/out" 2>&1
+}
+echo true > "$work/revisions/rt-jira-prod--prev"; echo true > "$work/revisions/rt-jira-prod--new"
+run_rollback || fail "rollback with previous already active failed"
+grep -q 'revision activate' "$work/az.log" && fail "activate called for an already-active revision"
+grep -q 'RevisionAlreadyInRequestedState' "$work/out" && fail "rollback surfaced RevisionAlreadyInRequestedState"
+grep -q 'rt-jira-prod--prev already activated' "$work/out" || fail "already-active not reported"
+grep -q 'kept on previous healthy revision rt-jira-prod--prev' "$work/out" || fail "rollback outcome not reported"
+[[ "$(cat "$work/revisions/rt-jira-prod--new")" == false ]] || fail "failed revision not deactivated"
+pass "rollback treats an already-active previous revision as success"
+
+echo false > "$work/revisions/rt-jira-prod--prev"; echo false > "$work/revisions/rt-jira-prod--new"
+run_rollback || fail "rollback with inactive previous failed"
+[[ "$(cat "$work/revisions/rt-jira-prod--prev")" == true ]] || fail "previous revision not re-activated"
+grep -q 'revision deactivate' "$work/az.log" && fail "deactivate called for an already-inactive revision"
+pass "rollback re-activates an inactive previous revision"
 
 echo "All deploy image-selection tests passed."

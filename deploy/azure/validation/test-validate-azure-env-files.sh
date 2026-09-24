@@ -108,6 +108,32 @@ new_case valid
 expect pass "valid synthetic production configuration"
 expect pass "infra scope (mysql.env + grafana.env only)" "" VALIDATE_SCOPE=infra
 
+# Shared JWT composition is reported by name for every consumer, never by value.
+new_case shared-auth-report
+if run env; then
+  for service in auth project github jira meeting submission; do
+    grep -q "^shared auth for $service (shared-auth.env $service.env): Jwt__Issuer: present, Jwt__Audience: present, Jwt__SigningKey: present$" "$work/out" \
+      || { echo "FAIL shared-auth report for $service"; cat "$work/out"; failures=$((failures + 1)); }
+  done
+  if grep -q '^shared auth for gateway' "$work/out"; then
+    echo "FAIL gateway does not use shared JWT validation"; failures=$((failures + 1))
+  fi
+  if grep -q "$(printf 's%.0s' {1..48})" "$work/out"; then
+    echo "FAIL signing key value printed"; failures=$((failures + 1))
+  fi
+  echo "ok   shared JWT keys reported present for all six consumers, values never printed"
+else
+  echo "FAIL shared-auth report case"; cat "$work/out"; failures=$((failures + 1))
+fi
+
+new_case jira-owns-jwt
+printf 'Jwt__SigningKey=%s\n' "$(printf 'j%.0s' {1..48})" >> "$case_dir/jira.env"
+expect fail "service-specific copy of shared JWT key rejected" "jira.env defines shared-auth key 'Jwt__SigningKey'"
+
+new_case shared-auth-missing
+set_key shared-auth.env Jwt__Audience ""
+expect fail "missing shared JWT key rejected for consumers" "jira uses shared JWT authentication but its composed environment (shared-auth.env jira.env) lacks 'Jwt__Audience'"
+
 new_case compose-url
 set_key gateway.env AUTH_SERVICE_URL "http://auth:8080"
 expect fail "Compose service URL rejected" "must address the Container App rt-auth-prod"

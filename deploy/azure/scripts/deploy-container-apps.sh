@@ -20,9 +20,12 @@
 #   REGISTRY_USERNAME/REGISTRY_PASSWORD  GHCR pull credential (private packages)
 #   FORCE_REDEPLOY=true        migrate and roll out every service regardless of changes
 #   PLAN_ONLY=true             print the plan and summary, change nothing
+#   CONTRACT_ROOT              config/env contracts (default: repository config/env)
 set -Eeuo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+service_metadata="$script_dir/../../build/service-impact.py"
+contract_root="${CONTRACT_ROOT:-$script_dir/../../../config/env}"
 # shellcheck source=aca-job.sh
 . "$script_dir/aca-job.sh"
 app_template="$script_dir/../modules/container-app.bicep"
@@ -54,12 +57,24 @@ trap 'rm -rf "$WORK_DIR"' EXIT
 env_id="$(az containerapp env show -g "$RESOURCE_GROUP" -n "$ACA_ENVIRONMENT" --query id -o tsv)"
 location="$(az containerapp env show -g "$RESOURCE_GROUP" -n "$ACA_ENVIRONMENT" --query location -o tsv)"
 
+# Runtime environment = shared-auth contract (for services that use shared JWT
+# validation) + the service's own file, both from deploy/build/service-impact.py
+# metadata, so Test (Compose) and Production compose the same sources.
+service_meta() {
+  python3 "$service_metadata" meta --service "$1" | sed -n "s/^$2=//p"
+}
+
 service_env_files() {
-  case "$1" in
-    gateway) echo gateway.env ;;
-    auth|project|github) echo "shared-auth.env $1.env" ;;
-    jira|meeting|submission) echo "$1.env" ;;
-  esac
+  service_meta "$1" env_files
+}
+
+# Key names owned by the shared-auth contract; every consumer must receive them.
+mapfile -t shared_auth_keys < <(sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' "$contract_root/shared/.env.example")
+((${#shared_auth_keys[@]} > 0)) || { echo "No keys found in $contract_root/shared/.env.example." >&2; exit 1; }
+
+service_required_keys() {
+  [[ "$(service_meta "$1" shared_auth)" == true ]] && printf '%s\n' "${shared_auth_keys[@]}"
+  return 0
 }
 
 # Mirrors the Compose resource ceilings, rounded to valid Consumption sizes.
@@ -88,10 +103,13 @@ image_labels() {
 
 render() {
   local kind="$1" service="$2" name="$3" image="$4" output="$5"
-  local args=() file cpu memory
+  local args=() file key cpu memory
   read -r cpu memory < <(service_resources "$service")
   for file in $(service_env_files "$service"); do
     args+=(--env-file "$ENV_DIR/$file")
+  done
+  for key in $(service_required_keys "$service"); do
+    args+=(--require "$key")
   done
   REGISTRY_PASSWORD="${REGISTRY_PASSWORD:-}" python3 "$script_dir/render-containerapp.py" \
     --kind "$kind" \
@@ -165,6 +183,8 @@ for service in "${services[@]}"; do
     origin="reused image built from ${source_commit[$service]:0:12}"
   fi
 
+  required="$(service_required_keys "$service" | paste -sd, -)"
+  printf '   %-11s env %s%s\n' "$service" "$(service_env_files "$service")" "${required:+ (requires $required)}"
   hash="$(render app "$service" "$app" "$image" "$WORK_DIR/$service.app.json")"
   if [[ "$hash" == "$current_hash" && "$FORCE_REDEPLOY" != "true" ]]; then
     printf '   %-11s unchanged  %s (source %s)\n' "$service" "$image" "${source_commit[$service]:0:12}"
@@ -227,15 +247,36 @@ done
 # ---------------------------------------------------------------------------
 # Rollout
 # ---------------------------------------------------------------------------
+revision_active() {
+  az containerapp revision show -g "$RESOURCE_GROUP" -n "$1" --revision "$2" --query properties.active -o tsv 2>/dev/null
+}
+
+# Idempotent: a revision already in the requested state is success, not an error
+# (Container Apps keeps the previous revision active until a new one is ready).
+set_revision_active() {
+  local app="$1" revision="$2" want="$3" verb
+  [[ "$want" == true ]] && verb=activate || verb=deactivate
+  if [[ "$(revision_active "$app" "$revision")" == "$want" ]]; then
+    echo "   $revision already ${verb}d" >&2
+    return 0
+  fi
+  az containerapp revision "$verb" -g "$RESOURCE_GROUP" -n "$app" --revision "$revision" -o none && return 0
+  # Lost a race with the platform: accept it if the state is now as requested.
+  [[ "$(revision_active "$app" "$revision")" == "$want" ]]
+}
+
 rollback() {
   local service="$1" app="$2" failed="$3" previous="${previous_revision[$1]}"
   echo "   rolling back $app" >&2
   if [[ -n "$failed" && "$failed" != "$previous" ]]; then
-    az containerapp revision deactivate -g "$RESOURCE_GROUP" -n "$app" --revision "$failed" -o none || true
+    set_revision_active "$app" "$failed" false || echo "   WARNING: could not deactivate failed revision $failed" >&2
   fi
   if [[ -n "$previous" ]]; then
-    az containerapp revision activate -g "$RESOURCE_GROUP" -n "$app" --revision "$previous" -o none || true
-    echo "   $app kept on previous healthy revision $previous" >&2
+    if set_revision_active "$app" "$previous" true; then
+      echo "   $app kept on previous healthy revision $previous" >&2
+    else
+      echo "   WARNING: previous revision $previous of $app is not active; check the app manually." >&2
+    fi
   fi
   summary_row "$service" "**failed, rolled back**" "${deploy_reason[$service]}" "${failed:-none}"
 }

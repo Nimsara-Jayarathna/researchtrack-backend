@@ -115,10 +115,12 @@ jobs:
           OWNER: ${{ github.repository_owner }}
         run: |
           set -euo pipefail
-          python3 deploy/build/service-impact.py meta --service "$SERVICE" > "$RUNNER_TEMP/meta"
-          # shellcheck disable=SC1091
-          . "$RUNNER_TEMP/meta"
-          image_repo="ghcr.io/${OWNER,,}/$image"
+          meta="$(python3 deploy/build/service-impact.py meta --service "$SERVICE")"
+          field() { sed -n "s/^$1=//p" <<<"$meta"; }
+          project="$(field project)"
+          dll="$(field dll)"
+          context="$(field context)"
+          image_repo="ghcr.io/${OWNER,,}/$(field image)"
 
           {
             echo "project=$project"

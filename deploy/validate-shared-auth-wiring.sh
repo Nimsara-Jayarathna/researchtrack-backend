@@ -57,4 +57,22 @@ for service in "${protected_services[@]}"; do
     || die "$program does not register AddResearchTrackJwtAuthentication."
 done
 
-echo "Shared JWT wiring is consistent across all protected business API services."
+# The protected set is exactly the services registering shared JWT validation,
+# so a newly protected service cannot be left out of the lists above.
+mapfile -t jwt_programs < <(grep -rl --include=Program.cs 'AddResearchTrackJwtAuthentication(builder.Configuration)' src | sort)
+mapfile -t expected_programs < <(printf '%s\n' "${program_files[@]}" | sort)
+[[ "${jwt_programs[*]}" == "${expected_programs[*]}" ]] \
+  || die "services registering AddResearchTrackJwtAuthentication (${jwt_programs[*]}) differ from the protected list."
+
+# Azure Production composes the shared-auth contract from the same metadata the
+# deployment uses (deploy/build/service-impact.py); it must mark exactly the
+# protected services, and nothing else, as shared-auth consumers.
+for service in gateway "${protected_services[@]}"; do
+  expected=false
+  [[ -n "${program_files[$service]:-}" ]] && expected=true
+  actual="$(python3 deploy/build/service-impact.py meta --service "$service" | sed -n 's/^shared_auth=//p')"
+  [[ "$actual" == "$expected" ]] \
+    || die "deploy/build/service-impact.py marks '$service' shared_auth=${actual:-unset}, expected $expected (Azure would not compose shared-auth.env correctly)."
+done
+
+echo "Shared JWT wiring is consistent across all protected business API services (Test, local and Azure Production)."

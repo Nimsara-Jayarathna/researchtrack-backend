@@ -24,6 +24,7 @@ jobs:
             deploy/scripts/deploy-stack.sh \
             deploy/scripts/verify-health.sh \
             deploy/validate-env-files.sh \
+            deploy/validate-shared-auth-wiring.sh \
             deploy/mysql/reconcile-databases.sh \
             deploy/azure/scripts/*.sh \
             deploy/azure/vm/scripts/*.sh \
@@ -54,6 +55,12 @@ jobs:
 
       - name: Test Container Apps image selection (stubbed az/GHCR)
         run: ./deploy/azure/validation/test-deploy-image-selection.sh
+
+      - name: Validate shared JWT wiring (Test, local, Azure Production)
+        run: ./deploy/validate-shared-auth-wiring.sh
+
+      - name: Test Container Apps environment composition (synthetic values)
+        run: ./deploy/azure/validation/test-service-env-composition.sh
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4

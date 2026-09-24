@@ -157,6 +157,38 @@ if [[ "$VALIDATE_SCOPE" == all ]]; then
   (( ${#jwt_key} >= 32 )) || error "shared-auth.env: Jwt__SigningKey must be at least 32 characters."
 
   # ---------------------------------------------------------------------------
+  # Shared authentication composition (the same metadata the deployment uses):
+  # every service using shared JWT validation must receive every shared-auth
+  # contract key, and only shared-auth.env may define them. Names only.
+  # ---------------------------------------------------------------------------
+  service_metadata="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../build" && pwd)/service-impact.py"
+  mapfile -t shared_auth_keys < <(sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' "$CONTRACT_ROOT/shared/.env.example")
+  ((${#shared_auth_keys[@]} > 0)) || error "no keys found in $CONTRACT_ROOT/shared/.env.example."
+  for service in gateway auth project github jira meeting submission; do
+    meta="$(python3 "$service_metadata" meta --service "$service")" || { error "no deployment metadata for $service."; continue; }
+    uses_shared_auth="$(sed -n 's/^shared_auth=//p' <<<"$meta")"
+    read -ra composed <<<"$(sed -n 's/^env_files=//p' <<<"$meta")"
+    for key in "${shared_auth_keys[@]}"; do
+      if get_value "$ENV_DIR/$service.env" "$key" >/dev/null; then
+        error "$service.env defines shared-auth key '$key'; it is owned by shared-auth.env only."
+      fi
+    done
+    [[ "$uses_shared_auth" == true ]] || continue
+    report=()
+    for key in "${shared_auth_keys[@]}"; do
+      state=missing
+      for file in "${composed[@]}"; do
+        value="$(get_value "$ENV_DIR/$file" "$key" || true)"
+        [[ -n "$value" ]] && { state=present; break; }
+      done
+      report+=("$key: $state")
+      [[ "$state" == present ]] || error "$service uses shared JWT authentication but its composed environment (${composed[*]}) lacks '$key'."
+    done
+    joined="$(printf '%s, ' "${report[@]}")"
+    echo "shared auth for $service (${composed[*]}): ${joined%, }"
+  done
+
+  # ---------------------------------------------------------------------------
   # Service discovery: Container Apps names, never Compose names or localhost
   # ---------------------------------------------------------------------------
   check_service_url() {
