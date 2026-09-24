@@ -347,7 +347,12 @@ class ServiceImpactTest(unittest.TestCase):
             dll=ResearchTrack.JiraService.dll
             context=JiraDbContext
             image=researchtrack-jira
+            shared_auth=true
+            env_files=shared-auth.env jira.env
             """))
+        gateway = subprocess.run([sys.executable, str(SCRIPT), "meta", "--service", "gateway"],
+                                 capture_output=True, text=True, check=True).stdout
+        self.assertIn("shared_auth=false\nenv_files=gateway.env\n", gateway)
         bad = subprocess.run([sys.executable, str(SCRIPT), "meta", "--service", "nope"], capture_output=True, text=True)
         self.assertEqual(bad.returncode, 1)
 
@@ -383,6 +388,20 @@ class RealRepositoryTest(unittest.TestCase):
                 self.assertEqual(info["unbounded"], [])
                 self.assertIn("src/BuildingBlocks/ResearchTrack.BuildingBlocks.Api", info["dirs"])
                 self.assertIn("tools/ResearchTrack.DbCheck", info["dirs"])
+
+    def test_shared_auth_matches_services_using_shared_jwt(self):
+        """Azure composes shared-auth.env exactly for services whose source
+        registers AddResearchTrackJwtAuthentication."""
+        for service in ALL:
+            with self.subTest(service=service):
+                meta = subprocess.run([sys.executable, str(SCRIPT), "meta", "--service", service],
+                                      capture_output=True, text=True, check=True).stdout
+                fields = dict(line.split("=", 1) for line in meta.splitlines())
+                program = (REPO_ROOT / fields["project"]).parent / "Program.cs"
+                uses_jwt = "AddResearchTrackJwtAuthentication(" in program.read_text()
+                self.assertEqual(fields["shared_auth"], "true" if uses_jwt else "false")
+                self.assertEqual(fields["env_files"].split()[0] == "shared-auth.env", uses_jwt)
+                self.assertEqual(fields["env_files"].split()[-1], f"{service}.env")
 
     def test_services_match_compose_definition(self):
         compose = (REPO_ROOT / "deploy" / "compose.yml").read_text()

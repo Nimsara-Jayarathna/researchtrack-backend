@@ -72,6 +72,16 @@ def build_env(env_files: list[str], extra_env: list[str]) -> tuple[list[dict], l
     return env, secrets
 
 
+def require_keys(name: str, env_files: list[str], required: list[str]) -> None:
+    """Fail before anything is rendered; report key names only, never values."""
+    defined = {key for path in env_files for key, value in parse_env_file(path) if value.strip()}
+    missing = [key for key in required if key not in defined]
+    if missing:
+        sources = ", ".join(os.path.basename(path) for path in env_files)
+        sys.exit(f"{name}: required configuration missing or empty in composed env files ({sources}): "
+                 + ", ".join(missing))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--kind", choices=["app", "job"], default="app")
@@ -88,10 +98,14 @@ def main() -> None:
     parser.add_argument("--registry-server", default="ghcr.io")
     parser.add_argument("--registry-username", default="")
     parser.add_argument("--job-command", default="/app/dbcheck && /app/migrate")
+    # Key names the composed environment must define with a non-empty value
+    # (e.g. the shared-auth contract for services using shared JWT validation).
+    parser.add_argument("--require", action="append", default=[])
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
     env, secrets = build_env(args.env_file, [])
+    require_keys(args.name, args.env_file, args.require)
 
     registry_secret = ""
     registry_password = os.environ.get("REGISTRY_PASSWORD", "")

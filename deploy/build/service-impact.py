@@ -22,7 +22,7 @@ Commands:
   impact  services affected by the changes between two commits (Test path)
   plan    per-service source fingerprint and whether an image for it is
           already published; missing images are built (Production path)
-  meta    build metadata for one service
+  meta    build and runtime-environment metadata for one service
 """
 
 from __future__ import annotations
@@ -47,31 +47,37 @@ class Service:
     dll: str
     db_context: str
     image: str
+    # Calls AddResearchTrackJwtAuthentication: its runtime environment is the
+    # shared-auth contract (config/env/shared, shared-auth.env) + its own file.
+    shared_auth: bool
+
+    def env_files(self, name: str) -> list[str]:
+        return (["shared-auth.env"] if self.shared_auth else []) + [f"{name}.env"]
 
 
-# Build and log order. The single service -> project/image mapping for CI.
+# Build and log order. The single service metadata for CI and deployment.
 SERVICES: dict[str, Service] = {
     "gateway": Service(
         "src/Gateway/ResearchTrack.Gateway/ResearchTrack.Gateway.csproj",
-        "ResearchTrack.Gateway.dll", "", "researchtrack-gateway"),
+        "ResearchTrack.Gateway.dll", "", "researchtrack-gateway", shared_auth=False),
     "auth": Service(
         "src/Services/ResearchTrack.AuthService/ResearchTrack.AuthService.csproj",
-        "ResearchTrack.AuthService.dll", "AuthDbContext", "researchtrack-auth"),
+        "ResearchTrack.AuthService.dll", "AuthDbContext", "researchtrack-auth", shared_auth=True),
     "project": Service(
         "src/Services/ResearchTrack.ProjectService/ResearchTrack.ProjectService.csproj",
-        "ResearchTrack.ProjectService.dll", "ProjectDbContext", "researchtrack-project"),
+        "ResearchTrack.ProjectService.dll", "ProjectDbContext", "researchtrack-project", shared_auth=True),
     "github": Service(
         "src/Services/ResearchTrack.GitHubService/ResearchTrack.GitHubService.csproj",
-        "ResearchTrack.GitHubService.dll", "GitHubDbContext", "researchtrack-github"),
+        "ResearchTrack.GitHubService.dll", "GitHubDbContext", "researchtrack-github", shared_auth=True),
     "jira": Service(
         "src/Services/ResearchTrack.JiraService/ResearchTrack.JiraService.csproj",
-        "ResearchTrack.JiraService.dll", "JiraDbContext", "researchtrack-jira"),
+        "ResearchTrack.JiraService.dll", "JiraDbContext", "researchtrack-jira", shared_auth=True),
     "meeting": Service(
         "src/Services/ResearchTrack.MeetingService/ResearchTrack.MeetingService.csproj",
-        "ResearchTrack.MeetingService.dll", "MeetingDbContext", "researchtrack-meeting"),
+        "ResearchTrack.MeetingService.dll", "MeetingDbContext", "researchtrack-meeting", shared_auth=True),
     "submission": Service(
         "src/Services/ResearchTrack.SubmissionService/ResearchTrack.SubmissionService.csproj",
-        "ResearchTrack.SubmissionService.dll", "SubmissionDbContext", "researchtrack-submission"),
+        "ResearchTrack.SubmissionService.dll", "SubmissionDbContext", "researchtrack-submission", shared_auth=True),
 }
 
 DOCKERFILE = "deploy/Dockerfile.service"
@@ -457,6 +463,8 @@ def cmd_meta(args: argparse.Namespace) -> int:
     print(f"dll={meta.dll}")
     print(f"context={meta.db_context}")
     print(f"image={meta.image}")
+    print(f"shared_auth={'true' if meta.shared_auth else 'false'}")
+    print(f"env_files={' '.join(meta.env_files(args.service))}")
     return 0
 
 

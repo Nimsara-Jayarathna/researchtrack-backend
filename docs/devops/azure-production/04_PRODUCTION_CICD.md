@@ -87,6 +87,24 @@ Real production values come from GitHub Environment `production`.
 
 Do not read or commit real `.env` files.
 
+Each Container App's environment is composed from the same sources as Test:
+
+```text
+shared-auth.env (SHARED_AUTH_ENV_FILE, contract config/env/shared)   if the service uses shared JWT
++ <service>.env (service-specific secret)
++ RESEARCHTRACK_DEPLOYMENT_REVISION
+```
+
+"Uses shared JWT" is `shared_auth` in `deploy/build/service-impact.py`: auth,
+project, github, jira, meeting and submission (every service calling
+`AddResearchTrackJwtAuthentication`); not the gateway. The keys required from
+it are the key names of `config/env/shared/.env.example`. Jwt keys are never
+copied into a service file (rejected as duplicates). Checks, names only:
+
+- `validate-azure-env-files.sh` reports `Jwt__SigningKey: present|missing` per consumer before Azure login;
+- `render-containerapp.py --require` fails planning before any migration or revision;
+- `deploy/validate-shared-auth-wiring.sh` (CI) keeps Compose, local scripts, the metadata and `Program.cs` in sync.
+
 ## Deployment
 
 For changed services:
