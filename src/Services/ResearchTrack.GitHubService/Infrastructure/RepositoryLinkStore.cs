@@ -559,6 +559,7 @@ private static async Task PromotePrimaryAsync(
                 row.Link.Enabled,
                 AsUtc(row.Link.LinkedAt),
                 row.Link.LastSyncedAt.HasValue ? AsUtc(row.Link.LastSyncedAt.Value) : null,
+                row.Link.SyncRevision,
                 row.Link.SyncStatus,
                 ResolveAccessStatus(row.SourceConnectionStatus, row.RepositoryAvailable)))
             .ToList();
