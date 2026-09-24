@@ -372,7 +372,6 @@ Kafka__BootstrapServers
 Jira__ClientId
 Jira__ClientSecret
 Jira__RedirectUri
-Jira__SyncIntervalMinutes
 ```
 
 ### Meeting

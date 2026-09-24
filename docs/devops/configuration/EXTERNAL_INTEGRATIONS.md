@@ -22,7 +22,7 @@ These are needed so the env bundles validate. The Production validator requires 
 | Transactional email | Brevo account | `AUTH_ENV_FILE`: `Brevo__BaseUrl`, `Brevo__ApiKey`, `Brevo__SenderEmail`, `Brevo__SenderName` | Production API key (secret), verified sender |
 | GitHub App identity | GitHub → Settings → Developer settings → GitHub Apps → *your app* | `RT_GITHUB_SERVICE_ENV`: `GitHub__AppId`, `GitHub__AppSlug`, `GitHub__ClientId`, `GitHub__ClientSecret`, `GitHub__PrivateKeyBase64` | App ID and slug; client secret and private key (base64 of the `.pem`) are secrets |
 | GitHub return origin | — | `RT_GITHUB_SERVICE_ENV`: `GitHub__FrontendReturnOrigin` | `https://<frontend-host>`. The service redirects users to `/github/access-updated` and `/github/request-access` on this origin |
-| Jira OAuth app | Atlassian developer console | `JIRA_ENV_FILE`: `Jira__ClientId`, `Jira__ClientSecret`, `Jira__RedirectUri`, `Jira__SyncIntervalMinutes` | See the Jira note below |
+| Jira OAuth app | Atlassian developer console | `JIRA_ENV_FILE`: `Jira__ClientId`, `Jira__ClientSecret`, `Jira__RedirectUri` | See the Jira note below |
 
 A separate GitHub App (or at least a separate webhook secret and client secret) for Production, rather than reusing Test's, is recommended.
 
