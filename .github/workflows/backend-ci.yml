@@ -28,7 +28,7 @@ jobs:
             deploy/azure/scripts/*.sh \
             deploy/azure/vm/scripts/*.sh \
             deploy/azure/validation/*.sh
-          python -m py_compile deploy/azure/scripts/render-containerapp.py
+          python -m py_compile deploy/azure/scripts/render-containerapp.py deploy/build/service-impact.py
           python -m json.tool deploy/monitoring/grafana/provisioning/dashboards/json/researchtrack-overview.json >/dev/null
           python -m json.tool deploy/monitoring/grafana/provisioning/dashboards/json/github-sync.json >/dev/null
 
@@ -48,6 +48,12 @@ jobs:
 
       - name: Test Container Apps network probe (stubbed az/Kafka)
         run: ./deploy/azure/validation/test-network-probe.sh
+
+      - name: Test backend image selection model (synthetic repositories)
+        run: python deploy/build/test_service_impact.py
+
+      - name: Test Container Apps image selection (stubbed az/GHCR)
+        run: ./deploy/azure/validation/test-deploy-image-selection.sh
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4

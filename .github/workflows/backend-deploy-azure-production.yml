@@ -29,6 +29,10 @@ jobs:
     with:
       image_tag: production
       force_full_build: ${{ inputs.force_full_build }}
+      # Production converges on the image for the current source of every
+      # service, so a change missed by an earlier failed/other-branch run is
+      # still built and deployed.
+      selection: fingerprint
     permissions:
       contents: read
       packages: write
@@ -145,6 +149,7 @@ jobs:
           IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}
           GIT_SHA: ${{ github.sha }}
           REBUILT_SERVICES: ${{ needs.build.outputs.services }}
+          IMAGE_TAGS: ${{ needs.build.outputs.image_tags }}
           FORCE_REDEPLOY: ${{ inputs.force_redeploy }}
           REGISTRY_USERNAME: ${{ secrets.GHCR_PULL_USERNAME }}
           REGISTRY_PASSWORD: ${{ secrets.GHCR_PULL_TOKEN }}
