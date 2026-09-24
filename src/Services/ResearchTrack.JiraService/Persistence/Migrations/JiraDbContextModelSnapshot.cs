@@ -66,11 +66,17 @@ namespace ResearchTrack.JiraService.Persistence.Migrations
                         .HasMaxLength(255)
                         .HasColumnType("varchar(255)");
 
+                    b.Property<DateTimeOffset?>("LastReconciledAt")
+                        .HasColumnType("datetime(6)");
+
                     b.Property<string>("LastSyncError")
                         .HasColumnType("text");
 
                     b.Property<DateTimeOffset?>("LastSyncedAt")
                         .HasColumnType("datetime");
+
+                    b.Property<DateTimeOffset?>("LastWebhookAt")
+                        .HasColumnType("datetime(6)");
 
                     b.Property<string>("RefreshTokenProtected")
                         .HasColumnType("text");
@@ -91,6 +97,17 @@ namespace ResearchTrack.JiraService.Persistence.Migrations
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("datetime");
+
+                    b.Property<DateTimeOffset?>("WebhookExpiresAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<long?>("WebhookId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("WebhookStatus")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)");
 
                     b.Property<string>("WorkspaceName")
                         .IsRequired()
@@ -215,6 +232,48 @@ namespace ResearchTrack.JiraService.Persistence.Migrations
                 { b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("char(36)"); b.Property<DateTimeOffset?>("CompleteDate").HasColumnType("datetime"); b.Property<DateTimeOffset?>("EndDate").HasColumnType("datetime"); b.Property<string>("Goal").HasMaxLength(2048).HasColumnType("varchar(2048)"); b.Property<long>("JiraBoardId").HasColumnType("bigint"); b.Property<Guid>("JiraConnectionId").HasColumnType("char(36)"); b.Property<long>("JiraSprintId").HasColumnType("bigint"); b.Property<string>("Name").IsRequired().HasMaxLength(255).HasColumnType("varchar(255)"); b.Property<Guid>("ResearchProjectId").HasColumnType("char(36)"); b.Property<DateTimeOffset?>("StartDate").HasColumnType("datetime"); b.Property<string>("State").IsRequired().HasMaxLength(32).HasColumnType("varchar(32)"); b.Property<DateTimeOffset>("SyncedAt").HasColumnType("datetime"); b.HasKey("Id"); b.HasIndex("JiraConnectionId"); b.HasIndex("ResearchProjectId","JiraSprintId").IsUnique(); b.ToTable("jira_sprints",(string)null); });
             modelBuilder.Entity("ResearchTrack.JiraService.Domain.JiraIssueSprint", b =>
                 { b.Property<Guid>("JiraIssueId").HasColumnType("char(36)"); b.Property<Guid>("JiraSprintId").HasColumnType("char(36)"); b.HasKey("JiraIssueId","JiraSprintId"); b.HasIndex("JiraSprintId"); b.ToTable("jira_issue_sprints",(string)null); });
+
+            modelBuilder.Entity("ResearchTrack.JiraService.Domain.JiraSyncJob", b =>
+                {
+                    b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("char(36)");
+                    b.Property<int>("AttemptCount").HasColumnType("int");
+                    b.Property<DateTimeOffset>("AvailableAt").HasColumnType("datetime(6)");
+                    b.Property<DateTimeOffset?>("CompletedAt").HasColumnType("datetime(6)");
+                    b.Property<string>("EntityId").HasMaxLength(128).HasColumnType("varchar(128)");
+                    b.Property<string>("LastError").HasColumnType("text");
+                    b.Property<string>("Reason").IsRequired().HasMaxLength(64).HasColumnType("varchar(64)");
+                    b.Property<Guid>("ResearchProjectId").HasColumnType("char(36)");
+                    b.Property<DateTimeOffset>("RequestedAt").HasColumnType("datetime(6)");
+                    b.Property<string>("Scope").IsRequired().HasMaxLength(32).HasColumnType("varchar(32)");
+                    b.Property<DateTimeOffset?>("StartedAt").HasColumnType("datetime(6)");
+                    b.Property<string>("Status").IsRequired().HasMaxLength(32).HasColumnType("varchar(32)");
+                    b.HasKey("Id");
+                    b.HasIndex("ResearchProjectId", "Status");
+                    b.HasIndex("Status", "AvailableAt");
+                    b.ToTable("jira_sync_jobs", (string)null);
+                });
+
+            modelBuilder.Entity("ResearchTrack.JiraService.Domain.JiraWebhookEvent", b =>
+                {
+                    b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("char(36)");
+                    b.Property<int>("AttemptCount").HasColumnType("int");
+                    b.Property<string>("CloudId").IsRequired().HasMaxLength(128).HasColumnType("varchar(128)");
+                    b.Property<string>("DeliveryId").IsRequired().HasMaxLength(255).HasColumnType("varchar(255)");
+                    b.Property<string>("EventType").IsRequired().HasMaxLength(128).HasColumnType("varchar(128)");
+                    b.Property<string>("IssueKey").HasMaxLength(64).HasColumnType("varchar(64)");
+                    b.Property<string>("JiraIssueId").HasMaxLength(128).HasColumnType("varchar(128)");
+                    b.Property<string>("LastError").HasColumnType("text");
+                    b.Property<string>("PayloadJson").IsRequired().HasColumnType("longtext");
+                    b.Property<DateTimeOffset?>("ProcessedAt").HasColumnType("datetime(6)");
+                    b.Property<DateTimeOffset>("ReceivedAt").HasColumnType("datetime(6)");
+                    b.Property<Guid?>("ResearchProjectId").HasColumnType("char(36)");
+                    b.Property<string>("Status").IsRequired().HasMaxLength(32).HasColumnType("varchar(32)");
+                    b.HasKey("Id");
+                    b.HasIndex("DeliveryId").IsUnique();
+                    b.HasIndex("ResearchProjectId");
+                    b.HasIndex("Status", "ReceivedAt");
+                    b.ToTable("jira_webhook_events", (string)null);
+                });
 
 #pragma warning restore 612, 618
         }
