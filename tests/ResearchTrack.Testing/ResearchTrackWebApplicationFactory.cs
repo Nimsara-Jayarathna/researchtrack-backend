@@ -149,6 +149,23 @@ public sealed class ResearchTrackWebApplicationFactory<TProgram> : WebApplicatio
             ["GitHub:Webhook:MaxAttempts"] = "5",
             ["GitHub:Webhook:ProcessingLeaseSeconds"] = "300",
 
+            // Jira. These are deterministic, non-secret test values used only to
+            // allow the Jira host to start in the Testing environment. Tests that
+            // exercise Atlassian HTTP behavior replace/mock the corresponding client.
+            ["Jira:ClientId"] = "researchtrack-jira-test-client",
+            ["Jira:ClientSecret"] = "researchtrack-jira-test-secret",
+            ["Jira:RedirectUri"] = "http://localhost:5173/supervisor/jira/callback",
+            ["Jira:Scope"] = "read:jira-user read:jira-work offline_access",
+            ["Jira:Audience"] = "api.atlassian.com",
+            ["Jira:AuthorizationUrl"] = "https://auth.atlassian.test/authorize",
+            ["Jira:TokenUrl"] = "https://auth.atlassian.test/oauth/token",
+            ["Jira:AccessibleResourcesUrl"] = "https://api.atlassian.test/oauth/token/accessible-resources",
+            ["Jira:ApiBaseUrl"] = "https://api.atlassian.test",
+            ["Jira:OAuthStateTtlMinutes"] = "15",
+            ["Jira:SelectionTtlMinutes"] = "15",
+            ["Jira:AtlassianTimeoutSeconds"] = "15",
+            ["Jira:ProjectServiceTimeoutSeconds"] = "10",
+
             // Services
             ["Services:Auth:BaseUrl"] = "http://localhost:5101/",
             ["Services:Project:BaseUrl"] = "http://localhost:5102/"

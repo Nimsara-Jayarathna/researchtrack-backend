@@ -21,7 +21,7 @@ public sealed class GitHubEvidenceQueryService : IGitHubEvidenceQueryService
         _projectAuthorization = projectAuthorization;
     }
 
-    public async Task<GitHubEvidencePage<GitHubCommitResponse>> GetCommitsAsync(
+    public async Task<GitHubPage<GitHubCommitResponse>> GetCommitsAsync(
         Guid userId,
         Guid projectId,
         Guid linkedRepositoryId,
@@ -55,7 +55,7 @@ public sealed class GitHubEvidenceQueryService : IGitHubEvidenceQueryService
         return Page(items, page, size, total);
     }
 
-    public async Task<GitHubEvidencePage<GitHubContributorResponse>> GetContributorsAsync(
+    public async Task<GitHubPage<GitHubContributorResponse>> GetContributorsAsync(
         Guid userId,
         Guid projectId,
         Guid linkedRepositoryId,
@@ -91,7 +91,7 @@ public sealed class GitHubEvidenceQueryService : IGitHubEvidenceQueryService
         return Page(items, page, size, total);
     }
 
-    public async Task<GitHubEvidencePage<GitHubPullRequestResponse>> GetPullRequestsAsync(
+    public async Task<GitHubPage<GitHubPullRequestResponse>> GetPullRequestsAsync(
         Guid userId,
         Guid projectId,
         Guid linkedRepositoryId,
@@ -192,7 +192,7 @@ public sealed class GitHubEvidenceQueryService : IGitHubEvidenceQueryService
         ]);
     }
 
-    public async Task<GitHubEvidencePage<GitHubSyncRunResponse>> GetSyncRunsAsync(
+    public async Task<GitHubPage<GitHubSyncRunResponse>> GetSyncRunsAsync(
         Guid userId,
         Guid projectId,
         Guid linkedRepositoryId,
@@ -262,6 +262,6 @@ public sealed class GitHubEvidenceQueryService : IGitHubEvidenceQueryService
         }
     }
 
-    private static GitHubEvidencePage<T> Page<T>(IReadOnlyList<T> items, int page, int size, int total) =>
+    private static GitHubPage<T> Page<T>(IReadOnlyList<T> items, int page, int size, int total) =>
         new(items, page, size, total, page * size < total);
 }

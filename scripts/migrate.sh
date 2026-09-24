@@ -77,6 +77,9 @@ build_for_migration() {
     fi
 
     if [[ "$requested" == "all" ]]; then
+        printf 'Restoring ResearchTrack solution before migration checks...\n\n'
+        dotnet restore ResearchTrack.sln
+
         printf 'Building ResearchTrack solution before migration checks...\n\n'
 
         dotnet build \
@@ -88,6 +91,9 @@ build_for_migration() {
     fi
 
     project="$(rt_service_project "$requested")"
+
+    printf 'Restoring %s before migration checks...\n\n' "$requested"
+    dotnet restore "$project"
 
     printf 'Building %s before migration checks...\n\n' "$requested"
 

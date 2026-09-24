@@ -37,6 +37,32 @@ public sealed record GitHubDashboardCommitResponse(
     DateTime? CommittedAt,
     string? Type);
 
+
+public sealed record GitHubDashboardPullRequestResponse(
+    long GitHubPullRequestId,
+    int Number,
+    string Title,
+    string? Body,
+    string State,
+    bool IsDraft,
+    bool IsMerged,
+    string? AuthorLogin,
+    long? MergedByGitHubId,
+    string? MergedByLogin,
+    string SourceBranch,
+    string TargetBranch,
+    DateTime CreatedAt,
+    DateTime UpdatedAt,
+    DateTime? ClosedAt,
+    DateTime? MergedAt,
+    string HtmlUrl,
+    int? Additions,
+    int? Deletions,
+    int? ChangedFiles,
+    int? CommitsCount,
+    int? CommentsCount,
+    int? ReviewCommentsCount);
+
 public sealed record GitHubDashboardResponse(
     bool RepositoryLinked,
     long? AuthorizedInstallationId,
@@ -47,11 +73,6 @@ public sealed record GitHubDashboardResponse(
     GitHubDashboardActivitySummaryResponse ActivitySummary,
     IReadOnlyList<GitHubDashboardContributorResponse> ContributorsPreview,
     IReadOnlyList<GitHubDashboardCommitResponse> RecentCommitsPreview,
+    IReadOnlyList<GitHubDashboardPullRequestResponse> PullRequestsPreview,
     bool HasUnacknowledgedAccess);
 
-public sealed record GitHubCompatibilityPage<T>(
-    IReadOnlyList<T> Items,
-    bool HasMore,
-    int Page,
-    int Size,
-    int Total);

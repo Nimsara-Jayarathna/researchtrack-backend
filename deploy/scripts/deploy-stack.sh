@@ -53,9 +53,9 @@ service_env_files() {
     auth) printf '%s\n' shared-auth.env auth.env ;;
     project) printf '%s\n' shared-auth.env project.env ;;
     github) printf '%s\n' shared-auth.env github.env ;;
-    jira) printf '%s\n' jira.env ;;
-    meeting) printf '%s\n' meeting.env ;;
-    submission) printf '%s\n' submission.env ;;
+    jira) printf '%s\n' shared-auth.env jira.env ;;
+    meeting) printf '%s\n' shared-auth.env meeting.env ;;
+    submission) printf '%s\n' shared-auth.env submission.env ;;
     *) return 1 ;;
   esac
 }
