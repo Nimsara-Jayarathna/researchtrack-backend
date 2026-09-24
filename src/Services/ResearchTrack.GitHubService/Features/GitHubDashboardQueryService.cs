@@ -77,6 +77,7 @@ public sealed class GitHubDashboardQueryService : IGitHubDashboardQueryService
                     "idle"),
                 [],
                 [],
+                [],
                 hasUnacknowledgedAccess);
         }
 
@@ -161,6 +162,37 @@ public sealed class GitHubDashboardQueryService : IGitHubDashboardQueryService
             .ToListAsync(cancellationToken);
         var recentCommits = commitRows.Select(commit => ToDashboardCommit(commit, avatarByLogin)).ToList();
 
+        var pullRequestsPreview = await db.PullRequests.AsNoTracking()
+            .Where(pullRequest => pullRequest.RepositoryLinkId == selected.Id)
+            .OrderByDescending(pullRequest => pullRequest.UpdatedAt)
+            .ThenByDescending(pullRequest => pullRequest.Number)
+            .Take(5)
+            .Select(pullRequest => new GitHubDashboardPullRequestResponse(
+                pullRequest.GitHubPullRequestId,
+                pullRequest.Number,
+                pullRequest.Title,
+                pullRequest.Body,
+                pullRequest.State,
+                pullRequest.IsDraft,
+                pullRequest.IsMerged,
+                pullRequest.AuthorLogin,
+                pullRequest.MergedByGitHubId,
+                pullRequest.MergedByLogin,
+                pullRequest.SourceBranch,
+                pullRequest.TargetBranch,
+                pullRequest.CreatedAt,
+                pullRequest.UpdatedAt,
+                pullRequest.ClosedAt,
+                pullRequest.MergedAt,
+                pullRequest.HtmlUrl,
+                pullRequest.Additions,
+                pullRequest.Deletions,
+                pullRequest.ChangedFiles,
+                pullRequest.CommitsCount,
+                pullRequest.CommentsCount,
+                pullRequest.ReviewCommentsCount))
+            .ToListAsync(cancellationToken);
+
         var accessScope = links.Count switch
         {
             0 => "NO_REPOSITORIES",
@@ -189,10 +221,11 @@ public sealed class GitHubDashboardQueryService : IGitHubDashboardQueryService
                 totalCommits > 0 || (pullRequestSummary?.Total ?? 0) > 0 ? "active" : "idle"),
             contributorPreview,
             recentCommits,
+            pullRequestsPreview,
             hasUnacknowledgedAccess);
     }
 
-    public async Task<GitHubCompatibilityPage<GitHubDashboardCommitResponse>> GetActivityAsync(
+    public async Task<GitHubPage<GitHubDashboardCommitResponse>> GetActivityAsync(
         Guid userId,
         Guid projectId,
         Guid? linkedRepositoryId,
@@ -206,7 +239,7 @@ public sealed class GitHubDashboardQueryService : IGitHubDashboardQueryService
         var selected = await LoadSelectedAsync(db, projectId, linkedRepositoryId, cancellationToken);
         if (selected is null)
         {
-            return new GitHubCompatibilityPage<GitHubDashboardCommitResponse>([], false, page, size, 0);
+            return new GitHubPage<GitHubDashboardCommitResponse>([], page, size, 0, false);
         }
 
         var total = await db.Commits.AsNoTracking()
@@ -228,15 +261,15 @@ public sealed class GitHubDashboardQueryService : IGitHubDashboardQueryService
             item => item.AvatarUrl,
             StringComparer.OrdinalIgnoreCase);
 
-        return new GitHubCompatibilityPage<GitHubDashboardCommitResponse>(
+        return new GitHubPage<GitHubDashboardCommitResponse>(
             rows.Select(row => ToDashboardCommit(row, avatars)).ToList(),
-            page * size < total,
             page,
             size,
-            total);
+            total,
+            page * size < total);
     }
 
-    public async Task<GitHubCompatibilityPage<GitHubDashboardContributorResponse>> GetContributorsAsync(
+    public async Task<GitHubPage<GitHubDashboardContributorResponse>> GetContributorsAsync(
         Guid userId,
         Guid projectId,
         Guid? linkedRepositoryId,
@@ -250,7 +283,7 @@ public sealed class GitHubDashboardQueryService : IGitHubDashboardQueryService
         var selected = await LoadSelectedAsync(db, projectId, linkedRepositoryId, cancellationToken);
         if (selected is null)
         {
-            return new GitHubCompatibilityPage<GitHubDashboardContributorResponse>([], false, page, size, 0);
+            return new GitHubPage<GitHubDashboardContributorResponse>([], page, size, 0, false);
         }
 
         var total = await db.Contributors.AsNoTracking()
@@ -268,12 +301,12 @@ public sealed class GitHubDashboardQueryService : IGitHubDashboardQueryService
                 item.AvatarUrl))
             .ToListAsync(cancellationToken);
 
-        return new GitHubCompatibilityPage<GitHubDashboardContributorResponse>(
+        return new GitHubPage<GitHubDashboardContributorResponse>(
             items,
-            page * size < total,
             page,
             size,
-            total);
+            total,
+            page * size < total);
     }
 
     private Task AuthorizeAsync(Guid projectId, CancellationToken cancellationToken)

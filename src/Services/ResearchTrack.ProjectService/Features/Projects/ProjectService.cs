@@ -178,6 +178,39 @@ public sealed class ProjectService : IProjectService
     }
 
     // ============================================================
+    // LIGHTWEIGHT SUPERVISOR OWNERSHIP CHECK
+    // Used by integration services that only need authorization and
+    // must not load members, milestones, or the full project graph.
+    // ============================================================
+
+    public async Task<bool> CanSupervisorManageAsync(
+        Guid supervisorUserId,
+        Guid projectId,
+        CancellationToken cancellationToken)
+    {
+        await using var dbContext =
+            await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+
+        return await dbContext.Projects
+            .AsNoTracking()
+            .AnyAsync(
+                project =>
+                    project.Id == projectId &&
+                    project.SupervisorUserId == supervisorUserId,
+                cancellationToken);
+    }
+
+    public async Task<bool> CanAccessAsync(Guid userId,string role,Guid projectId,CancellationToken cancellationToken)
+    {
+        await using var dbContext=await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+        if(string.Equals(role,AuthSecurityConstants.Roles.Supervisor,StringComparison.OrdinalIgnoreCase))
+            return await dbContext.Projects.AsNoTracking().AnyAsync(p=>p.Id==projectId&&p.SupervisorUserId==userId,cancellationToken);
+        if(string.Equals(role,AuthSecurityConstants.Roles.Student,StringComparison.OrdinalIgnoreCase))
+            return await dbContext.ProjectMembers.AsNoTracking().AnyAsync(m=>m.ProjectId==projectId&&m.UserId==userId&&m.MemberRole==ProjectMemberRoles.Student,cancellationToken);
+        return false;
+    }
+
+    // ============================================================
     // GET ALL ACCESSIBLE PROJECTS
     // ============================================================
 

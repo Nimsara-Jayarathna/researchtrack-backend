@@ -10,8 +10,10 @@ public static class ApplicationBuilderExtensions
     public static WebApplication UseResearchTrackApi(this WebApplication app)
     {
         app.UseMiddleware<CorrelationIdMiddleware>();
-        app.UseMiddleware<ExceptionHandlingMiddleware>();
+        // Keep request logging outside exception handling so the completion log
+        // observes the final HTTP status (for example 503 after a DB failure).
         app.UseMiddleware<RequestLoggingMiddleware>();
+        app.UseMiddleware<ExceptionHandlingMiddleware>();
         app.UseMiddleware<SecurityHeadersMiddleware>();
 
         app.UseStatusCodePages(async statusCodeContext =>

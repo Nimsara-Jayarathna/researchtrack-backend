@@ -52,7 +52,7 @@ public sealed class SupervisorGitHubCompatibilityController : ApiControllerBase
     }
 
     [HttpGet("activity")]
-    public async Task<ActionResult<ApiResponse<GitHubCompatibilityPage<GitHubDashboardCommitResponse>>>> GetActivity(
+    public async Task<ActionResult<ApiResponse<GitHubPage<GitHubDashboardCommitResponse>>>> GetActivity(
         Guid projectId,
         [FromQuery] Guid? linkedRepositoryId = null,
         [FromQuery] int page = 1,
@@ -69,7 +69,7 @@ public sealed class SupervisorGitHubCompatibilityController : ApiControllerBase
     }
 
     [HttpGet("contributors")]
-    public async Task<ActionResult<ApiResponse<GitHubCompatibilityPage<GitHubDashboardContributorResponse>>>> GetDashboardContributors(
+    public async Task<ActionResult<ApiResponse<GitHubPage<GitHubDashboardContributorResponse>>>> GetDashboardContributors(
         Guid projectId,
         [FromQuery] Guid? linkedRepositoryId = null,
         [FromQuery] int page = 1,
@@ -206,7 +206,7 @@ public sealed class SupervisorGitHubCompatibilityController : ApiControllerBase
     }
 
     [HttpGet("repositories/{linkedRepositoryId:guid}/commits")]
-    public async Task<ActionResult<ApiResponse<GitHubEvidencePage<GitHubCommitResponse>>>> GetCommits(
+    public async Task<ActionResult<ApiResponse<GitHubPage<GitHubCommitResponse>>>> GetCommits(
         Guid projectId,
         Guid linkedRepositoryId,
         [FromQuery] int page = 1,
@@ -223,7 +223,7 @@ public sealed class SupervisorGitHubCompatibilityController : ApiControllerBase
     }
 
     [HttpGet("repositories/{linkedRepositoryId:guid}/contributors")]
-    public async Task<ActionResult<ApiResponse<GitHubEvidencePage<GitHubContributorResponse>>>> GetContributors(
+    public async Task<ActionResult<ApiResponse<GitHubPage<GitHubContributorResponse>>>> GetContributors(
         Guid projectId,
         Guid linkedRepositoryId,
         [FromQuery] int page = 1,
@@ -240,7 +240,7 @@ public sealed class SupervisorGitHubCompatibilityController : ApiControllerBase
     }
 
     [HttpGet("repositories/{linkedRepositoryId:guid}/pull-requests")]
-    public async Task<ActionResult<ApiResponse<GitHubEvidencePage<GitHubPullRequestResponse>>>> GetPullRequests(
+    public async Task<ActionResult<ApiResponse<GitHubPage<GitHubPullRequestResponse>>>> GetPullRequests(
         Guid projectId,
         Guid linkedRepositoryId,
         [FromQuery] int page = 1,
@@ -261,7 +261,7 @@ public sealed class SupervisorGitHubCompatibilityController : ApiControllerBase
     }
 
     [HttpGet("repositories/{linkedRepositoryId:guid}/sync-runs")]
-    public async Task<ActionResult<ApiResponse<GitHubEvidencePage<GitHubSyncRunResponse>>>> GetSyncRuns(
+    public async Task<ActionResult<ApiResponse<GitHubPage<GitHubSyncRunResponse>>>> GetSyncRuns(
         Guid projectId,
         Guid linkedRepositoryId,
         [FromQuery] int page = 1,
