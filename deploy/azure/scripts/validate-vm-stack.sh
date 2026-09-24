@@ -87,22 +87,47 @@ else
 fi
 
 echo "== Kafka (TLS listener on the private IP)"
-topic=researchtrack.deployment-smoke
-marker="smoke-$(date -u +%s)-$RANDOM"
-kafka_bin=/opt/kafka/bin
-consumed=""
-if "$compose" exec -T kafka "$kafka_bin/kafka-topics.sh" --bootstrap-server localhost:29092 \
-     --create --if-not-exists --topic "$topic" --partitions 1 --replication-factor 1 \
-     --config retention.ms=86400000 >/dev/null 2>&1 &&
-   printf '%s\n' "$marker" | "$compose" exec -T kafka "$kafka_bin/kafka-console-producer.sh" \
-     --bootstrap-server "$INFRA_PRIVATE_IP:9092" --producer.config /etc/kafka/client-ssl.properties \
-     --topic "$topic" >/dev/null 2>&1; then
-  # The consumer exits non-zero when --timeout-ms elapses; only output matters.
-  consumed="$("$compose" exec -T kafka "$kafka_bin/kafka-console-consumer.sh" \
-    --bootstrap-server "$INFRA_PRIVATE_IP:9092" --consumer.config /etc/kafka/client-ssl.properties \
-    --topic "$topic" --from-beginning --timeout-ms 20000 </dev/null 2>/dev/null || true)"
+# Deterministic and idempotent: record the partition end offset, produce one
+# unique token synchronously (acks=all) through the TLS listener that Container
+# Apps use, then consume exactly one record from that offset through the same
+# listener and compare it byte-for-byte. The smoke topic is single-partition, so
+# the token is the next record regardless of earlier runs.
+kafka_smoke() {
+  local topic=researchtrack.deployment-smoke bin=/opt/kafka/bin tls="$INFRA_PRIVATE_IP:9092"
+  local token offset consumed
+  token="smoke-$(date -u +%Y%m%dT%H%M%SZ)-$RANDOM$RANDOM"
+  kafka_log="$(mktemp)"
+
+  "$compose" exec -T kafka "$bin/kafka-topics.sh" --bootstrap-server localhost:29092 \
+    --create --if-not-exists --topic "$topic" --partitions 1 --replication-factor 1 \
+    --config retention.ms=86400000 >>"$kafka_log" 2>&1 || return 1
+
+  offset="$("$compose" exec -T kafka "$bin/kafka-get-offsets.sh" --bootstrap-server localhost:29092 \
+    --topic "$topic" --partitions 0 --time -1 2>>"$kafka_log" | awk -F: -v t="$topic" '$1 == t && $2 == 0 {print $3}')"
+  [[ "$offset" =~ ^[0-9]+$ ]] || { echo "could not read end offset (got '$offset')" >>"$kafka_log"; return 1; }
+
+  printf '%s\n' "$token" | "$compose" exec -T kafka "$bin/kafka-console-producer.sh" \
+    --bootstrap-server "$tls" --producer.config /etc/kafka/client-ssl.properties \
+    --topic "$topic" --sync --request-required-acks all >>"$kafka_log" 2>&1 || return 1
+
+  # --max-messages 1 exits as soon as the record arrives; the consumer's exit
+  # status on timeout is irrelevant because the output is compared exactly.
+  consumed="$("$compose" exec -T kafka "$bin/kafka-console-consumer.sh" \
+    --bootstrap-server "$tls" --consumer.config /etc/kafka/client-ssl.properties \
+    --topic "$topic" --partition 0 --offset "$offset" --max-messages 1 --timeout-ms 30000 \
+    </dev/null 2>>"$kafka_log" || true)"
+  [[ "$(tr -d '\r' <<<"$consumed")" == "$token" ]] || { echo "expected '$token' at offset $offset, consumed '$consumed'" >>"$kafka_log"; return 1; }
+  kafka_detail="token at offset $offset"
+}
+kafka_log=""
+kafka_detail=""
+if kafka_smoke; then
+  ok "TLS produce/consume via $INFRA_PRIVATE_IP:9092 ($kafka_detail)"
+else
+  fail "Kafka TLS smoke message was not consumed"
+  tail -n 20 "$kafka_log" | sed 's/^/       /' >&2
 fi
-grep -qx "$marker" <<<"$consumed" && ok "TLS produce/consume via $INFRA_PRIVATE_IP:9092" || fail "Kafka TLS smoke message was not consumed"
+rm -f "$kafka_log"
 
 echo "== Prometheus"
 if retry 20 3 curl -fsS http://127.0.0.1:9090/-/ready; then

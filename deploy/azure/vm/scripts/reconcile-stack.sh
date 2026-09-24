@@ -147,6 +147,18 @@ render_edge
 
 "$compose" config --quiet
 
+# Non-root containers read these bind-mounted paths. An unreadable rules or
+# provisioning directory is silently ignored by Prometheus/Grafana, so fail
+# loudly here instead.
+unreadable="$(find "$opt/prometheus/rules" "$opt/prometheus/prometheus.yml" "$opt/grafana/provisioning" \
+  "$opt/kafka/log4j.properties" "$opt/kafka/client-ssl.properties" \
+  \( -type d \( ! -perm -o=r -o ! -perm -o=x \) \) -o \( -type f ! -perm -o=r \) 2>/dev/null)"
+if [[ -n "$unreadable" ]]; then
+  echo "Configuration not readable by non-root containers:" >&2
+  sed 's/^/  /' <<<"$unreadable" >&2
+  exit 1
+fi
+
 # ---------------------------------------------------------------------------
 log "[4/9] Pull images"
 "$compose" pull --quiet

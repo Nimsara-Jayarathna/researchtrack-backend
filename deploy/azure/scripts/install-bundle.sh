@@ -14,9 +14,12 @@ opt=/opt/researchtrack
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
-umask 077
 
-printf '%s' "$RT_BUNDLE_B64" | base64 -d | tar -xz -C "$work" --no-same-owner
+# Non-secret configuration: extracted world-readable (see rsync below).
+umask 022
+printf '%s' "$RT_BUNDLE_B64" | base64 -d | tar -xz -C "$work" --no-same-owner --no-same-permissions
+# Runtime secrets: root-only.
+umask 077
 mkdir -p "$work/runtime"
 printf '%s' "$RT_RUNTIME_B64" | base64 -d | tar -xz -C "$work/runtime" --no-same-owner
 unset RT_RUNTIME_B64
@@ -34,8 +37,13 @@ done
 # Sync in place: directories bind-mounted into running containers keep their
 # inode (a replaced directory would stay mounted as the old, deleted one).
 # Generated/persistent paths are excluded from --delete.
+#
+# -p with --chmod also repairs permissions of files that are already on the VM
+# and unchanged in content: Prometheus (uid 65534), Grafana (472) and the Kafka
+# tools (1000) must be able to read the rules, provisioning and client config.
 umask 022
-rsync -rlt --delete \
+rsync -rlpt --delete \
+  --chmod=Du=rwx,Dgo=rx,Fu=rw,Fgo=r \
   --exclude '/runtime/' \
   --exclude '/nginx/conf.d/' \
   --exclude '/nginx/www/' \

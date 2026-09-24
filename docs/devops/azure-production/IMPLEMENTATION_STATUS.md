@@ -70,6 +70,20 @@ Configuration and operator documentation: `docs/devops/configuration/` (added 20
 
 - **Temporary deviation, Production trigger branch:** `backend-deploy-production.yml` and `azure-infrastructure.yml` run on pushes to `devops/azure-production-deployment` instead of `main`. Revert both `on.push.branches` to `main` when the branch is merged.
 
+## First real Azure run: VM stack findings (2026-09-24)
+
+- **Proven healthy on Azure:**
+  - the data disk mount
+  - Nginx, MySQL, Kafka, Prometheus and Grafana running
+  - port bindings: 3306/9092 on the private IP only, 9090/3000 on loopback only
+  - MySQL TLS for all six accounts, with non-TLS rejected
+  - a valid Nginx config
+- **Fixed** (`validate-vm-stack.sh`: Prometheus rules not loaded, Grafana datasource/dashboards missing, Kafka TLS smoke failing):
+  - One root cause: `build-vm-bundle.sh` staged the non-secret config under `umask 077`, so it shipped root-only (`0600`/`0700`), and `install-bundle.sh` (`tar` + `rsync -rlt` without `-p`) preserved those modes.
+  - As a result, Prometheus (uid 65534) could not read `prometheus/rules` (it silently loads 0 rules), Grafana (472) could not read `grafana/provisioning`, and the Kafka CLI (1000) could not read `kafka/client-ssl.properties`.
+  - Fixes: config is normalized to world-readable in the bundle; `install-bundle.sh` uses `rsync -rlpt --chmod` so already-deployed files are repaired; `reconcile-stack.sh` fails fast if these paths are not readable; the Kafka smoke test is now offset-based, uses one exact token, and prints diagnostics.
+  - Runtime secrets remain `0600`.
+
 ## Validation already performed (local, 2026-09-24)
 
 - `bicep build` for `main.bicep` and `modules/container-app.bicep`, `bicep build-params` for `production.bicepparam`, and `bicep lint`: clean.

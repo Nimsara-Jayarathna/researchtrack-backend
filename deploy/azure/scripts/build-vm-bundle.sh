@@ -37,6 +37,14 @@ cp -R "$repo_root/deploy/monitoring/rules" "$cfg/prometheus/rules"
 cp -R "$repo_root/deploy/monitoring/grafana/provisioning" "$cfg/grafana/provisioning"
 cp "$repo_root/deploy/mysql/reconcile-databases.sh" "$cfg/mysql/"
 
+# The configuration is non-secret and is read inside non-root containers
+# (Prometheus as nobody, Grafana as 472, Kafka tools as 1000). Files copied
+# under the umask 077 above would be root-only 0600/0700 and silently ignored
+# by those containers, so normalize them to world-readable. Runtime secrets
+# below stay 0600.
+chmod -R u=rwX,go=rX "$cfg"
+chmod 755 "$cfg/scripts/"*.sh
+
 # Runtime values.
 cp "$env_dir/mysql.env" "$env_dir/grafana.env" "$stage/runtime/"
 cat > "$stage/runtime/infra.env" <<EOF
