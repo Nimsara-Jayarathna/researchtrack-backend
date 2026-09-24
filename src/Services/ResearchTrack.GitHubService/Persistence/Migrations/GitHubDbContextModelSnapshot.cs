@@ -456,6 +456,9 @@ namespace ResearchTrack.GitHubService.Persistence.Migrations
                     b.Property<Guid>("SourceId")
                         .HasColumnType("char(36)");
 
+                    b.Property<long>("SyncRevision")
+                        .HasColumnType("bigint");
+
                     b.Property<string>("SyncStatus")
                         .IsRequired()
                         .HasMaxLength(32)

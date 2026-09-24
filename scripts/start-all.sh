@@ -124,7 +124,7 @@ show_failed_logs() {
   echo "Recent logs for services that are not ready:"
   for service in "${services[@]}"; do
     base_url="$(service_base_url "$service")"
-    if ! curl -fsS --max-time 1 "$base_url/health/ready" >/dev/null 2>&1; then
+    if ! curl -fsS --max-time 5 "$base_url/health/ready" >/dev/null 2>&1; then
       printf '\n--- %s (%s) ---\n' "$service" "$base_url"
       if [[ -f ".run/logs/$service.log" ]]; then
         tail -n 60 ".run/logs/$service.log" || true
@@ -143,7 +143,7 @@ wait_for_readiness() {
     all_ready=true
     for service in "${services[@]}"; do
       base_url="$(service_base_url "$service")"
-      if ! curl -fsS --max-time 1 "$base_url/health/ready" >/dev/null 2>&1; then
+      if ! curl -fsS --max-time 5 "$base_url/health/ready" >/dev/null 2>&1; then
         all_ready=false
       fi
     done

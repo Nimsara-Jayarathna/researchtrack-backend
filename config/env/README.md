@@ -8,7 +8,7 @@ Each runtime component owns one committed `.env.example`:
 config/env/
 ├── admin/.env.example       # local DB provisioning only
 ├── mysql/.env.example       # remote Compose MySQL contract
-├── shared/.env.example      # JWT values shared by Auth + Project
+├── shared/.env.example      # JWT values shared by Auth + Project + GitHub + Jira
 ├── gateway/.env.example
 ├── auth/.env.example
 ├── project/.env.example
@@ -84,7 +84,7 @@ Local scripts map those values into the ASP.NET/YARP hierarchy. The Gateway also
 
 ## Shared JWT configuration
 
-Auth, Project, and GitHub receive the same `Jwt__Issuer`, `Jwt__Audience`, and `Jwt__SigningKey` from `config/env/shared/.env.example`. Test and Production must use different signing keys.
+Auth, Project, GitHub, and Jira receive the same `Jwt__Issuer`, `Jwt__Audience`, and `Jwt__SigningKey` from `config/env/shared/.env.example`. Test and Production must use different signing keys.
 
 ## Future integration keys
 

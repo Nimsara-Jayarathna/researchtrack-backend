@@ -39,6 +39,7 @@ public static class GitHubFeatureExtensions
         services.AddScoped<IProjectGitHubInventoryService, ProjectGitHubInventoryService>();
         services.AddScoped<IGitHubEvidenceQueryService, GitHubEvidenceQueryService>();
         services.AddScoped<IGitHubDashboardQueryService, GitHubDashboardQueryService>();
+        services.AddScoped<IGitHubSyncStateQueryService, GitHubSyncStateQueryService>();
         services.AddScoped<IRepositoryLinkStore, RepositoryLinkStore>();
         services.AddSingleton<RepositorySyncQueue>();
         services.AddSingleton<IRepositorySyncQueue>(provider => provider.GetRequiredService<RepositorySyncQueue>());

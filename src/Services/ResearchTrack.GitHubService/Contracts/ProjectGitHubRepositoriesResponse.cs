@@ -37,5 +37,6 @@ public sealed record ProjectRepositoryLinkResponse(
     bool Enabled,
     DateTime LinkedAt,
     DateTime? LastSyncedAt,
+    long SyncRevision,
     string? SyncStatus,
     string AccessStatus);

@@ -89,16 +89,16 @@ http://localhost:5000
 The service boundary also applies to configuration:
 
 ```text
-Auth Service       <- config/env/auth/.env.local
-Project Service    <- config/env/project/.env.local
-GitHub Service     <- config/env/github/.env.local
-Jira Service       <- config/env/jira/.env.local
-Meeting Service    <- config/env/meeting/.env.local
-Submission Service <- config/env/submission/.env.local
+Auth Service       <- config/env/auth/.env.local       + config/env/shared/.env.local
+Project Service    <- config/env/project/.env.local    + config/env/shared/.env.local
+GitHub Service     <- config/env/github/.env.local     + config/env/shared/.env.local
+Jira Service       <- config/env/jira/.env.local       + config/env/shared/.env.local
+Meeting Service    <- config/env/meeting/.env.local    + config/env/shared/.env.local
+Submission Service <- config/env/submission/.env.local + config/env/shared/.env.local
 Gateway            <- config/env/gateway/.env.local
 ```
 
-A service should receive only the runtime values it owns. Sharing infrastructure code does not mean sharing configuration values or database credentials.
+A service should receive only the runtime values it owns. The deliberate exception is the platform JWT validation contract: all business API services consume the same shared issuer, audience, and signing key so tokens issued by Auth are validated consistently. Database credentials and service-specific integration secrets remain isolated per service.
 
 ---
 
@@ -372,6 +372,17 @@ Kafka__BootstrapServers
 Jira__ClientId
 Jira__ClientSecret
 Jira__RedirectUri
+Jira__Scope
+Jira__Audience
+Jira__AuthorizationUrl
+Jira__TokenUrl
+Jira__AccessibleResourcesUrl
+Jira__ApiBaseUrl
+Jira__OAuthStateTtlMinutes
+Jira__SelectionTtlMinutes
+Jira__AtlassianTimeoutSeconds
+Jira__ProjectServiceTimeoutSeconds
+Services__Project__BaseUrl
 ```
 
 ### Meeting
