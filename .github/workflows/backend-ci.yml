@@ -46,6 +46,9 @@ jobs:
       - name: Test VM private-IP safety check (stubbed ip)
         run: ./deploy/azure/validation/test-private-ip-check.sh
 
+      - name: Test Container Apps network probe (stubbed az/Kafka)
+        run: ./deploy/azure/validation/test-network-probe.sh
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:

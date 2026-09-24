@@ -18,6 +18,8 @@
 set -Eeuo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=aca-job.sh
+. "$script_dir/aca-job.sh"
 app_template="$script_dir/../modules/container-app.bicep"
 
 for key in RESOURCE_GROUP ACA_ENVIRONMENT IMAGE_PREFIX GIT_SHA ENV_DIR WORK_DIR; do
@@ -152,29 +154,19 @@ run_migration() {
   spec="$WORK_DIR/$service.job.json"
   render job "$service" "$job" "${target_image[$service]}" "$spec" >/dev/null
 
-  if az containerapp job show -g "$RESOURCE_GROUP" -n "$job" -o none 2>/dev/null; then
-    az containerapp job update -g "$RESOURCE_GROUP" -n "$job" --yaml "$spec" -o none
-  else
-    az containerapp job create -g "$RESOURCE_GROUP" -n "$job" --yaml "$spec" -o none
-  fi
+  # One mechanism: full ARM PUT of the job (see aca-job.sh), never --yaml.
+  aca_job_put "$RESOURCE_GROUP" "$job" "$spec" || { rm -f "$spec"; return 1; }
   rm -f "$spec"
 
-  execution="$(az containerapp job start -g "$RESOURCE_GROUP" -n "$job" --query name -o tsv)"
+  execution="$(aca_job_start "$RESOURCE_GROUP" "$job")"
   echo "   $service: $execution"
-  for _ in $(seq 1 120); do
-    status="$(az containerapp job execution show -g "$RESOURCE_GROUP" -n "$job" \
-      --job-execution-name "$execution" --query properties.status -o tsv)"
-    case "$status" in
-      Succeeded) echo "   $service migrations applied"; return 0 ;;
-      Failed|Stopped|Degraded)
-        echo "Migration job $job execution $execution finished with status $status." >&2
-        echo "Inspect logs: az containerapp job logs show -g $RESOURCE_GROUP -n $job --execution $execution --container $service" >&2
-        return 1
-        ;;
-    esac
-    sleep 10
-  done
-  echo "Timed out waiting for migration job $job ($execution)." >&2
+  status="$(aca_job_wait "$RESOURCE_GROUP" "$job" "$execution" 120)"
+  if [[ "$status" == Succeeded ]]; then
+    echo "   $service migrations applied"
+    return 0
+  fi
+  echo "Migration job $job execution $execution finished with status $status." >&2
+  aca_job_logs "$RESOURCE_GROUP" "$job" "$execution" "$service" | tail -n 60 >&2 || true
   return 1
 }
 

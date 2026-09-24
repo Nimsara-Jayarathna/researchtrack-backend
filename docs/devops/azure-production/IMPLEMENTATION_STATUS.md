@@ -98,6 +98,14 @@ Configuration and operator documentation: `docs/devops/configuration/` (added 20
   - Tests: `deploy/azure/validation/test-private-ip-check.sh` (also in CI).
   - Azure networking/Bicep unchanged.
 
+- **Fourth run (network probe):** VM reconcile passed. The `rt-netcheck-prod` job reached MySQL, then failed with no diagnostic.
+  - The warning `Additional flags were passed along with --yaml` does not come from our flags (we passed only `-g`, `-n`, `--yaml`, `-o`). `az containerapp job create` registers defaults for `--parallelism 1` and `--replica-completion-count 1`, so every `create --yaml` warns (azure-cli 2.90, `_params.py` / `set_up_create_containerapp_job_yaml`).
+  - Fix: all jobs (probe and migrations) are now applied with one mechanism, an ARM PUT of the full body (`aca-job.sh`). No `--yaml` remains.
+  - The probe (`aca-probe.sh`) now logs PROBE/PASS/FAIL per check: MySQL TCP, Kafka TCP, then a deterministic Kafka TLS round trip (end offset, sync produce with acks=all, assign-mode consume of one record, exact match). The seven app checks run only when `EXPECT_APPS=true`.
+  - The old probe's failing step was the final `grep -qx` after a group-based `--from-beginning` consumer whose stderr was discarded.
+  - Logs come from the live replica or, failing that, Log Analytics.
+  - Tests: `deploy/azure/validation/test-network-probe.sh` (also in CI).
+
 ## Validation already performed (local, 2026-09-24)
 
 - `bicep build` for `main.bicep` and `modules/container-app.bicep`, `bicep build-params` for `production.bicepparam`, and `bicep lint`: clean.

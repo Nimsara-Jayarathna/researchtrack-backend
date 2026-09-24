@@ -19,6 +19,8 @@ on:
       - "deploy/azure/scripts/validate-vm-stack.sh"
       - "deploy/azure/scripts/validate-infrastructure.sh"
       - "deploy/azure/scripts/network-probe.sh"
+      - "deploy/azure/scripts/aca-probe.sh"
+      - "deploy/azure/scripts/aca-job.sh"
       - "deploy/azure/scripts/whatif-gate.sh"
       - "deploy/azure/scripts/vm-run.sh"
       - "deploy/monitoring/**"

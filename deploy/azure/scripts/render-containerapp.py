@@ -2,7 +2,7 @@
 """Render the deployment input for a ResearchTrack Container App or its migration job.
 
 - app: a parameters file for deploy/azure/modules/container-app.bicep
-- job: a spec for `az containerapp job create|update --yaml`
+- job: a complete ARM body for Microsoft.App/jobs (applied with an ARM PUT)
 
 Values come from the same validated env files (config/env/*/.env.example
 contracts) the Test VPS receives. Secret-like keys become Container App secrets
@@ -149,7 +149,7 @@ def main() -> None:
                 "username": args.registry_username,
                 "passwordSecretRef": registry_secret,
             })
-        # Spec for `az containerapp job create|update --yaml` (JSON is valid YAML).
+        # Complete ARM body for Microsoft.App/jobs, applied with a PUT (aca-job.sh).
         document = {
             "location": args.location,
             "properties": {
