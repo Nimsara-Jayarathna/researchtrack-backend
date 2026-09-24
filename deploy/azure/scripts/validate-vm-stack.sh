@@ -107,13 +107,13 @@ kafka_smoke() {
   [[ "$offset" =~ ^[0-9]+$ ]] || { echo "could not read end offset (got '$offset')" >>"$kafka_log"; return 1; }
 
   printf '%s\n' "$token" | "$compose" exec -T kafka "$bin/kafka-console-producer.sh" \
-    --bootstrap-server "$tls" --producer.config /etc/kafka/client-ssl.properties \
+    --bootstrap-server "$tls" --producer.config /etc/researchtrack/kafka/client-ssl.properties \
     --topic "$topic" --sync --request-required-acks all >>"$kafka_log" 2>&1 || return 1
 
   # --max-messages 1 exits as soon as the record arrives; the consumer's exit
   # status on timeout is irrelevant because the output is compared exactly.
   consumed="$("$compose" exec -T kafka "$bin/kafka-console-consumer.sh" \
-    --bootstrap-server "$tls" --consumer.config /etc/kafka/client-ssl.properties \
+    --bootstrap-server "$tls" --consumer.config /etc/researchtrack/kafka/client-ssl.properties \
     --topic "$topic" --partition 0 --offset "$offset" --max-messages 1 --timeout-ms 30000 \
     </dev/null 2>>"$kafka_log" || true)"
   [[ "$(tr -d '\r' <<<"$consumed")" == "$token" ]] || { echo "expected '$token' at offset $offset, consumed '$consumed'" >>"$kafka_log"; return 1; }

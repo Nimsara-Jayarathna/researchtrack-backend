@@ -175,10 +175,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          count="$(az containerapp list -g "$RESOURCE_GROUP" \
-            --query "length([?starts_with(name, 'rt-') && ends_with(name, '-prod')])" -o tsv)"
-          echo "Found $count of 7 application Container Apps."
-          [[ "$count" == 7 ]] && echo "EXPECT_APPS=true" >> "$GITHUB_ENV" || echo "EXPECT_APPS=false" >> "$GITHUB_ENV"
+          # Informational only: never fails. The first infrastructure run happens
+          # before the application workflow has created any app, so app-level
+          # checks run only when all seven exist (EXPECT_APPS=true).
+          expected=(gateway auth project github jira meeting submission)
+          existing="$(az containerapp list -g "$RESOURCE_GROUP" --query "[].name" -o tsv)"
+          found=0
+          for service in "${expected[@]}"; do
+            grep -qx "rt-$service-prod" <<<"$existing" && found=$((found + 1))
+          done
+          echo "Found $found of ${#expected[@]} application Container Apps."
+          if (( found == ${#expected[@]} )); then
+            echo "EXPECT_APPS=true" >> "$GITHUB_ENV"
+          else
+            echo "EXPECT_APPS=false" >> "$GITHUB_ENV"
+            echo "App-level checks skipped until the application workflow has deployed all seven apps."
+          fi
 
       - name: Validate VM stack
         shell: bash

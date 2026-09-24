@@ -83,6 +83,14 @@ Configuration and operator documentation: `docs/devops/configuration/` (added 20
   - As a result, Prometheus (uid 65534) could not read `prometheus/rules` (it silently loads 0 rules), Grafana (472) could not read `grafana/provisioning`, and the Kafka CLI (1000) could not read `kafka/client-ssl.properties`.
   - Fixes: config is normalized to world-readable in the bundle; `install-bundle.sh` uses `rsync -rlpt --chmod` so already-deployed files are repaired; `reconcile-stack.sh` fails fast if these paths are not readable; the Kafka smoke test is now offset-based, uses one exact token, and prints diagnostics.
   - Runtime secrets remain `0600`.
+- **Second real run:** Prometheus rules and Grafana provisioning are now proven fixed on Azure. Kafka still failed with `AccessDeniedException: /etc/kafka/client-ssl.properties`.
+  - Root cause: Kafka used **single-file bind mounts**, which pin the inode present at container creation. Each run, `rsync` saw a new checkout mtime, rewrote the file and renamed it into place (new inode, now `0644`). Kafka was not recreated because the inputs hash compares content only, so the container kept the original root-only `0600` inode.
+  - Fix: Kafka now uses **directory mounts** with explicit numeric ownership:
+    - `/opt/researchtrack/kafka` → `/etc/researchtrack/kafka` (non-secret, `0644`)
+    - `/opt/researchtrack/runtime/kafka/server.properties` (`root:1000 0640`)
+    - `/data/researchtrack/kafka/tls/container/{broker.p12 root:1000 0440, ca.crt 0644}`
+  - The CA and broker private keys never enter the container. `reconcile-stack.sh` verifies readability from inside the container as uid 1000, and rejects credentials in the world-readable `client-ssl.properties`.
+  - The infrastructure workflow's app-presence probe now counts only the seven exact app names and never fails. `EXPECT_APPS=true` only when all seven exist.
 
 ## Validation already performed (local, 2026-09-24)
 

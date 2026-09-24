@@ -99,8 +99,16 @@ if ! broker_cert_valid; then
   rm -f "$tls/broker.csr"
 fi
 chmod 600 "$tls/broker.key"
-chown 1000:1000 "$tls/broker.p12"
+chown root:root "$tls/broker.p12"
 chmod 400 "$tls/broker.p12"
+
+# The Kafka container (uid/gid 1000) gets only what it needs, through a
+# directory mount: the keystore (private key: root:1000 0440) and the public CA
+# certificate. ca.key and broker.key never enter the container.
+kafka_tls_dir="$tls/container"
+install -d -o root -g 1000 -m 750 "$kafka_tls_dir"
+install -o root -g 1000 -m 440 "$tls/broker.p12" "$kafka_tls_dir/broker.p12"
+install -o root -g root -m 644 "$tls/ca.crt" "$kafka_tls_dir/ca.crt"
 
 # ---------------------------------------------------------------------------
 log "[3/9] Render configuration"
@@ -117,14 +125,29 @@ render() {
     "$1"
 }
 
-kafka_props="$opt/runtime/kafka-server.properties"
+# server.properties holds the keystore password: readable by root and the
+# Kafka container group only. It lives in its own directory because it is
+# directory-mounted; the rest of runtime/ (mysql.env, grafana.env) is never
+# visible to Kafka.
+kafka_runtime_dir="$opt/runtime/kafka"
+kafka_props="$kafka_runtime_dir/server.properties"
+install -d -o root -g 1000 -m 750 "$kafka_runtime_dir"
 umask 077
 render "$opt/kafka/server.properties.template" \
   | sed "s|__KAFKA_KEYSTORE_PASSWORD__|$keystore_password|g" > "$kafka_props.next"
 umask 022
+chown root:1000 "$kafka_props.next"
+chmod 640 "$kafka_props.next"
 mv "$kafka_props.next" "$kafka_props"
-chown root:1000 "$kafka_props"
-chmod 640 "$kafka_props"
+# Pre-directory-mount location (single-file mount); no longer used.
+rm -f "$opt/runtime/kafka-server.properties"
+
+# client-ssl.properties is deployed world-readable, so it must never carry a
+# credential. Client authentication material belongs in a secret file instead.
+if grep -Eiq '^[[:space:]]*[^#].*(password|secret|\.key[[:space:]]*=)' "$opt/kafka/client-ssl.properties"; then
+  echo "kafka/client-ssl.properties must not contain credentials (it is deployed 0644)." >&2
+  exit 1
+fi
 
 render "$opt/prometheus/prometheus.yml.template" > "$opt/prometheus/prometheus.yml"
 
@@ -187,16 +210,27 @@ wait_healthy mysql 60
 
 # ---------------------------------------------------------------------------
 log "[6/9] Kafka"
-# Kafka's inputs are file bind mounts; recreate when any of them changed so the
-# container never keeps a stale inode.
+# Kafka reads its broker configuration only at startup: recreate when any input
+# changed. (A changed mount layout in compose.yml also recreates it.)
 kafka_inputs_hash="$(cat "$kafka_props" "$opt/kafka/log4j.properties" "$opt/kafka/client-ssl.properties" \
-  "$tls/broker.p12" "$tls/ca.crt" | sha256sum | cut -d' ' -f1)"
+  "$kafka_tls_dir/broker.p12" "$kafka_tls_dir/ca.crt" | sha256sum | cut -d' ' -f1)"
 if [[ "$(cat "$data/kafka/.inputs-hash" 2>/dev/null || true)" != "$kafka_inputs_hash" ]]; then
   "$compose" up -d --force-recreate kafka
 else
   "$compose" up -d kafka
 fi
 wait_healthy kafka 40
+# Verify the final view from inside the container, as the Kafka user (1000):
+# this is what the broker and the smoke-test CLI actually see.
+if ! "$compose" exec -T kafka sh -c '
+  for f in /etc/researchtrack/kafka/log4j.properties /etc/researchtrack/kafka/client-ssl.properties \
+           /etc/researchtrack/kafka-runtime/server.properties \
+           /etc/researchtrack/kafka-tls/broker.p12 /etc/researchtrack/kafka-tls/ca.crt; do
+    [ -r "$f" ] || { echo "not readable by uid $(id -u): $f" >&2; exit 1; }
+  done' </dev/null; then
+  echo "Kafka container cannot read its configuration." >&2
+  exit 1
+fi
 printf '%s\n' "$kafka_inputs_hash" > "$data/kafka/.inputs-hash"
 
 # ---------------------------------------------------------------------------

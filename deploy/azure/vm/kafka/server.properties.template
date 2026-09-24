@@ -1,5 +1,5 @@
-# Rendered by scripts/reconcile-stack.sh into runtime/kafka-server.properties
-# (0600, contains the keystore password). Single KRaft broker/controller,
+# Rendered by scripts/reconcile-stack.sh into runtime/kafka/server.properties
+# (root:1000 0640, contains the keystore password). Single KRaft broker/controller,
 # replication factor 1: assignment-scale, not highly available.
 
 process.roles=broker,controller
@@ -15,7 +15,7 @@ listener.security.protocol.map=EXTERNAL:SSL,INTERNAL:PLAINTEXT,CONTROLLER:PLAINT
 inter.broker.listener.name=INTERNAL
 
 ssl.keystore.type=PKCS12
-ssl.keystore.location=/etc/kafka/tls/broker.p12
+ssl.keystore.location=/etc/researchtrack/kafka-tls/broker.p12
 ssl.keystore.password=__KAFKA_KEYSTORE_PASSWORD__
 ssl.key.password=__KAFKA_KEYSTORE_PASSWORD__
 ssl.enabled.protocols=TLSv1.3,TLSv1.2

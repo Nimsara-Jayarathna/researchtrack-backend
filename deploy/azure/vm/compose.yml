@@ -70,24 +70,30 @@ services:
     command:
       - >-
         /opt/kafka/bin/kafka-storage.sh format --ignore-formatted
-        -t "$$(cat /etc/kafka/cluster-id)" -c /etc/kafka/server.properties
-        && exec /opt/kafka/bin/kafka-server-start.sh /etc/kafka/server.properties
+        -t "$$(cat /etc/kafka/cluster-id)" -c /etc/researchtrack/kafka-runtime/server.properties
+        && exec /opt/kafka/bin/kafka-server-start.sh /etc/researchtrack/kafka-runtime/server.properties
     environment:
       KAFKA_HEAP_OPTS: -Xms512m -Xmx512m
-      KAFKA_LOG4J_OPTS: -Dlog4j.configuration=file:/etc/kafka/log4j.properties
+      KAFKA_LOG4J_OPTS: -Dlog4j.configuration=file:/etc/researchtrack/kafka/log4j.properties
       LOG_DIR: /tmp/kafka-logs
     # EXTERNAL TLS listener for Container Apps, bound to the private IP only.
     # The PLAINTEXT listener (29092) stays on the Docker network.
     ports:
       - "${INFRA_PRIVATE_IP}:9092:9092"
+    # Configuration is mounted as directories, never single files: a file bind
+    # mount pins the inode it had at container creation, so a file later
+    # replaced by rsync/mv/install stays invisible (stale content and mode).
+    # Ownership inside each directory is set by reconcile-stack.sh.
     volumes:
       - /data/researchtrack/kafka/data:/var/lib/kafka/data
+      # Written once, never replaced (KRaft metadata is bound to it).
       - /data/researchtrack/kafka/cluster-id:/etc/kafka/cluster-id:ro
-      - /data/researchtrack/kafka/tls/broker.p12:/etc/kafka/tls/broker.p12:ro
-      - /data/researchtrack/kafka/tls/ca.crt:/etc/kafka/tls/ca.crt:ro
-      - /opt/researchtrack/kafka/client-ssl.properties:/etc/kafka/client-ssl.properties:ro
-      - /opt/researchtrack/runtime/kafka-server.properties:/etc/kafka/server.properties:ro
-      - /opt/researchtrack/kafka/log4j.properties:/etc/kafka/log4j.properties:ro
+      # Non-secret: log4j.properties, client-ssl.properties (0644).
+      - /opt/researchtrack/kafka:/etc/researchtrack/kafka:ro
+      # Secret: server.properties with the keystore password (root:1000 0640).
+      - /opt/researchtrack/runtime/kafka:/etc/researchtrack/kafka-runtime:ro
+      # broker.p12 (private key, root:1000 0440) and ca.crt (0644); the CA key stays outside.
+      - /data/researchtrack/kafka/tls/container:/etc/researchtrack/kafka-tls:ro
     healthcheck:
       test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:29092 >/dev/null 2>&1"]
       interval: 15s
