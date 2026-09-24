@@ -2,8 +2,7 @@ name: Backend Deploy - Production
 
 on:
   push:
-    # Temporarily deploys Production from the image-selection fix branch instead of main.
-    branches: ["fix/production-image-selection"]
+    branches: ["main"]
   workflow_dispatch:
     inputs:
       force_full_build:
