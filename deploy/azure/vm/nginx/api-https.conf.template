@@ -1,0 +1,33 @@
+# Public API: https://__API_HOSTNAME__ -> private Gateway Container App.
+server {
+    listen 80;
+    server_name __API_HOSTNAME__;
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name __API_HOSTNAME__;
+
+    ssl_certificate /etc/letsencrypt/live/__API_HOSTNAME__/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/__API_HOSTNAME__/privkey.pem;
+    include /etc/nginx/conf.d/tls.inc;
+    include /etc/nginx/conf.d/security-headers.inc;
+
+    client_max_body_size 25m;
+
+    # Metrics are for Prometheus over the VNet only.
+    location ^~ /metrics {
+        return 404;
+    }
+
+    location / {
+        include /etc/nginx/conf.d/gateway-proxy.inc;
+    }
+}

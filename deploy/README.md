@@ -1,6 +1,6 @@
 # Deployment files
 
-`compose.yml` is the shared backend Compose definition for Test and Production.
+`compose.yml` is the backend Compose definition for the Test VPS deployment. Production runs on Azure. See `deploy/azure/` and `docs/devops/azure-production/`.
 
 GitHub Actions generates a non-secret `deploy.env` file per remote environment. Compose uses it to derive the project name, image tag, gateway network alias, and external edge network.
 
@@ -17,7 +17,7 @@ Deployment-only contents here are limited to orchestration/runtime infrastructur
 - `validate-env-files.sh`
 - `mysql/reconcile-databases.sh`
 
-See `config/env/README.md` for the local/deployment configuration model and `docs/devops/backend-deployment.md` for GitHub settings, networking, GHCR, migrations, secrets, and VPS prerequisites.
+See `config/env/README.md` for the local/deployment configuration model and `docs/devops/configuration/TEST_VPS.md` for the Test GitHub Environment settings and VPS prerequisites.
 
 ## Container reconciliation behavior
 
