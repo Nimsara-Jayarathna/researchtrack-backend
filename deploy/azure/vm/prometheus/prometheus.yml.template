@@ -1,0 +1,62 @@
+# Azure Production Prometheus configuration, rendered by
+# scripts/reconcile-stack.sh (__ACA_ENV_DOMAIN__, __ACA_TLS_INSECURE__).
+#
+# Targets are the Container Apps' private FQDNs, reached over the VNet.
+# Every series carries stable semantic labels (service, environment). The
+# `instance` label is set to the same service identity the shared alert rules
+# and dashboards use (e.g. github:8080), so deploy/monitoring/rules and the
+# Grafana dashboards are reused unchanged and never depend on Azure FQDNs/IPs.
+
+global:
+  scrape_interval: 15s
+  external_labels:
+    environment: production
+
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+scrape_configs:
+  - job_name: 'researchtrack-services'
+    metrics_path: /metrics
+    scheme: https
+    tls_config:
+      insecure_skip_verify: __ACA_TLS_INSECURE__
+    static_configs:
+      - targets: ['rt-auth-prod.__ACA_ENV_DOMAIN__:443']
+        labels: { service: 'auth', environment: 'production', researchtrack_instance: 'auth:8080' }
+      - targets: ['rt-project-prod.__ACA_ENV_DOMAIN__:443']
+        labels: { service: 'project', environment: 'production', researchtrack_instance: 'project:8080' }
+      - targets: ['rt-github-prod.__ACA_ENV_DOMAIN__:443']
+        labels: { service: 'github', environment: 'production', researchtrack_instance: 'github:8080' }
+      - targets: ['rt-jira-prod.__ACA_ENV_DOMAIN__:443']
+        labels: { service: 'jira', environment: 'production', researchtrack_instance: 'jira:8080' }
+      - targets: ['rt-meeting-prod.__ACA_ENV_DOMAIN__:443']
+        labels: { service: 'meeting', environment: 'production', researchtrack_instance: 'meeting:8080' }
+      - targets: ['rt-submission-prod.__ACA_ENV_DOMAIN__:443']
+        labels: { service: 'submission', environment: 'production', researchtrack_instance: 'submission:8080' }
+    relabel_configs:
+      - source_labels: [researchtrack_instance]
+        target_label: instance
+      - regex: researchtrack_instance
+        action: labeldrop
+
+  # The Gateway serves /metrics only on its internal metrics port (Program.cs),
+  # exposed to the VNet as an additional TCP port on rt-gateway-prod. Plain HTTP
+  # on a VNet-only port; the metrics carry no secrets.
+  - job_name: 'researchtrack-gateway'
+    metrics_path: /metrics
+    scheme: http
+    static_configs:
+      - targets: ['rt-gateway-prod.__ACA_ENV_DOMAIN__:9100']
+        labels: { service: 'gateway', environment: 'production' }
+    relabel_configs:
+      # Shared rules select job="researchtrack-services", instance="gateway:9100".
+      - target_label: job
+        replacement: researchtrack-services
+      - target_label: instance
+        replacement: 'gateway:9100'
+
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+        labels: { service: 'prometheus', environment: 'production' }

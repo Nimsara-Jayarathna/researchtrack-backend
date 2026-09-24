@@ -24,9 +24,21 @@ jobs:
             deploy/scripts/deploy-stack.sh \
             deploy/scripts/verify-health.sh \
             deploy/validate-env-files.sh \
-            deploy/mysql/reconcile-databases.sh
+            deploy/mysql/reconcile-databases.sh \
+            deploy/azure/scripts/*.sh \
+            deploy/azure/vm/scripts/*.sh \
+            deploy/azure/validation/*.sh
+          python -m py_compile deploy/azure/scripts/render-containerapp.py
           python -m json.tool deploy/monitoring/grafana/provisioning/dashboards/json/researchtrack-overview.json >/dev/null
           python -m json.tool deploy/monitoring/grafana/provisioning/dashboards/json/github-sync.json >/dev/null
+
+      - name: Validate Azure infrastructure definition
+        run: |
+          az bicep build --file deploy/azure/main.bicep --stdout >/dev/null
+          az bicep build --file deploy/azure/modules/container-app.bicep --stdout >/dev/null
+
+      - name: Test Azure Production env validator (synthetic values)
+        run: ./deploy/azure/validation/test-validate-azure-env-files.sh
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4

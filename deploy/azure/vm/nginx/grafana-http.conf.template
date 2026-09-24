@@ -1,0 +1,17 @@
+# Pre-TLS mode: Grafana credentials never travel over public HTTP. Only ACME
+# challenges are served publicly until the certificate exists.
+server {
+    listen 80;
+    server_name __GRAFANA_HOSTNAME__;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        allow 127.0.0.0/8;
+        allow 172.16.0.0/12;
+        deny all;
+        include /etc/nginx/conf.d/grafana-proxy.inc;
+    }
+}

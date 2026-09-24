@@ -2,7 +2,8 @@ name: Backend Deploy - Production
 
 on:
   push:
-    branches: ["main"]
+    # Temporarily deploys Production from the Azure migration branch instead of main.
+    branches: ["devops/azure-production-deployment"]
   workflow_dispatch:
     inputs:
       force_full_build:
@@ -10,23 +11,33 @@ on:
         required: false
         type: boolean
         default: false
+      force_redeploy:
+        description: Re-run DB checks/migrations and roll out every Container App even if unchanged.
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
-  group: researchtrack-backend-production-deployment
+  # Shared with azure-infrastructure.yml so rollouts and VM reconciles never overlap.
+  group: researchtrack-azure-production
   cancel-in-progress: false
 
 permissions:
   contents: read
   packages: write
+  id-token: write
 
 jobs:
+  # Production runs on Azure Container Apps + an infrastructure VM. Test keeps
+  # using the VPS/Compose path in backend-deploy-reusable.yml.
   deploy:
-    name: Build and Deploy Production
-    uses: ./.github/workflows/backend-deploy-reusable.yml
+    name: Build and Deploy Azure Production
+    uses: ./.github/workflows/backend-deploy-azure-production.yml
     with:
-      environment_name: production
       force_full_build: ${{ inputs.force_full_build || false }}
+      force_redeploy: ${{ inputs.force_redeploy || false }}
     permissions:
       contents: read
       packages: write
+      id-token: write
     secrets: inherit

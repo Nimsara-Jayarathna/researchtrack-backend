@@ -59,16 +59,12 @@ The same committed contracts are used to prepare GitHub Environment multiline se
 
 Copy the complete example shape, then change values for the target environment. Do not commit the completed files.
 
-Remote application files must use:
+The two deployed environments apply different rules to the same keys:
 
-- Test: `ASPNETCORE_ENVIRONMENT=Test`, `DOTNET_ENVIRONMENT=Test`, `ASPNETCORE_URLS=http://+:8080`
-- Production: `ASPNETCORE_ENVIRONMENT=Production`, `DOTNET_ENVIRONMENT=Production`, `ASPNETCORE_URLS=http://+:8080`
-- DB services: `ConnectionStrings__DefaultConnection` with `Server=mysql`, `Port=3306`, and `SslMode=Disabled`
-- Project: `Services__Auth__BaseUrl=http://auth:8080`
-- GitHub: `Services__Project__BaseUrl=http://project:8080`
-- Gateway internal URLs: `http://<compose-service>:8080`
+- **Test** (`develop` → VPS + Docker Compose): `ASPNETCORE_ENVIRONMENT=Test`, `DOTNET_ENVIRONMENT=Test`, `ASPNETCORE_URLS=http://+:8080`. DB services use `Server=mysql;Port=3306;…;SslMode=Disabled`. Internal URLs use `http://<compose-service>:8080` (e.g. `Services__Auth__BaseUrl=http://auth:8080`). Enforced by `deploy/validate-env-files.sh`.
+- **Production** (`main` → Azure Container Apps + infrastructure VM): `ASPNETCORE_ENVIRONMENT=Production`, `DOTNET_ENVIRONMENT=Production`, `ASPNETCORE_URLS=http://+:8080`. DB services use `Server=10.20.10.4;Port=3306;…;SslMode=Required`. Internal URLs use `http://rt-<service>-prod`. Public URLs must be HTTPS. Enforced by `deploy/azure/validation/validate-azure-env-files.sh`.
 
-`deploy/validate-env-files.sh` verifies that every runtime deployment file still contains every key in its canonical `.env.example` and then performs deployment-specific consistency checks.
+Both validators require every key of the canonical `.env.example` to be present. The full per-environment configuration guide (every GitHub secret/variable, sources, consumers) is in [`docs/devops/configuration/`](../../docs/devops/configuration/README.md).
 
 ## Gateway contract
 
@@ -92,7 +88,7 @@ Auth, Project, and GitHub receive the same `Jwt__Issuer`, `Jwt__Audience`, and `
 
 ## Future integration keys
 
-Some service examples contain currently optional keys reserved for the later GitHub/Jira/Kafka/object-storage implementation. They remain in the canonical service contract but may be empty until the corresponding feature is implemented. Deployment validation only requires currently operational settings to be populated.
+Some service examples contain currently optional keys reserved for the later GitHub/Jira/Kafka/object-storage implementation. They remain in the canonical service contract but may be empty until the corresponding feature is implemented. The Test validator only requires currently operational settings to be populated. The Production validator additionally rejects `CHANGE_ME`-style placeholders in every key except the reserved `Storage__*` keys; leave other unused keys empty rather than `CHANGE_ME`.
 
 ## Security rules
 
@@ -101,4 +97,4 @@ Some service examples contain currently optional keys reserved for the later Git
 - Keep Test and Production credentials different.
 - Use a unique DB user/password per service.
 - Use a unique JWT signing key per deployed environment.
-- GitHub Actions materializes deployment files with restrictive permissions and uploads them to the VPS over SSH.
+- GitHub Actions materializes deployment files with restrictive permissions: for Test it uploads them to the VPS over SSH; for Production it turns them into Azure Container App secrets/variables and, for MySQL/Grafana, a protected Azure Run Command parameter.

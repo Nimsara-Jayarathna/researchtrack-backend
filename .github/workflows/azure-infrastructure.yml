@@ -1,0 +1,204 @@
+name: Azure Infrastructure - Production
+
+# Reconciles Azure Production infrastructure (Bicep) and the infrastructure VM
+# stack (Nginx, MySQL, Kafka, Prometheus, Grafana). Application releases run in
+# backend-deploy-production.yml and do not touch networking.
+
+on:
+  push:
+    # Temporarily deploys Production from the Azure migration branch instead of main.
+    branches: ["devops/azure-production-deployment"]
+    paths:
+      - "deploy/azure/main.bicep"
+      - "deploy/azure/modules/**"
+      - "deploy/azure/parameters/**"
+      - "deploy/azure/vm/**"
+      - "deploy/azure/scripts/configure-vm.sh"
+      - "deploy/azure/scripts/install-bundle.sh"
+      - "deploy/azure/scripts/build-vm-bundle.sh"
+      - "deploy/azure/scripts/validate-vm-stack.sh"
+      - "deploy/azure/scripts/validate-infrastructure.sh"
+      - "deploy/azure/scripts/network-probe.sh"
+      - "deploy/azure/scripts/whatif-gate.sh"
+      - "deploy/azure/scripts/vm-run.sh"
+      - "deploy/monitoring/**"
+      - "deploy/mysql/**"
+      - ".github/workflows/azure-infrastructure.yml"
+  workflow_dispatch:
+    inputs:
+      allow_destructive:
+        description: Proceed even if Azure What-If reports resource deletions.
+        required: false
+        type: boolean
+        default: false
+
+# Shared with the application deployment so the VM is never reconciled while an
+# application rollout is verifying against it.
+concurrency:
+  group: researchtrack-azure-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate Bicep
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: deploy/azure
+      - name: Build Bicep
+        run: |
+          az bicep build --file deploy/azure/main.bicep --stdout >/dev/null
+          az bicep build --file deploy/azure/modules/container-app.bicep --stdout >/dev/null
+
+  deploy:
+    name: Reconcile Azure Production infrastructure
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+
+    env:
+      AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
+      AZURE_VM_ADMIN_SSH_PUBLIC_KEY: ${{ vars.AZURE_VM_ADMIN_SSH_PUBLIC_KEY }}
+      API_HOSTNAME: ${{ vars.PRODUCTION_API_HOSTNAME || 'api.researchtrack.blipzo.xyz' }}
+      GRAFANA_HOSTNAME: ${{ vars.PRODUCTION_GRAFANA_HOSTNAME || 'grafana.researchtrack.blipzo.xyz' }}
+      LETSENCRYPT_EMAIL: ${{ vars.LETSENCRYPT_EMAIL }}
+      ACA_TLS_VERIFY: ${{ vars.ACA_TLS_VERIFY || 'on' }}
+      FORBIDDEN_HOSTS: ${{ vars.TEST_HOSTNAMES }}
+      ALLOW_DESTRUCTIVE: ${{ inputs.allow_destructive || false }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            deploy
+            config/env
+          sparse-checkout-cone-mode: false
+
+      - name: Validate workflow configuration
+        shell: bash
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          VM_SIZE_OVERRIDE: ${{ vars.AZURE_VM_SIZE }}
+        run: |
+          set -euo pipefail
+          # Export AZURE_VM_SIZE only when the variable is set: an empty value
+          # would reach production.bicepparam as '' instead of its default.
+          if [[ -n "$VM_SIZE_OVERRIDE" ]]; then
+            [[ "$VM_SIZE_OVERRIDE" =~ ^Standard_[A-Za-z0-9_]+$ ]] || { echo "AZURE_VM_SIZE '$VM_SIZE_OVERRIDE' is not a valid VM size name." >&2; exit 1; }
+            echo "AZURE_VM_SIZE=$VM_SIZE_OVERRIDE" >> "$GITHUB_ENV"
+            echo "Infrastructure VM size: $VM_SIZE_OVERRIDE (AZURE_VM_SIZE override)"
+          else
+            echo "Infrastructure VM size: Bicep default (production.bicepparam)"
+          fi
+          for key in AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID AZURE_LOCATION AZURE_VM_ADMIN_SSH_PUBLIC_KEY; do
+            [[ -n "${!key:-}" ]] || { echo "$key is not configured for the production environment." >&2; exit 1; }
+          done
+          [[ "$ACA_TLS_VERIFY" == on || "$ACA_TLS_VERIFY" == off ]] || { echo "ACA_TLS_VERIFY must be on or off." >&2; exit 1; }
+          echo "ENV_DIR=$RUNNER_TEMP/researchtrack-env" >> "$GITHUB_ENV"
+          echo "BUNDLE_DIR=$RUNNER_TEMP/researchtrack-vm" >> "$GITHUB_ENV"
+
+      - name: Materialize and validate VM runtime configuration
+        shell: bash
+        env:
+          MYSQL_ENV_FILE: ${{ secrets.MYSQL_ENV_FILE }}
+          GRAFANA_ENV_FILE: ${{ secrets.GRAFANA_ENV_FILE }}
+        run: |
+          set -euo pipefail
+          umask 077
+          rm -rf "$ENV_DIR" && mkdir -p "$ENV_DIR"
+          [[ -n "$MYSQL_ENV_FILE" && -n "$GRAFANA_ENV_FILE" ]] || { echo "MYSQL_ENV_FILE and GRAFANA_ENV_FILE are required." >&2; exit 1; }
+          printf '%s\n' "$MYSQL_ENV_FILE" > "$ENV_DIR/mysql.env"
+          printf '%s\n' "$GRAFANA_ENV_FILE" > "$ENV_DIR/grafana.env"
+          VALIDATE_SCOPE=infra EXPECTED_MYSQL_HOST=unused EXPECTED_GRAFANA_HOSTNAME="$GRAFANA_HOSTNAME" \
+            ./deploy/azure/validation/validate-azure-env-files.sh "$ENV_DIR" config/env
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: What-If
+        shell: bash
+        run: ./deploy/azure/scripts/whatif-gate.sh
+
+      - name: Deploy Bicep
+        shell: bash
+        run: |
+          set -euo pipefail
+          outputs="$(az deployment sub create \
+            --location "$AZURE_LOCATION" \
+            --name researchtrack-prod-infrastructure \
+            --parameters deploy/azure/parameters/production.bicepparam \
+            --query properties.outputs -o json)"
+          out() { jq -r ".$1.value" <<<"$outputs"; }
+          {
+            echo "RESOURCE_GROUP=$(out resourceGroupName)"
+            echo "INFRA_VM=$(out vmName)"
+            echo "INFRA_PRIVATE_IP=$(out vmPrivateIp)"
+            echo "ACA_ENVIRONMENT=$(out containerAppsEnvironmentName)"
+            echo "ACA_ENV_DOMAIN=$(out containerAppsDefaultDomain)"
+            echo "ACA_ENV_STATIC_IP=$(out containerAppsStaticIp)"
+          } >> "$GITHUB_ENV"
+          {
+            echo "### Azure Production infrastructure"
+            echo
+            echo "- Public IP (DNS A records for $API_HOSTNAME, $GRAFANA_HOSTNAME): \`$(out publicIpAddress)\`"
+            echo "- Container Apps environment domain: \`$(out containerAppsDefaultDomain)\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+          az extension add --name containerapp --upgrade --only-show-errors
+
+      - name: Configure VM (OS, Docker, data disk)
+        shell: bash
+        run: ./deploy/azure/scripts/vm-run.sh "$RESOURCE_GROUP" "$INFRA_VM" deploy/azure/scripts/configure-vm.sh
+
+      - name: Reconcile VM stack (Nginx, MySQL, Kafka, Prometheus, Grafana)
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./deploy/azure/scripts/build-vm-bundle.sh "$ENV_DIR" "$BUNDLE_DIR"
+          ./deploy/azure/scripts/vm-run.sh "$RESOURCE_GROUP" "$INFRA_VM" "$BUNDLE_DIR/reconcile-vm.sh" \
+            --protected "RT_RUNTIME_B64=@$BUNDLE_DIR/runtime.b64"
+
+      - name: Detect application Container Apps
+        shell: bash
+        run: |
+          set -euo pipefail
+          count="$(az containerapp list -g "$RESOURCE_GROUP" \
+            --query "length([?starts_with(name, 'rt-') && ends_with(name, '-prod')])" -o tsv)"
+          echo "Found $count of 7 application Container Apps."
+          [[ "$count" == 7 ]] && echo "EXPECT_APPS=true" >> "$GITHUB_ENV" || echo "EXPECT_APPS=false" >> "$GITHUB_ENV"
+
+      - name: Validate VM stack
+        shell: bash
+        run: |
+          printf '%s\n' '/opt/researchtrack/scripts/validate-vm-stack.sh' > "$RUNNER_TEMP/validate-vm-stack.run"
+          ./deploy/azure/scripts/vm-run.sh "$RESOURCE_GROUP" "$INFRA_VM" "$RUNNER_TEMP/validate-vm-stack.run" \
+            "EXPECT_APPS=$EXPECT_APPS"
+
+      - name: Validate private networking (VM side)
+        shell: bash
+        run: |
+          printf '%s\n' '/opt/researchtrack/scripts/validate-infrastructure.sh' > "$RUNNER_TEMP/validate-infrastructure.run"
+          ./deploy/azure/scripts/vm-run.sh "$RESOURCE_GROUP" "$INFRA_VM" "$RUNNER_TEMP/validate-infrastructure.run" \
+            "EXPECT_APPS=$EXPECT_APPS" "ACA_ENV_STATIC_IP=$ACA_ENV_STATIC_IP"
+
+      - name: Validate private networking (Container Apps side)
+        shell: bash
+        run: ./deploy/azure/scripts/network-probe.sh
+
+      - name: Remove local runtime files
+        if: always()
+        shell: bash
+        run: rm -rf "$ENV_DIR" "$BUNDLE_DIR"

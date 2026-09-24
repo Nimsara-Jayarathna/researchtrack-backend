@@ -3,6 +3,7 @@ using System.Threading.RateLimiting;
 using ResearchTrack.BuildingBlocks.Api.Constants;
 using ResearchTrack.BuildingBlocks.Api.Extensions;
 using ResearchTrack.BuildingBlocks.Api.Infrastructure;
+using ResearchTrack.Gateway;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.ConfigureKestrel(options =>
@@ -44,6 +45,7 @@ builder.Configuration.AddInMemoryCollection(
     gatewayEnvironmentOverrides.Where(pair => !string.IsNullOrWhiteSpace(pair.Value)));
 
 builder.Services.AddResearchTrackApi("ResearchTrack API Gateway");
+builder.Services.AddTrustedProxyForwarding();
 builder.Services.AddReverseProxy().LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"));
 
 var allowedOrigins = builder.Configuration.GetSection("Frontend:AllowedOrigins").Get<string[]>() ?? Array.Empty<string>();
@@ -106,6 +108,8 @@ builder.Services.AddRateLimiter(options =>
 });
 
 var app = builder.Build();
+// Must run first so rate limiting, logging and YARP see the real client address.
+app.UseForwardedHeaders();
 app.UseHttpMetrics();
 app.UseResearchTrackApi();
 app.UseCors("frontend");

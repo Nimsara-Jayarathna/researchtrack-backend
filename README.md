@@ -1429,4 +1429,4 @@ This keeps ResearchTrack flexible without putting environment-specific or config
 
 ## Backend deployment
 
-The Docker/GHCR/Test/Production backend deployment baseline is documented in [`docs/devops/backend-deployment.md`](docs/devops/backend-deployment.md). The deployment source lives under `deploy/` and `.github/workflows/`.
+Test (`develop`) deploys to a VPS with Docker Compose; Production (`main`) deploys to Azure Container Apps plus an infrastructure VM. Configuration, GitHub Environment secrets/variables and operator setup are documented in [`docs/devops/configuration/`](docs/devops/configuration/README.md); the Azure architecture is in [`docs/devops/azure-production/`](docs/devops/azure-production/README.md). The deployment source lives under `deploy/` and `.github/workflows/`.

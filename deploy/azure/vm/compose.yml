@@ -1,0 +1,145 @@
+# ResearchTrack Azure Production infrastructure VM stack.
+#
+# Infrastructure only: the seven ResearchTrack services run in Azure Container
+# Apps. Deployed to /opt/researchtrack; persistent state lives on the data disk
+# under /data/researchtrack (bind mounts, never anonymous volumes), so
+# `docker compose down && up -d` keeps every database, log and dashboard.
+#
+# Always run through scripts/compose.sh, which supplies runtime/infra.env.
+
+name: researchtrack
+
+services:
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    # The only public bindings on the VM.
+    ports:
+      - "0.0.0.0:80:80"
+      - "0.0.0.0:443:443"
+    volumes:
+      - /opt/researchtrack/nginx/conf.d:/etc/nginx/conf.d:ro
+      - /opt/researchtrack/nginx/www:/var/www/certbot:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    networks:
+      researchtrack-infra: {}
+    depends_on:
+      - grafana
+    healthcheck:
+      test: ["CMD-SHELL", "nginx -t -q"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    mem_limit: 128m
+    cpus: 0.25
+
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    env_file:
+      - /opt/researchtrack/runtime/mysql.env
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --max-connections=200
+      # MySQL 8.4 generates its server certificate on first start. Container
+      # Apps traffic crosses the VNet, so TCP clients must use TLS.
+      - --require-secure-transport=ON
+    ports:
+      - "${INFRA_PRIVATE_IP}:3306:3306"
+    volumes:
+      - /data/researchtrack/mysql:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    networks:
+      researchtrack-infra: {}
+    mem_limit: 1536m
+    cpus: 1.0
+
+  kafka:
+    image: apache/kafka:3.9.1
+    restart: unless-stopped
+    user: "1000:1000"
+    entrypoint: ["/bin/bash", "-c"]
+    # Format once (KRaft metadata is bound to the persisted cluster ID), then
+    # start with the rendered server.properties.
+    command:
+      - >-
+        /opt/kafka/bin/kafka-storage.sh format --ignore-formatted
+        -t "$$(cat /etc/kafka/cluster-id)" -c /etc/kafka/server.properties
+        && exec /opt/kafka/bin/kafka-server-start.sh /etc/kafka/server.properties
+    environment:
+      KAFKA_HEAP_OPTS: -Xms512m -Xmx512m
+      KAFKA_LOG4J_OPTS: -Dlog4j.configuration=file:/etc/kafka/log4j.properties
+      LOG_DIR: /tmp/kafka-logs
+    # EXTERNAL TLS listener for Container Apps, bound to the private IP only.
+    # The PLAINTEXT listener (29092) stays on the Docker network.
+    ports:
+      - "${INFRA_PRIVATE_IP}:9092:9092"
+    volumes:
+      - /data/researchtrack/kafka/data:/var/lib/kafka/data
+      - /data/researchtrack/kafka/cluster-id:/etc/kafka/cluster-id:ro
+      - /data/researchtrack/kafka/tls/broker.p12:/etc/kafka/tls/broker.p12:ro
+      - /data/researchtrack/kafka/tls/ca.crt:/etc/kafka/tls/ca.crt:ro
+      - /opt/researchtrack/kafka/client-ssl.properties:/etc/kafka/client-ssl.properties:ro
+      - /opt/researchtrack/runtime/kafka-server.properties:/etc/kafka/server.properties:ro
+      - /opt/researchtrack/kafka/log4j.properties:/etc/kafka/log4j.properties:ro
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:29092 >/dev/null 2>&1"]
+      interval: 15s
+      timeout: 15s
+      retries: 10
+      start_period: 60s
+    networks:
+      researchtrack-infra: {}
+    mem_limit: 1g
+    cpus: 0.75
+
+  prometheus:
+    image: prom/prometheus:latest
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-15d}
+    # Loopback only, for on-VM validation. Never public (NSG denies 9090).
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - /opt/researchtrack/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - /opt/researchtrack/prometheus/rules:/etc/prometheus/rules:ro
+      - /data/researchtrack/prometheus:/prometheus
+    networks:
+      researchtrack-infra: {}
+    mem_limit: 512m
+    cpus: 0.25
+
+  grafana:
+    image: grafana/grafana:latest
+    restart: unless-stopped
+    env_file:
+      - /opt/researchtrack/runtime/grafana.env
+    environment:
+      # Public only through Nginx HTTPS.
+      GF_SECURITY_COOKIE_SECURE: "true"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    # Loopback only, for on-VM validation. Public access is via Nginx.
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - /data/researchtrack/grafana:/var/lib/grafana
+      - /opt/researchtrack/grafana/provisioning:/etc/grafana/provisioning:ro
+    networks:
+      researchtrack-infra: {}
+    mem_limit: 512m
+    cpus: 0.25
+
+networks:
+  researchtrack-infra:
+    name: researchtrack-infra
+    driver: bridge
