@@ -69,7 +69,7 @@ To test the validator locally without real values: `./deploy/azure/validation/te
 |---|---|---|
 | `AZURE_LOCATION` | **Required** | The region with quota for the VM size and Container Apps (see below) |
 | `AZURE_VM_ADMIN_SSH_PUBLIC_KEY` | **Required** | `ssh-ed25519 AAAA… comment`. Azure requires one; no NSG rule allows SSH |
-| `AZURE_VM_SIZE` | This subscription: **yes** | `Standard_D2as_v4`. Unset → Bicep default `Standard_D2as_v5` |
+| `AZURE_VM_SIZE` | This subscription: **yes** | `Standard_B2s`. Unset → Bicep default `Standard_B2s` |
 | `PRODUCTION_API_HOSTNAME` | Optional | Default `api.researchtrack.blipzo.xyz` |
 | `PRODUCTION_GRAFANA_HOSTNAME` | Optional | Default `grafana.researchtrack.blipzo.xyz` |
 | `LETSENCRYPT_EMAIL` | Recommended | Operator mailbox for certificate notices |
@@ -87,15 +87,15 @@ These are recorded in `../azure-production/IMPLEMENTATION_STATUS.md` for the cur
 | Value | Setting | Why |
 |---|---|---|
 | OIDC identity | user-assigned managed identity `id-researchtrack-github-prod` | The tenant blocks app registrations |
-| `AZURE_VM_SIZE` | `Standard_D2as_v4` | 0 DASv5 quota and 4 DASv4 vCPUs; DASv4 has only a zone-1 restriction and the VM is not pinned to a zone |
+| `AZURE_VM_SIZE` | `Standard_B2s` | 2 vCPU / 4 GiB burstable B-series, non-Spot. Needs 2 vCPUs of Standard BS Family quota; the VM is not pinned to a zone |
 | `AZURE_LOCATION` | **Needs confirmation.** The repository records `southeastasia` (the Bicep fallback, RUNBOOK and STATUS examples, and the quota analysis above), but the region actually in use has been reported as `eastasia` | Whichever region you set, re-check the quota for the chosen VM size **in that region** before the first run |
 
 Quota/SKU checks for a region:
 
 ```bash
 REGION=<region>
-az vm list-usage -l "$REGION" -o table | grep -Ei 'DASv4|DASv5|Total Regional'
-az vm list-skus -l "$REGION" --size Standard_D2as_v4 --query '[].{name:name, restrictions:restrictions}' -o json
+az vm list-usage -l "$REGION" -o table | grep -Ei 'Standard BS Family|Total Regional'
+az vm list-skus -l "$REGION" --size Standard_B2s --query '[].{name:name, restrictions:restrictions}' -o json
 az provider show -n Microsoft.App --query "resourceTypes[?resourceType=='managedEnvironments'].locations" -o tsv
 ```
 
