@@ -26,7 +26,12 @@ public sealed class JiraSyncScheduler : IJiraSyncScheduler
         await using var lease = await JiraDatabaseLock.TryAcquireAsync(db, JiraDatabaseLock.ProjectSchedule(projectId), 10, ct)
             ?? throw new InvalidOperationException($"Could not acquire Jira sync scheduling lock for project {projectId}.");
 
-        if (!await db.JiraConnections.AnyAsync(x => x.ResearchProjectId == projectId, ct)) return;
+        var trigger = JiraOperationalMetrics.Trigger(reason);
+        if (!await db.JiraConnections.AnyAsync(x => x.ResearchProjectId == projectId, ct))
+        {
+            JiraOperationalMetrics.SyncRequests.WithLabels(trigger, "ignored_disconnected").Inc();
+            return;
+        }
 
         var pendingJobs = await db.JiraSyncJobs
             .Where(x => x.ResearchProjectId == projectId && x.Status == "PENDING")
@@ -47,6 +52,7 @@ public sealed class JiraSyncScheduler : IJiraSyncScheduler
             pending.EntityId = pending.EntityId == entityId ? entityId : null;
             pending.LastError = null;
             await db.SaveChangesAsync(ct);
+            JiraOperationalMetrics.SyncRequests.WithLabels(trigger, "coalesced").Inc();
             return;
         }
 
@@ -62,6 +68,7 @@ public sealed class JiraSyncScheduler : IJiraSyncScheduler
             AvailableAt = availableAt
         });
         await db.SaveChangesAsync(ct);
+        JiraOperationalMetrics.SyncRequests.WithLabels(trigger, "queued").Inc();
     }
 
     private static string MergeReason(string current, string incoming)
