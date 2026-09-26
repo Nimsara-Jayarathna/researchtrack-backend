@@ -138,3 +138,57 @@ For a controlled missed-run test, use an isolated test build or debugger to paus
 Deployment force-recreates Prometheus so the newly uploaded bind-mounted configuration and rule files are loaded without a manual restart. Health verification then checks `/api/v1/rules` for both ResearchTrack rule groups and all six expected alert names, rather than accepting the presence of the group names alone. This prevents an older rule set with the same group names from being mistaken for the current deployment.
 
 Grafana is also force-recreated so startup provisioning uses the current datasource/dashboard tree. Verification checks datasource UID `prometheus` and dashboard UIDs `researchtrack-overview` and `github-sync-operations`. Named monitoring data volumes are retained during recreation.
+
+## Sprint 3 Jira integration observability
+
+Sprint 3 extends the existing Sprint 2 Prometheus/Grafana platform rather than replacing it. Jira monitoring follows the same operational model as GitHub: service availability, webhook health, synchronization, reconciliation, backlog/freshness, upstream API behavior, alerts, and recovery are visible without using project IDs, issue keys, delivery IDs, tokens, payloads, or user identifiers as metric labels.
+
+### Jira operational metrics
+
+- `jira_webhook_events_total{event,outcome}` — normalized webhook event outcomes (`accepted`, `duplicate`, `ignored_unmatched`, `rejected_auth`).
+- `jira_webhook_receive_duration_seconds` — webhook validation/persistence latency.
+- `jira_webhook_registration_total{operation,outcome}` — registration, refresh, ensure and delete lifecycle outcomes.
+- `jira_sync_requests_total{trigger,outcome}` — durable scheduling (`queued`, `coalesced`, `ignored_disconnected`).
+- `jira_sync_runs_total{trigger,outcome}` and `jira_sync_duration_seconds{trigger}` — complete snapshot synchronization health and latency.
+- `jira_sync_queue_depth{status}` — current pending/running/failed durable job counts.
+- `jira_sync_job_outcomes_total{trigger,outcome}` — worker completion, retry and terminal-failure outcomes.
+- `jira_sync_stale_jobs_recovered_total` — stale RUNNING jobs recovered after worker interruption.
+- `jira_sync_last_success_timestamp_seconds{trigger}` — freshness of successful synchronization.
+- `jira_reconciliation_cycles_total{outcome}`, `jira_reconciliation_projects_total{outcome}`, `jira_reconciliation_last_completed_timestamp_seconds`, `jira_reconciliation_last_success_timestamp_seconds`, `jira_reconciliation_interval_seconds` — reconciliation safety-net health/freshness.
+- `jira_atlassian_api_requests_total{operation,outcome}` and `jira_atlassian_api_request_duration_seconds{operation}` — bounded upstream Atlassian API outcomes/latency, including authorization errors, rate limiting, server failures, timeouts and transport failures.
+- `jira_last_sync_issues` and `jira_last_sync_sprints` — size of the most recently completed Jira snapshot. These gauges intentionally have no project label and are operational indicators, not per-project analytics.
+
+### Jira dashboard
+
+Grafana provisions dashboard UID `jira-integration-operations`. It shows Jira service availability, active Jira alerts, webhook outcomes, registration health, sync runs and p95 duration, durable queue depth, scheduling/coalescing, worker retry/failure outcomes, reconciliation freshness, Atlassian API outcomes/p95 latency, latest snapshot size and stale-job recovery.
+
+The main `researchtrack-overview` dashboard also includes compact GitHub/Jira alert and queue indicators so integration health can be assessed from the system overview. The existing `github-sync-operations` dashboard is retained unchanged.
+
+### Additional alerts
+
+Sprint 3 adds actionable Jira alerts for repeated sync failures, webhook authentication failures, degraded webhook registration, repeated reconciliation failures, missed reconciliation, durable sync backlog and repeated Atlassian API failures. It also adds GitHub webhook-failure and sync-queue-backlog alerts so both integrations expose comparable failure signals.
+
+### Jira verification scenarios
+
+Use the test environment for controlled failure testing.
+
+1. **Normal webhook path:** send a valid Atlassian webhook and verify `jira_webhook_events_total{outcome="accepted"}` and `jira_sync_requests_total{trigger="WEBHOOK"}` increase, followed by a successful `jira_sync_runs_total` sample.
+2. **Duplicate delivery:** resend the same delivery identifier and verify `outcome="duplicate"` increases without creating duplicate durable work.
+3. **Webhook authentication failure:** submit an invalid bearer token and verify `outcome="rejected_auth"` increases. Repeated controlled failures exercise `ResearchTrackJiraWebhookFailures`.
+4. **Reconciliation:** use a short safe test interval and verify `jira_reconciliation_last_completed_timestamp_seconds` advances and reconciliation-triggered sync requests are visible.
+5. **Atlassian failure:** temporarily invalidate test Jira access or use an existing controlled upstream failure. Verify the bounded Atlassian API outcome and Jira sync failure metrics change, then restore access and confirm a successful sync.
+6. **Worker recovery/backlog:** stop the Jira worker/service only in a disposable test environment after durable work is queued. Verify pending depth/backlog behavior. Restore it and confirm queued work drains. A job left RUNNING beyond the stale threshold is returned to PENDING and increments `jira_sync_stale_jobs_recovered_total`.
+7. **Sensitive-label check:** inspect `/metrics` and confirm no Jira project IDs, issue keys, webhook delivery IDs, cloud IDs, URLs, tokens, request payloads, or user identifiers appear as custom Jira metric labels.
+
+Useful PromQL checks:
+
+```promql
+sum by (event,outcome) (increase(jira_webhook_events_total[10m]))
+sum by (trigger,outcome) (increase(jira_sync_runs_total[10m]))
+jira_sync_queue_depth
+histogram_quantile(0.95, sum by (le,trigger) (rate(jira_sync_duration_seconds_bucket[5m])))
+time() - jira_reconciliation_last_completed_timestamp_seconds
+sum by (operation,outcome) (increase(jira_atlassian_api_requests_total[10m]))
+```
+
+Deployment health verification now requires the `researchtrack-jira-integration` Prometheus rule group, the complete GitHub/Jira alert set, and Grafana dashboard UID `jira-integration-operations` in addition to the existing dashboards.

@@ -155,7 +155,7 @@ for service in "${observability_services[@]}"; do
       wait_for_observability_http "$service" "http://prometheus:9090/-/ready" "$container_id"
 
       rules_payload="$(docker exec "$probe_container_id" curl -fsS http://prometheus:9090/api/v1/rules)"
-      expected_rule_groups=(researchtrack-availability researchtrack-github-integration)
+      expected_rule_groups=(researchtrack-availability researchtrack-github-integration researchtrack-jira-integration)
       expected_alerts=(
         ResearchTrackServiceUnavailable
         ResearchTrackApiGatewayUnavailable
@@ -163,6 +163,15 @@ for service in "${observability_services[@]}"; do
         ResearchTrackGitHubSyncFailures
         ResearchTrackGitHubReconciliationFailures
         ResearchTrackGitHubReconciliationMissed
+        ResearchTrackGitHubWebhookFailures
+        ResearchTrackGitHubSyncQueueBacklog
+        ResearchTrackJiraSyncFailures
+        ResearchTrackJiraWebhookFailures
+        ResearchTrackJiraWebhookRegistrationDegraded
+        ResearchTrackJiraReconciliationFailures
+        ResearchTrackJiraReconciliationMissed
+        ResearchTrackJiraSyncQueueBacklog
+        ResearchTrackJiraAtlassianApiFailures
       )
 
       for expected in "${expected_rule_groups[@]}"; do
@@ -201,7 +210,7 @@ for service in "${observability_services[@]}"; do
         exit 1
       fi
 
-      for dashboard_uid in researchtrack-overview github-sync-operations; do
+      for dashboard_uid in researchtrack-overview github-sync-operations jira-integration-operations; do
         if ! docker exec "$probe_container_id" sh -c \
           'curl -fsS -u "$1:$2" "http://grafana:3000/api/dashboards/uid/$3" >/dev/null' \
           sh "$grafana_admin_user" "$grafana_admin_password" "$dashboard_uid"; then
