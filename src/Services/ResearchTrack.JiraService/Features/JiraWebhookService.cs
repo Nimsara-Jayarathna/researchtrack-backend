@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -46,7 +47,9 @@ public sealed class JiraWebhookService : IJiraWebhookService
     }
     public async Task<bool> ReceiveAsync(string? authorization,string? deliveryId,string payload,CancellationToken ct)
     {
-        using var receiveTimer = JiraOperationalMetrics.WebhookReceiveDuration.NewTimer();
+        var receiveTimer = Stopwatch.StartNew();
+        try
+        {
         if(!ValidateBearer(authorization)){JiraOperationalMetrics.WebhookEvents.WithLabels("unknown", "rejected_auth").Inc();return false;}
         using var doc=JsonDocument.Parse(payload);var root=doc.RootElement;var eventType=Get(root,"webhookEvent")??Get(root,"issue_event_type_name")??"unknown";
         var metricEvent=JiraOperationalMetrics.Event(eventType);
@@ -70,6 +73,11 @@ public sealed class JiraWebhookService : IJiraWebhookService
         if(projectId.HasValue)
             await _scheduler.RequestAsync(projectId.Value,"WEBHOOK",now.AddSeconds(Math.Max(1,_options.WebhookCoalesceSeconds)),jiraIssueId,ct);
         return true;
+        }
+        finally
+        {
+            JiraOperationalMetrics.WebhookReceiveDuration.Observe(receiveTimer.Elapsed.TotalSeconds);
+        }
     }
     private bool ValidateBearer(string? authorizationHeader)
     {

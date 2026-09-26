@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using ResearchTrack.BuildingBlocks.Api.Constants;
@@ -32,7 +33,7 @@ public sealed class JiraSyncService : IJiraSyncService
     public async Task<JiraSyncResponse> SynchronizeAsync(Guid projectId, CancellationToken ct, string trigger = "MANUAL")
     {
         var metricTrigger = JiraOperationalMetrics.Trigger(trigger);
-        using var syncTimer = JiraOperationalMetrics.SyncDuration.WithLabels(metricTrigger).NewTimer();
+        var syncTimer = Stopwatch.StartNew();
         await using var db = await _factory.CreateDbContextAsync(ct);
 
         // Single-writer boundary for the complete project snapshot. MySQL GET_LOCK is
@@ -294,6 +295,10 @@ public sealed class JiraSyncService : IJiraSyncService
             failedConnection.UpdatedAt = DateTimeOffset.UtcNow;
             await db.SaveChangesAsync(CancellationToken.None);
             throw;
+        }
+        finally
+        {
+            JiraOperationalMetrics.SyncDuration.WithLabels(metricTrigger).Observe(syncTimer.Elapsed.TotalSeconds);
         }
     }
 
