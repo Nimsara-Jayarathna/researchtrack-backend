@@ -51,6 +51,8 @@ for contract, name in files.items():
             value = "synthetic-root-password"
         elif key == "Jwt__SigningKey":
             value = "s" * 48
+        elif key == "Jira__TokenEncryptionKey":
+            value = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
         elif key == "Cookie__Secure":
             value = "true"
         elif key in public:
@@ -167,6 +169,10 @@ expect fail "Grafana root URL must be the public HTTPS hostname" "GF_SERVER_ROOT
 new_case insecure-cookie
 set_key auth.env Cookie__Secure false
 expect fail "insecure cookies rejected" "Cookie__Secure must be 'true'"
+
+new_case invalid-jira-token-key
+set_key jira.env Jira__TokenEncryptionKey "not-a-32-byte-base64-key"
+expect fail "invalid Jira token encryption key rejected" "must be valid Base64 that decodes to exactly 32 bytes"
 
 new_case missing-key
 sed -i.bak '/^Jira__ClientSecret=/d' "$case_dir/jira.env" && rm -f "$case_dir/jira.env.bak"

@@ -6,6 +6,7 @@ public sealed class JiraOptions
 
     public string ClientId { get; init; } = string.Empty;
     public string ClientSecret { get; init; } = string.Empty;
+    public string TokenEncryptionKey { get; init; } = string.Empty;
     public string RedirectUri { get; init; } = string.Empty;
     public string Scope { get; init; } = string.Empty;
     public string Audience { get; init; } = string.Empty;

@@ -371,6 +371,7 @@ For the owner-granted GitHub App access-request contract—including pending/com
 Kafka__BootstrapServers
 Jira__ClientId
 Jira__ClientSecret
+Jira__TokenEncryptionKey
 Jira__RedirectUri
 Jira__Scope
 Jira__Audience

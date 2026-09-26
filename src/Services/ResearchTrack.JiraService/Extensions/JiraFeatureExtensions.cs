@@ -51,6 +51,7 @@ public static class JiraFeatureExtensions
 
         Required(options.ClientId, "Jira__ClientId");
         Required(options.ClientSecret, "Jira__ClientSecret");
+        Required(options.TokenEncryptionKey, "Jira__TokenEncryptionKey");
         Required(options.RedirectUri, "Jira__RedirectUri");
         Required(options.Scope, "Jira__Scope");
         Required(options.Audience, "Jira__Audience");
@@ -59,6 +60,8 @@ public static class JiraFeatureExtensions
         Required(options.AccessibleResourcesUrl, "Jira__AccessibleResourcesUrl");
         Required(options.ApiBaseUrl, "Jira__ApiBaseUrl");
         Required(configuration["Services:Project:BaseUrl"] ?? string.Empty, "Services__Project__BaseUrl");
+
+        _ = JiraTokenProtector.DecodeKey(options.TokenEncryptionKey);
 
         if (options.OAuthStateTtlMinutes <= 0) throw new InvalidOperationException("Jira__OAuthStateTtlMinutes must be greater than zero.");
         if (options.SelectionTtlMinutes <= 0) throw new InvalidOperationException("Jira__SelectionTtlMinutes must be greater than zero.");

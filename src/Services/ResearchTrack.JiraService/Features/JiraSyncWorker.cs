@@ -1,5 +1,7 @@
 using Microsoft.EntityFrameworkCore;
+using ResearchTrack.BuildingBlocks.Api.Exceptions;
 using ResearchTrack.JiraService.Configuration;
+using ResearchTrack.JiraService.Infrastructure;
 using ResearchTrack.JiraService.Persistence;
 
 namespace ResearchTrack.JiraService.Features;
@@ -73,7 +75,7 @@ public sealed class JiraSyncWorker : BackgroundService
         await using var db = await factory.CreateDbContextAsync(ct);
         var cutoff = DateTimeOffset.UtcNow.AddMinutes(-Math.Max(1, _options.ReconciliationIntervalMinutes));
         var ids = await db.JiraConnections.AsNoTracking()
-            .Where(x => !x.LastReconciledAt.HasValue || x.LastReconciledAt < cutoff)
+            .Where(x => x.SyncStatus != "INVALID_AUTH" && (!x.LastReconciledAt.HasValue || x.LastReconciledAt < cutoff))
             .OrderBy(x => x.LastReconciledAt)
             .Select(x => x.ResearchProjectId)
             .Take(20)
@@ -107,7 +109,7 @@ public sealed class JiraSyncWorker : BackgroundService
         await using var db = await factory.CreateDbContextAsync(ct);
         var cutoff = DateTimeOffset.UtcNow.AddDays(7);
         var ids = await db.JiraConnections.AsNoTracking()
-            .Where(x => x.WebhookStatus != "ACTIVE" || !x.WebhookExpiresAt.HasValue || x.WebhookExpiresAt < cutoff)
+            .Where(x => x.SyncStatus != "INVALID_AUTH" && (x.WebhookStatus != "ACTIVE" || !x.WebhookExpiresAt.HasValue || x.WebhookExpiresAt < cutoff))
             .OrderBy(x => x.UpdatedAt)
             .Select(x => x.ResearchProjectId)
             .Take(10)
@@ -194,7 +196,7 @@ public sealed class JiraSyncWorker : BackgroundService
                 JiraOperationalMetrics.WebhookEvents.WithLabels(JiraOperationalMetrics.Event(webhookEvent.EventType), "processed").Inc();
             }
         }
-        else if (job.AttemptCount >= 5)
+        else if (IsPermanentAuthorizationFailure(error) || job.AttemptCount >= 5)
         {
             job.Status = "FAILED";
             job.CompletedAt = now;
@@ -236,6 +238,10 @@ public sealed class JiraSyncWorker : BackgroundService
         foreach (var status in new[] { "PENDING", "RUNNING", "FAILED" })
             JiraOperationalMetrics.SyncQueueDepth.WithLabels(status.ToLowerInvariant()).Set(counts.FirstOrDefault(x => x.Status == status)?.Count ?? 0);
     }
+
+    private static bool IsPermanentAuthorizationFailure(Exception error) =>
+        error is JiraTokenProtectionException ||
+        error is ApiException api && api.StatusCode == 401;
 
     private static TimeSpan RetryDelay(int attempt) => attempt switch
     {
