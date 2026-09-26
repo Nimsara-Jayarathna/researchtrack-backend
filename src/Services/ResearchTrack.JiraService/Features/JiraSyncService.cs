@@ -304,13 +304,37 @@ public sealed class JiraSyncService : IJiraSyncService
 
     private async Task<string> ValidTokenAsync(JiraDbContext db, JiraConnection connection, CancellationToken ct)
     {
-        if (!connection.TokenExpiresAt.HasValue || connection.TokenExpiresAt.Value > DateTimeOffset.UtcNow.AddMinutes(2))
-            return _protector.Unprotect(connection.AccessTokenProtected);
+        var accessToken = _protector.Unprotect(connection.AccessTokenProtected);
+        var changed = false;
 
-        if (string.IsNullOrWhiteSpace(connection.RefreshTokenProtected))
+        if (_protector.RequiresReprotection(connection.AccessTokenProtected))
+        {
+            connection.AccessTokenProtected = _protector.Protect(accessToken);
+            changed = true;
+        }
+
+        string? refreshToken = null;
+        var protectedRefreshToken = connection.RefreshTokenProtected;
+        if (!string.IsNullOrWhiteSpace(protectedRefreshToken))
+        {
+            refreshToken = _protector.Unprotect(protectedRefreshToken);
+            if (_protector.RequiresReprotection(protectedRefreshToken))
+            {
+                connection.RefreshTokenProtected = _protector.Protect(refreshToken);
+                changed = true;
+            }
+        }
+
+        if (!connection.TokenExpiresAt.HasValue || connection.TokenExpiresAt.Value > DateTimeOffset.UtcNow.AddMinutes(2))
+        {
+            if (changed) await db.SaveChangesAsync(ct);
+            return accessToken;
+        }
+
+        if (string.IsNullOrWhiteSpace(refreshToken))
             throw new ApiException(401, ErrorCodes.Unauthorized, "Jira authorization has expired. Reconnect Jira.");
 
-        var refreshed = await _client.RefreshTokenAsync(_protector.Unprotect(connection.RefreshTokenProtected), ct);
+        var refreshed = await _client.RefreshTokenAsync(refreshToken, ct);
         connection.AccessTokenProtected = _protector.Protect(refreshed.AccessToken);
         if (!string.IsNullOrWhiteSpace(refreshed.RefreshToken))
             connection.RefreshTokenProtected = _protector.Protect(refreshed.RefreshToken);
@@ -321,6 +345,7 @@ public sealed class JiraSyncService : IJiraSyncService
     }
 
     private static bool IsAuthorizationFailure(Exception ex) =>
+        ex is JiraTokenProtectionException ||
         ex is ApiException api && api.StatusCode == 401;
 
     private static void MapIssue(JiraIssue x, string key, JsonElement f, string? sp, DateTimeOffset now)

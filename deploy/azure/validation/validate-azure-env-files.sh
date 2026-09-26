@@ -289,6 +289,11 @@ if [[ "$VALIDATE_SCOPE" == all ]]; then
   check_public_url github.env GitHub__FrontendReturnOrigin
   check_public_url jira.env Jira__RedirectUri
 
+  jira_token_key="$(require_value jira.env Jira__TokenEncryptionKey)"
+  if ! jira_key_bytes="$(printf '%s' "$jira_token_key" | base64 -d 2>/dev/null | wc -c | tr -d '[:space:]')" || [[ "$jira_key_bytes" != "32" ]]; then
+    error "jira.env: Jira__TokenEncryptionKey must be valid Base64 that decodes to exactly 32 bytes."
+  fi
+
   [[ "$(require_value auth.env Cookie__Secure)" == "true" ]] || error "auth.env: Cookie__Secure must be 'true' in Production."
   require_value auth.env Brevo__ApiKey >/dev/null
   require_value auth.env Jwt__AccessTokenMinutes >/dev/null

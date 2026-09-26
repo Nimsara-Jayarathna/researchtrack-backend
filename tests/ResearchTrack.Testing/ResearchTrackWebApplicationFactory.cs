@@ -154,6 +154,7 @@ public sealed class ResearchTrackWebApplicationFactory<TProgram> : WebApplicatio
             // exercise Atlassian HTTP behavior replace/mock the corresponding client.
             ["Jira:ClientId"] = "researchtrack-jira-test-client",
             ["Jira:ClientSecret"] = "researchtrack-jira-test-secret",
+            ["Jira:TokenEncryptionKey"] = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
             ["Jira:RedirectUri"] = "http://localhost:5173/supervisor/jira/callback",
             ["Jira:Scope"] = "read:jira-user read:jira-work offline_access",
             ["Jira:Audience"] = "api.atlassian.com",

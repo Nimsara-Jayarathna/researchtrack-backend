@@ -25,7 +25,7 @@ public sealed class JiraWebhookService : IJiraWebhookService
 
     public async Task EnsureRegisteredAsync(Guid projectId,CancellationToken ct)
     {
-        await using var db=await _factory.CreateDbContextAsync(ct); await using var webhookLease=await JiraDatabaseLock.TryAcquireAsync(db,JiraDatabaseLock.ProjectWebhook(projectId),30,ct); if(webhookLease is null)return; var c=await db.JiraConnections.SingleOrDefaultAsync(x=>x.ResearchProjectId==projectId,ct); if(c is null)return;
+        await using var db=await _factory.CreateDbContextAsync(ct); await using var webhookLease=await JiraDatabaseLock.TryAcquireAsync(db,JiraDatabaseLock.ProjectWebhook(projectId),30,ct); if(webhookLease is null)return; var c=await db.JiraConnections.SingleOrDefaultAsync(x=>x.ResearchProjectId==projectId,ct); if(c is null)return; if(string.Equals(c.SyncStatus,"INVALID_AUTH",StringComparison.Ordinal)){c.WebhookStatus="REAUTH_REQUIRED";await db.SaveChangesAsync(ct);return;}
         if(string.IsNullOrWhiteSpace(_options.WebhookUrl)||_options.WebhookUrl.Equals("CHANGE_ME",StringComparison.OrdinalIgnoreCase)){c.WebhookStatus="NOT_CONFIGURED";await db.SaveChangesAsync(ct);JiraOperationalMetrics.WebhookRegistration.WithLabels("ensure", "not_configured").Inc();return;}
         try
         {
@@ -38,7 +38,7 @@ public sealed class JiraWebhookService : IJiraWebhookService
             }
             var created=await _client.RegisterWebhookAsync(token,c.CloudId,c.JiraProjectKey,_options.WebhookUrl,ct); c.WebhookId=created.Id;c.WebhookExpiresAt=created.ExpiresAt;c.WebhookStatus="ACTIVE";c.UpdatedAt=DateTimeOffset.UtcNow;await db.SaveChangesAsync(ct);JiraOperationalMetrics.WebhookRegistration.WithLabels("register", "success").Inc();
         }
-        catch(Exception ex){JiraOperationalMetrics.WebhookRegistration.WithLabels("ensure", "failed").Inc();c.WebhookStatus="DEGRADED";c.UpdatedAt=DateTimeOffset.UtcNow;await db.SaveChangesAsync(ct);_logger.LogWarning(ex,"Jira webhook registration failed for project {ProjectId}; scheduled reconciliation remains available.",projectId);}
+        catch(Exception ex){JiraOperationalMetrics.WebhookRegistration.WithLabels("ensure", "failed").Inc();if(ex is JiraTokenProtectionException){c.SyncStatus="INVALID_AUTH";c.LastSyncError=ex.Message;c.WebhookStatus="REAUTH_REQUIRED";}else{c.WebhookStatus="DEGRADED";}c.UpdatedAt=DateTimeOffset.UtcNow;await db.SaveChangesAsync(ct);_logger.LogWarning(ex,"Jira webhook registration failed for project {ProjectId}; scheduled reconciliation remains available.",projectId);}
     }
     public async Task RemoveAsync(Guid projectId,CancellationToken ct)
     {
@@ -135,6 +135,15 @@ public sealed class JiraWebhookService : IJiraWebhookService
             return false;
         }
     }
-    private async Task<string> ValidTokenAsync(JiraDbContext db,JiraConnection c,CancellationToken ct){if(!c.TokenExpiresAt.HasValue||c.TokenExpiresAt>DateTimeOffset.UtcNow.AddMinutes(2))return _protector.Unprotect(c.AccessTokenProtected);if(string.IsNullOrWhiteSpace(c.RefreshTokenProtected))return _protector.Unprotect(c.AccessTokenProtected);var refreshed=await _client.RefreshTokenAsync(_protector.Unprotect(c.RefreshTokenProtected),ct);c.AccessTokenProtected=_protector.Protect(refreshed.AccessToken);c.RefreshTokenProtected=string.IsNullOrWhiteSpace(refreshed.RefreshToken)?c.RefreshTokenProtected:_protector.Protect(refreshed.RefreshToken);c.TokenExpiresAt=refreshed.ExpiresAt;c.Scope=refreshed.Scope??c.Scope;await db.SaveChangesAsync(ct);return refreshed.AccessToken;}
+    private async Task<string> ValidTokenAsync(JiraDbContext db,JiraConnection c,CancellationToken ct)
+    {
+        var accessToken=_protector.Unprotect(c.AccessTokenProtected);var changed=false;
+        if(_protector.RequiresReprotection(c.AccessTokenProtected)){c.AccessTokenProtected=_protector.Protect(accessToken);changed=true;}
+        string? refreshToken=null;var protectedRefreshToken=c.RefreshTokenProtected;
+        if(!string.IsNullOrWhiteSpace(protectedRefreshToken)){refreshToken=_protector.Unprotect(protectedRefreshToken);if(_protector.RequiresReprotection(protectedRefreshToken)){c.RefreshTokenProtected=_protector.Protect(refreshToken);changed=true;}}
+        if(!c.TokenExpiresAt.HasValue||c.TokenExpiresAt>DateTimeOffset.UtcNow.AddMinutes(2)){if(changed)await db.SaveChangesAsync(ct);return accessToken;}
+        if(string.IsNullOrWhiteSpace(refreshToken))return accessToken;
+        var refreshed=await _client.RefreshTokenAsync(refreshToken,ct);c.AccessTokenProtected=_protector.Protect(refreshed.AccessToken);c.RefreshTokenProtected=string.IsNullOrWhiteSpace(refreshed.RefreshToken)?c.RefreshTokenProtected:_protector.Protect(refreshed.RefreshToken);c.TokenExpiresAt=refreshed.ExpiresAt;c.Scope=refreshed.Scope??c.Scope;await db.SaveChangesAsync(ct);return refreshed.AccessToken;
+    }
     private static string? Get(JsonElement e,string name)=>e.ValueKind==JsonValueKind.Object&&e.TryGetProperty(name,out var p)&&p.ValueKind==JsonValueKind.String?p.GetString():null;
 }
