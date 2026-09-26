@@ -1,0 +1,29 @@
+# Grafana UI: https://__GRAFANA_HOSTNAME__ -> grafana:3000 (Docker network).
+server {
+    listen 80;
+    server_name __GRAFANA_HOSTNAME__;
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name __GRAFANA_HOSTNAME__;
+
+    ssl_certificate /etc/letsencrypt/live/__GRAFANA_HOSTNAME__/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/__GRAFANA_HOSTNAME__/privkey.pem;
+    include /etc/nginx/conf.d/tls.inc;
+    include /etc/nginx/conf.d/security-headers.inc;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+
+    client_max_body_size 10m;
+
+    location / {
+        include /etc/nginx/conf.d/grafana-proxy.inc;
+    }
+}

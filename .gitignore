@@ -243,3 +243,6 @@ researchtrack.local.*
 !.editorconfig
 !.gitattributes
 !README.md
+
+# Azure Bicep parameter files with real values
+*.local.bicepparam

@@ -1,0 +1,190 @@
+name: Backend Deploy Azure Production
+
+# Application release to Azure Production, called by backend-deploy-production.yml.
+# Infrastructure (network, VM, VM stack) is reconciled separately by
+# azure-infrastructure.yml; this workflow only verifies it exists (preflight).
+# The Test/VPS path (backend-deploy-test.yml -> backend-deploy-reusable.yml)
+# is intentionally untouched.
+
+on:
+  workflow_call:
+    inputs:
+      force_full_build:
+        required: false
+        type: boolean
+        default: false
+      force_redeploy:
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  build:
+    name: Build Changed Images
+    uses: ./.github/workflows/backend-build-images.yml
+    with:
+      image_tag: production
+      force_full_build: ${{ inputs.force_full_build }}
+      # Production converges on the image for the current source of every
+      # service, so a change missed by an earlier failed/other-branch run is
+      # still built and deployed.
+      selection: fingerprint
+    permissions:
+      contents: read
+      packages: write
+
+  deploy:
+    name: Deploy Azure Production
+    needs: build
+    runs-on: ubuntu-latest
+    environment: production
+
+    permissions:
+      contents: read
+      packages: read
+      id-token: write
+
+    env:
+      RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP || 'rg-researchtrack-prod' }}
+      ACA_ENVIRONMENT: ${{ vars.AZURE_CONTAINERAPPS_ENVIRONMENT || 'cae-researchtrack-prod' }}
+      INFRA_VM: ${{ vars.AZURE_INFRA_VM || 'vm-researchtrack-infra-prod' }}
+      INFRA_PRIVATE_IP: ${{ vars.AZURE_INFRA_PRIVATE_IP || '10.20.10.4' }}
+      API_HOSTNAME: ${{ vars.PRODUCTION_API_HOSTNAME || 'api.researchtrack.blipzo.xyz' }}
+      GRAFANA_HOSTNAME: ${{ vars.PRODUCTION_GRAFANA_HOSTNAME || 'grafana.researchtrack.blipzo.xyz' }}
+      FORBIDDEN_HOSTS: ${{ vars.TEST_HOSTNAMES }}
+
+    steps:
+      - name: Checkout deployment files
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            deploy
+            config/env
+          sparse-checkout-cone-mode: false
+
+      - name: Validate workflow configuration
+        shell: bash
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          set -euo pipefail
+          for key in AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID; do
+            [[ -n "${!key:-}" ]] || { echo "$key is not configured for the production environment." >&2; exit 1; }
+          done
+          # runner.temp is not available in job-level env.
+          echo "ENV_DIR=$RUNNER_TEMP/researchtrack-env" >> "$GITHUB_ENV"
+          echo "WORK_DIR=$RUNNER_TEMP/researchtrack-specs" >> "$GITHUB_ENV"
+
+      - name: Materialize environment files
+        shell: bash
+        env:
+          MYSQL_ENV_FILE: ${{ secrets.MYSQL_ENV_FILE }}
+          SHARED_AUTH_ENV_FILE: ${{ secrets.SHARED_AUTH_ENV_FILE }}
+          AUTH_ENV_FILE: ${{ secrets.AUTH_ENV_FILE }}
+          PROJECT_ENV_FILE: ${{ secrets.PROJECT_ENV_FILE }}
+          GITHUB_ENV_FILE: ${{ secrets.RT_GITHUB_SERVICE_ENV }}
+          JIRA_ENV_FILE: ${{ secrets.JIRA_ENV_FILE }}
+          MEETING_ENV_FILE: ${{ secrets.MEETING_ENV_FILE }}
+          SUBMISSION_ENV_FILE: ${{ secrets.SUBMISSION_ENV_FILE }}
+          GATEWAY_ENV_FILE: ${{ secrets.GATEWAY_ENV_FILE }}
+          GRAFANA_ENV_FILE: ${{ secrets.GRAFANA_ENV_FILE }}
+        run: |
+          set -euo pipefail
+          umask 077
+          rm -rf "$ENV_DIR"
+          mkdir -p "$ENV_DIR"
+
+          write_secret() {
+            [[ -n "$2" ]] || { echo "Required GitHub Environment secret for $1 is empty." >&2; exit 1; }
+            printf '%s\n' "$2" > "$ENV_DIR/$1"
+          }
+
+          write_secret mysql.env "$MYSQL_ENV_FILE"
+          write_secret shared-auth.env "$SHARED_AUTH_ENV_FILE"
+          write_secret auth.env "$AUTH_ENV_FILE"
+          write_secret project.env "$PROJECT_ENV_FILE"
+          write_secret github.env "$GITHUB_ENV_FILE"
+          write_secret jira.env "$JIRA_ENV_FILE"
+          write_secret meeting.env "$MEETING_ENV_FILE"
+          write_secret submission.env "$SUBMISSION_ENV_FILE"
+          write_secret gateway.env "$GATEWAY_ENV_FILE"
+          write_secret grafana.env "$GRAFANA_ENV_FILE"
+
+      - name: Validate Azure Production environment files
+        shell: bash
+        run: |
+          EXPECTED_MYSQL_HOST="$INFRA_PRIVATE_IP" EXPECTED_GRAFANA_HOSTNAME="$GRAFANA_HOSTNAME" \
+            ./deploy/azure/validation/validate-azure-env-files.sh "$ENV_DIR" config/env
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Infrastructure preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          az extension add --name containerapp --upgrade --only-show-errors
+          ./deploy/azure/scripts/preflight.sh
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Migrate databases and deploy changed Container Apps
+        shell: bash
+        env:
+          IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}
+          GIT_SHA: ${{ github.sha }}
+          REBUILT_SERVICES: ${{ needs.build.outputs.services }}
+          IMAGE_TAGS: ${{ needs.build.outputs.image_tags }}
+          FORCE_REDEPLOY: ${{ inputs.force_redeploy }}
+          REGISTRY_USERNAME: ${{ secrets.GHCR_PULL_USERNAME }}
+          REGISTRY_PASSWORD: ${{ secrets.GHCR_PULL_TOKEN }}
+        run: |
+          set -euo pipefail
+          export IMAGE_PREFIX="${IMAGE_PREFIX,,}"
+          ./deploy/azure/scripts/deploy-container-apps.sh
+
+      - name: Verify VM stack and monitoring
+        shell: bash
+        run: |
+          printf '%s\n' '/opt/researchtrack/scripts/validate-vm-stack.sh' > "$RUNNER_TEMP/validate-vm-stack.run"
+          ./deploy/azure/scripts/vm-run.sh "$RESOURCE_GROUP" "$INFRA_VM" "$RUNNER_TEMP/validate-vm-stack.run" \
+            "EXPECT_APPS=true"
+
+      - name: Verify private networking and Nginx -> Gateway
+        shell: bash
+        run: |
+          printf '%s\n' '/opt/researchtrack/scripts/validate-infrastructure.sh' > "$RUNNER_TEMP/validate-infrastructure.run"
+          ./deploy/azure/scripts/vm-run.sh "$RESOURCE_GROUP" "$INFRA_VM" "$RUNNER_TEMP/validate-infrastructure.run" \
+            "EXPECT_APPS=true"
+
+      - name: Verify public API endpoint
+        if: vars.PRODUCTION_VERIFY_PUBLIC_ENDPOINT == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for _ in $(seq 1 10); do
+            curl -fsS --max-time 10 "https://$API_HOSTNAME/health/ready" >/dev/null && { echo "https://$API_HOSTNAME is serving."; exit 0; }
+            sleep 6
+          done
+          echo "https://$API_HOSTNAME/health/ready did not succeed." >&2
+          exit 1
+
+      - name: Remove local environment files
+        if: always()
+        shell: bash
+        run: rm -rf "$ENV_DIR" "$WORK_DIR"

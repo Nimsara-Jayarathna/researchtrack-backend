@@ -1,0 +1,23 @@
+# Pre-TLS mode (DNS not yet pointed at this VM, so no certificate). Only ACME
+# challenges are public; the Gateway path is limited to on-VM/VNet callers so
+# the pre-cutover validation can exercise Nginx -> Gateway.
+server {
+    listen 80;
+    server_name __API_HOSTNAME__;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location ^~ /metrics {
+        return 404;
+    }
+
+    location / {
+        allow 127.0.0.0/8;
+        allow 10.0.0.0/8;
+        allow 172.16.0.0/12;
+        deny all;
+        include /etc/nginx/conf.d/gateway-proxy.inc;
+    }
+}

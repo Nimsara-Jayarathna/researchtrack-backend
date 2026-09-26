@@ -24,9 +24,43 @@ jobs:
             deploy/scripts/deploy-stack.sh \
             deploy/scripts/verify-health.sh \
             deploy/validate-env-files.sh \
-            deploy/mysql/reconcile-databases.sh
+            deploy/validate-shared-auth-wiring.sh \
+            deploy/mysql/reconcile-databases.sh \
+            deploy/azure/scripts/*.sh \
+            deploy/azure/vm/scripts/*.sh \
+            deploy/azure/validation/*.sh
+          python -m py_compile deploy/azure/scripts/render-containerapp.py deploy/build/service-impact.py
           python -m json.tool deploy/monitoring/grafana/provisioning/dashboards/json/researchtrack-overview.json >/dev/null
           python -m json.tool deploy/monitoring/grafana/provisioning/dashboards/json/github-sync.json >/dev/null
+
+      - name: Validate Azure infrastructure definition
+        run: |
+          az bicep build --file deploy/azure/main.bicep --stdout >/dev/null
+          az bicep build --file deploy/azure/modules/container-app.bicep --stdout >/dev/null
+
+      - name: Test Azure Production env validator (synthetic values)
+        run: ./deploy/azure/validation/test-validate-azure-env-files.sh
+
+      - name: Test Kafka TLS smoke-test logic (stubbed Kafka)
+        run: ./deploy/azure/validation/test-kafka-smoke.sh
+
+      - name: Test VM private-IP safety check (stubbed ip)
+        run: ./deploy/azure/validation/test-private-ip-check.sh
+
+      - name: Test Container Apps network probe (stubbed az/Kafka)
+        run: ./deploy/azure/validation/test-network-probe.sh
+
+      - name: Test backend image selection model (synthetic repositories)
+        run: python deploy/build/test_service_impact.py
+
+      - name: Test Container Apps image selection (stubbed az/GHCR)
+        run: ./deploy/azure/validation/test-deploy-image-selection.sh
+
+      - name: Validate shared JWT wiring (Test, local, Azure Production)
+        run: ./deploy/validate-shared-auth-wiring.sh
+
+      - name: Test Container Apps environment composition (synthetic values)
+        run: ./deploy/azure/validation/test-service-env-composition.sh
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
