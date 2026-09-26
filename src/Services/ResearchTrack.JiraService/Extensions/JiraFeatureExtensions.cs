@@ -32,8 +32,10 @@ public static class JiraFeatureExtensions
             client.Timeout = TimeSpan.FromSeconds(options.ProjectServiceTimeoutSeconds);
         });
 
+        services.AddTransient<AtlassianMetricsHandler>();
         services.AddHttpClient<AtlassianClient>(client =>
             client.Timeout = TimeSpan.FromSeconds(options.AtlassianTimeoutSeconds))
+            .AddHttpMessageHandler<AtlassianMetricsHandler>()
             .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 
         return services;

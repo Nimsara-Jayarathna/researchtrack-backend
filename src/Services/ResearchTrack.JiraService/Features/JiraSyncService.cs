@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using ResearchTrack.BuildingBlocks.Api.Constants;
@@ -11,7 +12,7 @@ namespace ResearchTrack.JiraService.Features;
 
 public interface IJiraSyncService
 {
-    Task<JiraSyncResponse> SynchronizeAsync(Guid projectId, CancellationToken ct);
+    Task<JiraSyncResponse> SynchronizeAsync(Guid projectId, CancellationToken ct, string trigger = "MANUAL");
 }
 
 public sealed class JiraSyncService : IJiraSyncService
@@ -29,8 +30,10 @@ public sealed class JiraSyncService : IJiraSyncService
         _logger = logger;
     }
 
-    public async Task<JiraSyncResponse> SynchronizeAsync(Guid projectId, CancellationToken ct)
+    public async Task<JiraSyncResponse> SynchronizeAsync(Guid projectId, CancellationToken ct, string trigger = "MANUAL")
     {
+        var metricTrigger = JiraOperationalMetrics.Trigger(trigger);
+        var syncTimer = Stopwatch.StartNew();
         await using var db = await _factory.CreateDbContextAsync(ct);
 
         // Single-writer boundary for the complete project snapshot. MySQL GET_LOCK is
@@ -273,10 +276,15 @@ public sealed class JiraSyncService : IJiraSyncService
             await db.SaveChangesAsync(ct);
             await transaction.CommitAsync(ct);
 
+            JiraOperationalMetrics.SyncRuns.WithLabels(metricTrigger, "success").Inc();
+            JiraOperationalMetrics.LastSuccessfulSync.WithLabels(metricTrigger).Set(now.ToUnixTimeSeconds());
+            JiraOperationalMetrics.SnapshotIssues.Set(seenIssueIds.Count);
+            JiraOperationalMetrics.SnapshotSprints.Set(seenSprintIds.Count);
             return new JiraSyncResponse(seenIssueIds.Count, seenSprintIds.Count, now);
         }
         catch (Exception ex)
         {
+            JiraOperationalMetrics.SyncRuns.WithLabels(metricTrigger, IsAuthorizationFailure(ex) ? "authorization_error" : "failed").Inc();
             // Never move LastSyncedAt on failure. It identifies the last complete, usable snapshot.
             // Clear the tracker so a failed transaction cannot leak partially tracked mirror changes
             // into the failure-status write.
@@ -287,6 +295,10 @@ public sealed class JiraSyncService : IJiraSyncService
             failedConnection.UpdatedAt = DateTimeOffset.UtcNow;
             await db.SaveChangesAsync(CancellationToken.None);
             throw;
+        }
+        finally
+        {
+            JiraOperationalMetrics.SyncDuration.WithLabels(metricTrigger).Observe(syncTimer.Elapsed.TotalSeconds);
         }
     }
 

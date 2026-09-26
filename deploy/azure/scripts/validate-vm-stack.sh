@@ -167,10 +167,14 @@ rm -f "$kafka_log"
 echo "== Prometheus"
 if retry 20 3 curl -fsS http://127.0.0.1:9090/-/ready; then
   rules="$(curl -fsS http://127.0.0.1:9090/api/v1/rules)"
-  for expected in researchtrack-availability researchtrack-github-integration \
+  for expected in researchtrack-availability researchtrack-github-integration researchtrack-jira-integration \
       ResearchTrackServiceUnavailable ResearchTrackApiGatewayUnavailable \
       ResearchTrackSustainedServerErrors ResearchTrackGitHubSyncFailures \
-      ResearchTrackGitHubReconciliationFailures ResearchTrackGitHubReconciliationMissed; do
+      ResearchTrackGitHubReconciliationFailures ResearchTrackGitHubReconciliationMissed ResearchTrackGitHubWebhookFailures \
+      ResearchTrackGitHubSyncQueueBacklog ResearchTrackJiraSyncFailures \
+      ResearchTrackJiraWebhookFailures ResearchTrackJiraWebhookRegistrationDegraded \
+      ResearchTrackJiraReconciliationFailures ResearchTrackJiraReconciliationMissed \
+      ResearchTrackJiraSyncQueueBacklog ResearchTrackJiraAtlassianApiFailures; do
     [[ "$rules" == *"\"$expected\""* ]] || fail "rule/alert '$expected' not loaded"
   done
   ok "alert rules loaded"
@@ -202,7 +206,7 @@ if retry 20 3 curl -fsS http://127.0.0.1:3000/api/health; then
   grafana_auth="$(set -a; . "$opt/runtime/grafana.env"; printf '%s:%s' "$GF_SECURITY_ADMIN_USER" "$GF_SECURITY_ADMIN_PASSWORD")"
   curl -fsS -u "$grafana_auth" http://127.0.0.1:3000/api/datasources/uid/prometheus >/dev/null \
     && ok "Prometheus datasource" || fail "Grafana Prometheus datasource missing"
-  for uid in researchtrack-overview github-sync-operations; do
+  for uid in researchtrack-overview github-sync-operations jira-integration-operations; do
     curl -fsS -u "$grafana_auth" "http://127.0.0.1:3000/api/dashboards/uid/$uid" >/dev/null \
       && ok "dashboard $uid" || fail "Grafana dashboard '$uid' missing"
   done
