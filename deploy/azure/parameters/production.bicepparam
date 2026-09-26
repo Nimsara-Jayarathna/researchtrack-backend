@@ -10,7 +10,7 @@ param infraSubnetCidr = '10.20.10.0/24'
 param containerAppsSubnetCidr = '10.20.20.0/23'
 param vmPrivateIp = '10.20.10.4'
 
-param vmSize = readEnvironmentVariable('AZURE_VM_SIZE', 'Standard_D2as_v5')
+param vmSize = readEnvironmentVariable('AZURE_VM_SIZE', 'Standard_B2s')
 param dataDiskSizeGb = 64
 param dataDiskSku = 'StandardSSD_LRS'
 
