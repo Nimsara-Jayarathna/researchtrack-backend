@@ -28,6 +28,7 @@ public sealed class JiraSyncWorker : BackgroundService
             try
             {
                 await RecoverStaleJobsAsync(stoppingToken);
+                await SuppressUnrunnableJobsAsync(stoppingToken);
                 await QueueReconciliationAsync(stoppingToken);
                 await RefreshWebhookRegistrationsAsync(stoppingToken);
                 await ProcessOneAsync(stoppingToken);
@@ -65,6 +66,48 @@ public sealed class JiraSyncWorker : BackgroundService
         await db.SaveChangesAsync(ct);
         JiraOperationalMetrics.StaleJobsRecovered.Inc(stale.Count);
         _logger.LogWarning("Recovered {Count} stale Jira synchronization job(s).", stale.Count);
+    }
+
+    private async Task SuppressUnrunnableJobsAsync(CancellationToken ct)
+    {
+        using var scope = _scopes.CreateScope();
+        var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<JiraDbContext>>();
+        await using var db = await factory.CreateDbContextAsync(ct);
+
+        var jobs = await db.JiraSyncJobs
+            .Where(x => x.Status == "PENDING")
+            .ToListAsync(ct);
+        if (jobs.Count == 0) return;
+
+        var projectIds = jobs.Select(x => x.ResearchProjectId).Distinct().ToList();
+        var connections = await db.JiraConnections.AsNoTracking()
+            .Where(x => projectIds.Contains(x.ResearchProjectId))
+            .Select(x => new { x.ResearchProjectId, x.SyncStatus })
+            .ToDictionaryAsync(x => x.ResearchProjectId, ct);
+
+        var now = DateTimeOffset.UtcNow;
+        var suppressed = 0;
+        foreach (var job in jobs)
+        {
+            if (!connections.TryGetValue(job.ResearchProjectId, out var connection))
+            {
+                job.Status = "FAILED";
+                job.CompletedAt = now;
+                job.LastError = "Synchronization cancelled because the Jira connection no longer exists.";
+                suppressed++;
+            }
+            else if (string.Equals(connection.SyncStatus, "INVALID_AUTH", StringComparison.Ordinal))
+            {
+                job.Status = "FAILED";
+                job.CompletedAt = now;
+                job.LastError = "Synchronization cancelled because Jira authorization requires reconnection.";
+                suppressed++;
+            }
+        }
+
+        if (suppressed == 0) return;
+        await db.SaveChangesAsync(ct);
+        _logger.LogInformation("Suppressed {Count} Jira synchronization job(s) that can no longer run.", suppressed);
     }
 
     private async Task QueueReconciliationAsync(CancellationToken ct)
@@ -150,6 +193,7 @@ public sealed class JiraSyncWorker : BackgroundService
         var now = DateTimeOffset.UtcNow;
         var job = await db.JiraSyncJobs
             .Where(x => x.Status == "PENDING" && x.AvailableAt <= now &&
+                db.JiraConnections.Any(c => c.ResearchProjectId == x.ResearchProjectId && c.SyncStatus != "INVALID_AUTH") &&
                 !db.JiraSyncJobs.Any(r => r.ResearchProjectId == x.ResearchProjectId && r.Status == "RUNNING"))
             .OrderBy(x => x.AvailableAt)
             .ThenBy(x => x.RequestedAt)
@@ -202,6 +246,29 @@ public sealed class JiraSyncWorker : BackgroundService
             job.CompletedAt = now;
             job.LastError = Safe(error.Message);
             JiraOperationalMetrics.SyncJobOutcomes.WithLabels(JiraOperationalMetrics.Trigger(reason), "failed").Inc();
+
+            if (IsPermanentAuthorizationFailure(error))
+            {
+                var connection = await db.JiraConnections.SingleOrDefaultAsync(x => x.ResearchProjectId == projectId, ct);
+                if (connection is not null)
+                {
+                    connection.SyncStatus = "INVALID_AUTH";
+                    connection.WebhookStatus = "REAUTH_REQUIRED";
+                    connection.LastSyncError = Safe(error.Message);
+                    connection.UpdatedAt = now;
+                }
+
+                var pending = await db.JiraSyncJobs
+                    .Where(x => x.ResearchProjectId == projectId && x.Id != jobId && x.Status == "PENDING")
+                    .ToListAsync(ct);
+                foreach (var pendingJob in pending)
+                {
+                    pendingJob.Status = "FAILED";
+                    pendingJob.CompletedAt = now;
+                    pendingJob.LastError = "Synchronization cancelled because Jira authorization requires reconnection.";
+                }
+            }
+
             var coveredEvents = await db.JiraWebhookEvents
                 .Where(x => x.ResearchProjectId == projectId && x.Status == "RECEIVED" && x.ReceivedAt <= startedAt)
                 .ToListAsync(ct);

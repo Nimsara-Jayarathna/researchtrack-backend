@@ -50,35 +50,215 @@ public sealed class JiraWebhookService : IJiraWebhookService
         var receiveTimer = Stopwatch.StartNew();
         try
         {
-        if(!ValidateBearer(authorization)){JiraOperationalMetrics.WebhookEvents.WithLabels("unknown", "rejected_auth").Inc();return false;}
-        using var doc=JsonDocument.Parse(payload);var root=doc.RootElement;var eventType=Get(root,"webhookEvent")??Get(root,"issue_event_type_name")??"unknown";
-        var metricEvent=JiraOperationalMetrics.Event(eventType);
-        var issue=root.TryGetProperty("issue",out var i)?i:default;var jiraIssueId=issue.ValueKind==JsonValueKind.Object?Get(issue,"id"):null;var issueKey=issue.ValueKind==JsonValueKind.Object?Get(issue,"key"):null;
-        string? projectKey=null;if(issue.ValueKind==JsonValueKind.Object&&issue.TryGetProperty("fields",out var f)&&f.TryGetProperty("project",out var p))projectKey=Get(p,"key");
-        var matchedIds=new List<long>();if(root.TryGetProperty("matchedWebhookIds",out var mids)&&mids.ValueKind==JsonValueKind.Array)foreach(var x in mids.EnumerateArray())if(x.TryGetInt64(out var n))matchedIds.Add(n);
-        await using var db=await _factory.CreateDbContextAsync(ct);JiraConnection? connection=null;
-        if(matchedIds.Count>0)foreach(var webhookId in matchedIds){connection=await db.JiraConnections.FirstOrDefaultAsync(x=>x.WebhookId==webhookId,ct);if(connection is not null)break;}
-        if(connection is null&&!string.IsNullOrWhiteSpace(projectKey))connection=await db.JiraConnections.FirstOrDefaultAsync(x=>x.JiraProjectKey==projectKey,ct);
-        var cloudId=connection?.CloudId??"unknown";var id=string.IsNullOrWhiteSpace(deliveryId)?"body-"+Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload))):deliveryId;
-        if(await db.JiraWebhookEvents.AnyAsync(x=>x.DeliveryId==id,ct)){JiraOperationalMetrics.WebhookEvents.WithLabels(metricEvent, "duplicate").Inc();return true;}
-        var now=DateTimeOffset.UtcNow;db.JiraWebhookEvents.Add(new JiraWebhookEvent{Id=Guid.NewGuid(),DeliveryId=id,CloudId=cloudId,ResearchProjectId=connection?.ResearchProjectId,EventType=eventType,JiraIssueId=jiraIssueId,IssueKey=issueKey,PayloadJson=payload,ReceivedAt=now,Status=connection is null?"IGNORED":"RECEIVED"});
-        Guid? projectId=null;
-        if(connection is not null)
-        {
-            projectId=connection.ResearchProjectId;
-            connection.LastWebhookAt=now;connection.WebhookStatus="ACTIVE";
-        }
-        await db.SaveChangesAsync(ct);
-        JiraOperationalMetrics.WebhookEvents.WithLabels(metricEvent, projectId.HasValue ? "accepted" : "ignored_unmatched").Inc();
-        if(projectId.HasValue)
-            await _scheduler.RequestAsync(projectId.Value,"WEBHOOK",now.AddSeconds(Math.Max(1,_options.WebhookCoalesceSeconds)),jiraIssueId,ct);
-        return true;
+            if(!ValidateBearer(authorization))
+            {
+                JiraOperationalMetrics.WebhookEvents.WithLabels("unknown", "rejected_auth").Inc();
+                return false;
+            }
+
+            using var doc=JsonDocument.Parse(payload);
+            var root=doc.RootElement;
+            var eventType=Get(root,"webhookEvent")??Get(root,"issue_event_type_name")??"unknown";
+            var metricEvent=JiraOperationalMetrics.Event(eventType);
+            var issue=root.TryGetProperty("issue",out var i)?i:default;
+            var jiraIssueId=issue.ValueKind==JsonValueKind.Object?Get(issue,"id"):null;
+            var issueKey=issue.ValueKind==JsonValueKind.Object?Get(issue,"key"):null;
+            var projectKey=ExtractProjectKey(root,issue,issueKey);
+            var jiraProjectId=ExtractProjectId(root,issue);
+            var matchedIds=ExtractMatchedWebhookIds(root);
+            var baseDeliveryId=NormalizeDeliveryId(deliveryId,payload);
+
+            await using var db=await _factory.CreateDbContextAsync(ct);
+
+            var matchedConnections=matchedIds.Count==0
+                ? new List<JiraConnection>()
+                : await db.JiraConnections
+                    .Where(x=>x.SyncStatus!="INVALID_AUTH"&&x.WebhookId.HasValue&&matchedIds.Contains(x.WebhookId.Value))
+                    .ToListAsync(ct);
+
+            var sourceCandidates=new List<JiraConnection>();
+            if(!string.IsNullOrWhiteSpace(projectKey)||!string.IsNullOrWhiteSpace(jiraProjectId))
+            {
+                sourceCandidates=await db.JiraConnections
+                    .Where(x=>x.SyncStatus!="INVALID_AUTH"&&
+                        ((!string.IsNullOrWhiteSpace(projectKey)&&x.JiraProjectKey==projectKey)||
+                         (!string.IsNullOrWhiteSpace(jiraProjectId)&&x.JiraProjectId==jiraProjectId)))
+                    .ToListAsync(ct);
+            }
+
+            var targets=new Dictionary<Guid,JiraConnection>();
+            foreach(var connection in matchedConnections)
+                targets[connection.ResearchProjectId]=connection;
+
+            if(matchedConnections.Count>0)
+            {
+                var matchedClouds=matchedConnections.Select(x=>x.CloudId).ToHashSet(StringComparer.Ordinal);
+                foreach(var connection in sourceCandidates.Where(x=>matchedClouds.Contains(x.CloudId)))
+                    targets[connection.ResearchProjectId]=connection;
+            }
+            else if(sourceCandidates.Count>0)
+            {
+                var cloudCount=sourceCandidates.Select(x=>x.CloudId).Distinct(StringComparer.Ordinal).Count();
+                if(cloudCount==1)
+                {
+                    foreach(var connection in sourceCandidates)
+                        targets[connection.ResearchProjectId]=connection;
+                }
+                else
+                {
+                    _logger.LogWarning(
+                        "Jira webhook could not be routed safely because project identity matched multiple Jira clouds. EventType={EventType} IssueKey={IssueKey} ProjectKey={ProjectKey} JiraProjectId={JiraProjectId} MatchedWebhookIds={MatchedWebhookIds} DeliveryId={DeliveryId}",
+                        eventType,issueKey,projectKey,jiraProjectId,string.Join(",",matchedIds),baseDeliveryId);
+                }
+            }
+
+            var now=DateTimeOffset.UtcNow;
+            if(targets.Count==0)
+            {
+                if(!await db.JiraWebhookEvents.AnyAsync(x=>x.DeliveryId==baseDeliveryId,ct))
+                {
+                    db.JiraWebhookEvents.Add(new JiraWebhookEvent
+                    {
+                        Id=Guid.NewGuid(),
+                        DeliveryId=baseDeliveryId,
+                        CloudId="unknown",
+                        ResearchProjectId=null,
+                        EventType=eventType,
+                        JiraIssueId=jiraIssueId,
+                        IssueKey=issueKey,
+                        PayloadJson=payload,
+                        ReceivedAt=now,
+                        Status="IGNORED",
+                        LastError="Webhook did not match an active Jira connection."
+                    });
+                    await db.SaveChangesAsync(ct);
+                }
+
+                JiraOperationalMetrics.WebhookEvents.WithLabels(metricEvent,"ignored_unmatched").Inc();
+                _logger.LogWarning(
+                    "Jira webhook was authenticated but did not match an active connection. EventType={EventType} IssueKey={IssueKey} ProjectKey={ProjectKey} JiraProjectId={JiraProjectId} MatchedWebhookIds={MatchedWebhookIds} DeliveryId={DeliveryId}",
+                    eventType,issueKey,projectKey,jiraProjectId,string.Join(",",matchedIds),baseDeliveryId);
+                return true;
+            }
+
+            var targetList=targets.Values.OrderBy(x=>x.ResearchProjectId).ToList();
+            var projectsToSchedule=new List<Guid>();
+            foreach(var connection in targetList)
+            {
+                var eventDeliveryId=BuildProjectDeliveryId(baseDeliveryId,connection.ResearchProjectId,targetList.Count);
+                var existing=await db.JiraWebhookEvents.SingleOrDefaultAsync(x=>x.DeliveryId==eventDeliveryId,ct);
+                if(existing is null)
+                {
+                    db.JiraWebhookEvents.Add(new JiraWebhookEvent
+                    {
+                        Id=Guid.NewGuid(),
+                        DeliveryId=eventDeliveryId,
+                        CloudId=connection.CloudId,
+                        ResearchProjectId=connection.ResearchProjectId,
+                        EventType=eventType,
+                        JiraIssueId=jiraIssueId,
+                        IssueKey=issueKey,
+                        PayloadJson=payload,
+                        ReceivedAt=now,
+                        Status="RECEIVED"
+                    });
+                    projectsToSchedule.Add(connection.ResearchProjectId);
+                }
+                else if(existing.Status=="RECEIVED")
+                {
+                    // A previous delivery may have been persisted immediately before scheduling
+                    // failed. Requeueing RECEIVED events makes an Atlassian retry self-healing.
+                    projectsToSchedule.Add(connection.ResearchProjectId);
+                }
+                else if(existing.Status=="IGNORED"&&targetList.Count==1)
+                {
+                    // A connection can be established between the first delivery and Atlassian's
+                    // retry. Promote that previously unmatched delivery instead of permanently
+                    // deduplicating it as IGNORED.
+                    existing.CloudId=connection.CloudId;
+                    existing.ResearchProjectId=connection.ResearchProjectId;
+                    existing.Status="RECEIVED";
+                    existing.LastError=null;
+                    existing.ProcessedAt=null;
+                    projectsToSchedule.Add(connection.ResearchProjectId);
+                }
+
+                connection.LastWebhookAt=now;
+                connection.WebhookStatus="ACTIVE";
+                connection.UpdatedAt=now;
+            }
+
+            await db.SaveChangesAsync(ct);
+
+            foreach(var projectId in projectsToSchedule.Distinct())
+                await _scheduler.RequestAsync(projectId,"WEBHOOK",now.AddSeconds(Math.Max(1,_options.WebhookCoalesceSeconds)),jiraIssueId,ct);
+
+            JiraOperationalMetrics.WebhookEvents.WithLabels(metricEvent,"accepted").Inc(targetList.Count);
+            _logger.LogInformation(
+                "Jira webhook matched {ConnectionCount} active connection(s) and queued {QueuedCount} project sync(s). EventType={EventType} IssueKey={IssueKey} ProjectKey={ProjectKey} MatchedWebhookIds={MatchedWebhookIds} Projects={Projects}",
+                targetList.Count,projectsToSchedule.Distinct().Count(),eventType,issueKey,projectKey,string.Join(",",matchedIds),string.Join(",",targetList.Select(x=>x.ResearchProjectId)));
+            return true;
         }
         finally
         {
             JiraOperationalMetrics.WebhookReceiveDuration.Observe(receiveTimer.Elapsed.TotalSeconds);
         }
     }
+
+    private static List<long> ExtractMatchedWebhookIds(JsonElement root)
+    {
+        var ids=new List<long>();
+        if(root.TryGetProperty("matchedWebhookIds",out var matched)&&matched.ValueKind==JsonValueKind.Array)
+            foreach(var item in matched.EnumerateArray())
+                if(item.TryGetInt64(out var value)&&!ids.Contains(value))ids.Add(value);
+        return ids;
+    }
+
+    private static string? ExtractProjectKey(JsonElement root,JsonElement issue,string? issueKey)
+    {
+        if(issue.ValueKind==JsonValueKind.Object&&issue.TryGetProperty("fields",out var fields)&&fields.ValueKind==JsonValueKind.Object&&fields.TryGetProperty("project",out var project))
+        {
+            var key=Get(project,"key");
+            if(!string.IsNullOrWhiteSpace(key))return key;
+        }
+
+        if(root.TryGetProperty("project",out var rootProject))
+        {
+            var key=Get(rootProject,"key");
+            if(!string.IsNullOrWhiteSpace(key))return key;
+        }
+
+        if(!string.IsNullOrWhiteSpace(issueKey))
+        {
+            var separator=issueKey.LastIndexOf('-');
+            if(separator>0)return issueKey[..separator];
+        }
+        return null;
+    }
+
+    private static string? ExtractProjectId(JsonElement root,JsonElement issue)
+    {
+        if(issue.ValueKind==JsonValueKind.Object&&issue.TryGetProperty("fields",out var fields)&&fields.ValueKind==JsonValueKind.Object&&fields.TryGetProperty("project",out var project))
+        {
+            var id=Get(project,"id");
+            if(!string.IsNullOrWhiteSpace(id))return id;
+        }
+        if(root.TryGetProperty("project",out var rootProject))return Get(rootProject,"id");
+        return null;
+    }
+
+    private static string NormalizeDeliveryId(string? deliveryId,string payload)
+    {
+        var value=string.IsNullOrWhiteSpace(deliveryId)
+            ? "body-"+Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload)))
+            : deliveryId.Trim();
+        if(value.Length<=200)return value;
+        return "delivery-"+Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
+    }
+
+    private static string BuildProjectDeliveryId(string baseDeliveryId,Guid projectId,int targetCount)
+        => targetCount<=1?baseDeliveryId:$"{baseDeliveryId}:{projectId:N}";
+
     private bool ValidateBearer(string? authorizationHeader)
     {
         if (string.IsNullOrWhiteSpace(authorizationHeader) ||
