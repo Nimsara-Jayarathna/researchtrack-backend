@@ -27,9 +27,17 @@ public sealed class JiraSyncScheduler : IJiraSyncScheduler
             ?? throw new InvalidOperationException($"Could not acquire Jira sync scheduling lock for project {projectId}.");
 
         var trigger = JiraOperationalMetrics.Trigger(reason);
-        if (!await db.JiraConnections.AnyAsync(x => x.ResearchProjectId == projectId, ct))
+        var connection = await db.JiraConnections
+            .AsNoTracking()
+            .SingleOrDefaultAsync(x => x.ResearchProjectId == projectId, ct);
+        if (connection is null)
         {
             JiraOperationalMetrics.SyncRequests.WithLabels(trigger, "ignored_disconnected").Inc();
+            return;
+        }
+        if (string.Equals(connection.SyncStatus, "INVALID_AUTH", StringComparison.Ordinal))
+        {
+            JiraOperationalMetrics.SyncRequests.WithLabels(trigger, "ignored_invalid_auth").Inc();
             return;
         }
 
