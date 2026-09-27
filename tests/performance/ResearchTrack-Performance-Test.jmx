@@ -1,0 +1,369 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jmeterTestPlan version="1.2" properties="5.0" jmeter="5.6.3">
+  <hashTree>
+    <TestPlan guiclass="TestPlanGui" testclass="TestPlan" testname="ResearchTrack API Performance Test">
+      <boolProp name="TestPlan.functional_mode">false</boolProp>
+      <boolProp name="TestPlan.tearDown_on_shutdown">true</boolProp>
+      <boolProp name="TestPlan.serialize_threadgroups">false</boolProp>
+    </TestPlan>
+    <hashTree>
+      <SetupThreadGroup guiclass="SetupThreadGroupGui" testclass="SetupThreadGroup" testname="Authentication Setup">
+        <stringProp name="ThreadGroup.on_sample_error">stoptestnow</stringProp>
+        <intProp name="ThreadGroup.num_threads">1</intProp>
+        <intProp name="ThreadGroup.ramp_time">1</intProp>
+        <boolProp name="ThreadGroup.same_user_on_next_iteration">true</boolProp>
+        <boolProp name="ThreadGroup.scheduler">false</boolProp>
+        <elementProp name="ThreadGroup.main_controller" elementType="LoopController" guiclass="LoopControlPanel" testclass="LoopController" testname="Loop Controller">
+          <stringProp name="LoopController.loops">1</stringProp>
+          <boolProp name="LoopController.continue_forever">false</boolProp>
+        </elementProp>
+      </SetupThreadGroup>
+      <hashTree>
+        <ConfigTestElement guiclass="HttpDefaultsGui" testclass="ConfigTestElement" testname="Authentication HTTP Defaults">
+          <stringProp name="HTTPSampler.domain">${__P(host,localhost)}</stringProp>
+          <stringProp name="HTTPSampler.port">${__P(port,5000)}</stringProp>
+          <stringProp name="HTTPSampler.protocol">${__P(protocol,http)}</stringProp>
+          <stringProp name="HTTPSampler.connect_timeout">${__P(connect_timeout,10000)}</stringProp>
+          <stringProp name="HTTPSampler.response_timeout">${__P(response_timeout,30000)}</stringProp>
+        </ConfigTestElement>
+        <hashTree/>
+        <CookieManager guiclass="CookiePanel" testclass="CookieManager" testname="Authentication Cookie Manager">
+          <collectionProp name="CookieManager.cookies"/>
+          <boolProp name="CookieManager.clearEachIteration">false</boolProp>
+          <boolProp name="CookieManager.controlledByThreadGroup">false</boolProp>
+        </CookieManager>
+        <hashTree/>
+        <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="Authentication Headers">
+          <collectionProp name="HeaderManager.headers">
+            <elementProp name="Content-Type" elementType="Header">
+              <stringProp name="Header.name">Content-Type</stringProp>
+              <stringProp name="Header.value">application/json</stringProp>
+            </elementProp>
+            <elementProp name="Accept" elementType="Header">
+              <stringProp name="Header.name">Accept</stringProp>
+              <stringProp name="Header.value">application/json</stringProp>
+            </elementProp>
+          </collectionProp>
+        </HeaderManager>
+        <hashTree/>
+        <IfController guiclass="IfControllerPanel" testclass="IfController" testname="Authenticate with credentials">
+          <stringProp name="IfController.condition">${__groovy(props.get('auth_mode') == 'login')}</stringProp>
+          <boolProp name="IfController.evaluateAll">false</boolProp>
+          <boolProp name="IfController.useExpression">true</boolProp>
+        </IfController>
+        <hashTree>
+          <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="AUTH Login">
+            <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
+            <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
+              <collectionProp name="Arguments.arguments">
+                <elementProp name="" elementType="HTTPArgument">
+                  <boolProp name="HTTPArgument.always_encode">false</boolProp>
+                  <stringProp name="Argument.value">${perf_login_body}</stringProp>
+                  <stringProp name="Argument.metadata">=</stringProp>
+                </elementProp>
+              </collectionProp>
+            </elementProp>
+            <stringProp name="HTTPSampler.path">/api/v1/auth/login</stringProp>
+            <stringProp name="HTTPSampler.method">POST</stringProp>
+            <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+            <boolProp name="HTTPSampler.auto_redirects">false</boolProp>
+            <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+          </HTTPSamplerProxy>
+          <hashTree>
+            <JSR223PreProcessor guiclass="TestBeanGUI" testclass="JSR223PreProcessor" testname="Build login JSON without exposing credentials">
+              <stringProp name="cacheKey">true</stringProp>
+              <stringProp name="filename"/>
+              <stringProp name="parameters"/>
+              <stringProp name="script"><![CDATA[
+import groovy.json.JsonOutput
+import java.nio.charset.StandardCharsets
+
+def decode = { String name ->
+    def encoded = props.get(name)
+    if (!encoded) {
+        throw new IllegalStateException("Missing authentication property: ${name}")
+    }
+    new String(Base64.decoder.decode(encoded), StandardCharsets.UTF_8)
+}
+
+vars.put('perf_login_body', JsonOutput.toJson([
+    email: decode('auth_email_b64'),
+    password: decode('auth_password_b64')
+]))
+]]></stringProp>
+              <stringProp name="scriptLanguage">groovy</stringProp>
+            </JSR223PreProcessor>
+            <hashTree/>
+            <JSR223Assertion guiclass="TestBeanGUI" testclass="JSR223Assertion" testname="Extract and validate HttpOnly access cookie">
+              <stringProp name="cacheKey">true</stringProp>
+              <stringProp name="filename"/>
+              <stringProp name="parameters"/>
+              <stringProp name="script"><![CDATA[
+import groovy.json.JsonSlurper
+import java.nio.charset.StandardCharsets
+import java.util.regex.Pattern
+
+if (prev.responseCode != '200') {
+    def detail = ''
+    try {
+        def body = new JsonSlurper().parseText(prev.responseDataAsString)
+        if (body?.error?.code || body?.error?.message) {
+            detail = " ${body.error.code ?: ''} - ${body.error.message ?: ''}".trim()
+            detail = detail ? " ${detail}" : ''
+        }
+    } catch (Exception ignored) {
+        // The HTTP status remains enough to diagnose a non-JSON proxy response.
+    }
+    AssertionResult.setFailure(true)
+    AssertionResult.setFailureMessage(
+        "Authentication setup failed: HTTP ${prev.responseCode} ${prev.responseMessage ?: ''}${detail}".trim()
+    )
+    return
+}
+
+def cookiePattern = Pattern.compile('(?im)^Set-Cookie:\\s*ss_access_token=([^;\\r\\n]+)')
+def matcher = cookiePattern.matcher(prev.responseHeaders ?: '')
+if (!matcher.find()) {
+    AssertionResult.setFailure(true)
+    AssertionResult.setFailureMessage('Login succeeded but ss_access_token was not returned as an HttpOnly cookie.')
+    return
+}
+
+def token = matcher.group(1)
+try {
+    def parts = token.tokenize('.')
+    if (parts.size() != 3) throw new IllegalArgumentException('token is not a JWT')
+    def payload = new JsonSlurper().parseText(
+        new String(Base64.urlDecoder.decode(parts[1]), StandardCharsets.UTF_8)
+    )
+    long remaining = (payload.exp as long) - (System.currentTimeMillis() / 1000L)
+    long required = (props.get('required_token_seconds') ?: '0') as long
+    if (remaining < required) {
+        AssertionResult.setFailure(true)
+        AssertionResult.setFailureMessage(
+            "Fresh access token lifetime (${remaining}s) does not cover the scenario plus safety margin (${required}s)."
+        )
+        return
+    }
+    props.put('perf_access_token', token)
+} catch (Exception exception) {
+    AssertionResult.setFailure(true)
+    AssertionResult.setFailureMessage("Unable to validate access-token expiry: ${exception.message}")
+}
+]]></stringProp>
+              <stringProp name="scriptLanguage">groovy</stringProp>
+            </JSR223Assertion>
+            <hashTree/>
+          </hashTree>
+        </hashTree>
+        <IfController guiclass="IfControllerPanel" testclass="IfController" testname="Use supplied access JWT">
+          <stringProp name="IfController.condition">${__groovy(props.get('auth_mode') == 'token')}</stringProp>
+          <boolProp name="IfController.evaluateAll">false</boolProp>
+          <boolProp name="IfController.useExpression">true</boolProp>
+        </IfController>
+        <hashTree>
+          <JSR223Sampler guiclass="TestBeanGUI" testclass="JSR223Sampler" testname="AUTH Supplied JWT Validation">
+            <stringProp name="cacheKey">true</stringProp>
+            <stringProp name="filename"/>
+            <stringProp name="parameters"/>
+            <stringProp name="script"><![CDATA[
+import groovy.json.JsonSlurper
+import java.nio.charset.StandardCharsets
+
+def token = props.get('supplied_jwt')
+try {
+    if (!token) throw new IllegalArgumentException('PERF_JWT_TOKEN is empty')
+    def parts = token.tokenize('.')
+    if (parts.size() != 3) throw new IllegalArgumentException('token is not a JWT')
+    def payload = new JsonSlurper().parseText(
+        new String(Base64.urlDecoder.decode(parts[1]), StandardCharsets.UTF_8)
+    )
+    long remaining = (payload.exp as long) - (System.currentTimeMillis() / 1000L)
+    long required = (props.get('required_token_seconds') ?: '0') as long
+    if (remaining < required) {
+        throw new IllegalStateException(
+            "Access token lifetime (${remaining}s) does not cover the scenario plus safety margin (${required}s)."
+        )
+    }
+    props.put('perf_access_token', token)
+    SampleResult.setResponseCode('200')
+    SampleResult.setResponseMessage('Access JWT expiry validated')
+    SampleResult.setSuccessful(true)
+} catch (Exception exception) {
+    log.error('Supplied access JWT validation failed.', exception)
+    SampleResult.setResponseCode('401')
+    SampleResult.setResponseMessage('Access JWT validation failed')
+    SampleResult.setResponseData(exception.message ?: 'Access JWT validation failed', 'UTF-8')
+    SampleResult.setSuccessful(false)
+}
+]]></stringProp>
+            <stringProp name="scriptLanguage">groovy</stringProp>
+          </JSR223Sampler>
+          <hashTree/>
+        </hashTree>
+      </hashTree>
+
+      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="ResearchTrack Read API Load">
+        <stringProp name="ThreadGroup.on_sample_error">continue</stringProp>
+        <stringProp name="ThreadGroup.num_threads">${__P(users,1)}</stringProp>
+        <stringProp name="ThreadGroup.ramp_time">${__P(rampup,1)}</stringProp>
+        <boolProp name="ThreadGroup.same_user_on_next_iteration">true</boolProp>
+        <boolProp name="ThreadGroup.scheduler">true</boolProp>
+        <stringProp name="ThreadGroup.duration">${__P(duration,120)}</stringProp>
+        <stringProp name="ThreadGroup.delay">0</stringProp>
+        <elementProp name="ThreadGroup.main_controller" elementType="LoopController" guiclass="LoopControlPanel" testclass="LoopController" testname="Repeat user journey">
+          <stringProp name="LoopController.loops">-1</stringProp>
+          <boolProp name="LoopController.continue_forever">false</boolProp>
+        </elementProp>
+      </ThreadGroup>
+      <hashTree>
+        <ConfigTestElement guiclass="HttpDefaultsGui" testclass="ConfigTestElement" testname="Gateway HTTP Request Defaults">
+          <stringProp name="HTTPSampler.domain">${__P(host,localhost)}</stringProp>
+          <stringProp name="HTTPSampler.port">${__P(port,5000)}</stringProp>
+          <stringProp name="HTTPSampler.protocol">${__P(protocol,http)}</stringProp>
+          <stringProp name="HTTPSampler.connect_timeout">${__P(connect_timeout,10000)}</stringProp>
+          <stringProp name="HTTPSampler.response_timeout">${__P(response_timeout,30000)}</stringProp>
+          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+        </ConfigTestElement>
+        <hashTree/>
+        <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="Authenticated API Headers">
+          <collectionProp name="HeaderManager.headers">
+            <elementProp name="Authorization" elementType="Header">
+              <stringProp name="Header.name">Authorization</stringProp>
+              <stringProp name="Header.value">Bearer ${__P(perf_access_token,)}</stringProp>
+            </elementProp>
+            <elementProp name="Accept" elementType="Header">
+              <stringProp name="Header.name">Accept</stringProp>
+              <stringProp name="Header.value">application/json</stringProp>
+            </elementProp>
+          </collectionProp>
+        </HeaderManager>
+        <hashTree/>
+        <UniformRandomTimer guiclass="UniformRandomTimerGui" testclass="UniformRandomTimer" testname="Random user think time">
+          <stringProp name="ConstantTimer.delay">${__P(think_time_min,2000)}</stringProp>
+          <stringProp name="RandomTimer.range">${__P(think_time_range,3000)}</stringProp>
+        </UniformRandomTimer>
+        <hashTree/>
+        <JSR223Assertion guiclass="TestBeanGUI" testclass="JSR223Assertion" testname="Assert successful API envelope">
+          <stringProp name="cacheKey">true</stringProp>
+          <stringProp name="filename"/>
+          <stringProp name="parameters"/>
+          <stringProp name="script"><![CDATA[
+import groovy.json.JsonSlurper
+
+int status
+try {
+    status = (prev.responseCode ?: '0') as int
+} catch (Exception ignored) {
+    return
+}
+if (status < 200 || status > 299) return
+
+try {
+    def body = new JsonSlurper().parseText(prev.responseDataAsString)
+    if (!(body instanceof Map) || body.success != true || !body.containsKey('data')) {
+        AssertionResult.setFailure(true)
+        AssertionResult.setFailureMessage('Expected a successful ResearchTrack API envelope with success=true and data.')
+    }
+} catch (Exception exception) {
+    AssertionResult.setFailure(true)
+    AssertionResult.setFailureMessage("Expected JSON API response: ${exception.message}")
+}
+]]></stringProp>
+          <stringProp name="scriptLanguage">groovy</stringProp>
+        </JSR223Assertion>
+        <hashTree/>
+
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="Project Overview">
+          <stringProp name="HTTPSampler.path">/api/v1/projects/${__P(project_id)}</stringProp>
+          <stringProp name="HTTPSampler.method">GET</stringProp>
+          <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+          <boolProp name="HTTPSampler.auto_redirects">false</boolProp>
+          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+        </HTTPSamplerProxy>
+        <hashTree>
+          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Assert Project Overview HTTP 200">
+            <collectionProp name="Asserion.test_strings"><stringProp name="200">200</stringProp></collectionProp>
+            <stringProp name="Assertion.custom_message">Expected HTTP 200. Status classification is available in status-summary.md.</stringProp>
+            <stringProp name="Assertion.test_field">Assertion.response_code</stringProp>
+            <boolProp name="Assertion.assume_success">false</boolProp>
+            <intProp name="Assertion.test_type">8</intProp>
+          </ResponseAssertion>
+          <hashTree/>
+        </hashTree>
+
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="Jira Issues">
+          <stringProp name="HTTPSampler.path">/api/v1/projects/${__P(project_id)}/jira/issues</stringProp>
+          <stringProp name="HTTPSampler.method">GET</stringProp>
+          <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+          <boolProp name="HTTPSampler.auto_redirects">false</boolProp>
+          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+        </HTTPSamplerProxy>
+        <hashTree>
+          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Assert Jira Issues HTTP 200">
+            <collectionProp name="Asserion.test_strings"><stringProp name="200">200</stringProp></collectionProp>
+            <stringProp name="Assertion.custom_message">Expected HTTP 200. Status classification is available in status-summary.md.</stringProp>
+            <stringProp name="Assertion.test_field">Assertion.response_code</stringProp>
+            <boolProp name="Assertion.assume_success">false</boolProp>
+            <intProp name="Assertion.test_type">8</intProp>
+          </ResponseAssertion>
+          <hashTree/>
+        </hashTree>
+
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="Jira Sprint Progress">
+          <stringProp name="HTTPSampler.path">/api/v1/projects/${__P(project_id)}/jira/sprint-progress</stringProp>
+          <stringProp name="HTTPSampler.method">GET</stringProp>
+          <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+          <boolProp name="HTTPSampler.auto_redirects">false</boolProp>
+          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+        </HTTPSamplerProxy>
+        <hashTree>
+          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Assert Jira Sprint Progress HTTP 200">
+            <collectionProp name="Asserion.test_strings"><stringProp name="200">200</stringProp></collectionProp>
+            <stringProp name="Assertion.custom_message">Expected HTTP 200. Status classification is available in status-summary.md.</stringProp>
+            <stringProp name="Assertion.test_field">Assertion.response_code</stringProp>
+            <boolProp name="Assertion.assume_success">false</boolProp>
+            <intProp name="Assertion.test_type">8</intProp>
+          </ResponseAssertion>
+          <hashTree/>
+        </hashTree>
+
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="Jira Workload">
+          <stringProp name="HTTPSampler.path">/api/v1/projects/${__P(project_id)}/jira/workload</stringProp>
+          <stringProp name="HTTPSampler.method">GET</stringProp>
+          <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+          <boolProp name="HTTPSampler.auto_redirects">false</boolProp>
+          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+        </HTTPSamplerProxy>
+        <hashTree>
+          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Assert Jira Workload HTTP 200">
+            <collectionProp name="Asserion.test_strings"><stringProp name="200">200</stringProp></collectionProp>
+            <stringProp name="Assertion.custom_message">Expected HTTP 200. Status classification is available in status-summary.md.</stringProp>
+            <stringProp name="Assertion.test_field">Assertion.response_code</stringProp>
+            <boolProp name="Assertion.assume_success">false</boolProp>
+            <intProp name="Assertion.test_type">8</intProp>
+          </ResponseAssertion>
+          <hashTree/>
+        </hashTree>
+
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="Jira Sync State">
+          <stringProp name="HTTPSampler.path">/api/v1/projects/${__P(project_id)}/jira/sync-state</stringProp>
+          <stringProp name="HTTPSampler.method">GET</stringProp>
+          <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+          <boolProp name="HTTPSampler.auto_redirects">false</boolProp>
+          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+        </HTTPSamplerProxy>
+        <hashTree>
+          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Assert Jira Sync State HTTP 200">
+            <collectionProp name="Asserion.test_strings"><stringProp name="200">200</stringProp></collectionProp>
+            <stringProp name="Assertion.custom_message">Expected HTTP 200. Status classification is available in status-summary.md.</stringProp>
+            <stringProp name="Assertion.test_field">Assertion.response_code</stringProp>
+            <boolProp name="Assertion.assume_success">false</boolProp>
+            <intProp name="Assertion.test_type">8</intProp>
+          </ResponseAssertion>
+          <hashTree/>
+        </hashTree>
+      </hashTree>
+    </hashTree>
+  </hashTree>
+</jmeterTestPlan>
