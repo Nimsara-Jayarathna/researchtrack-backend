@@ -1,6 +1,7 @@
 using ResearchTrack.BuildingBlocks.Api.Contracts;
 using ResearchTrack.BuildingBlocks.Api.Exceptions;
 using ResearchTrack.ProjectService.Contracts;
+using ResearchTrack.ProjectService.Domain;
 
 namespace ResearchTrack.ProjectService.Features.Projects;
 
@@ -22,6 +23,7 @@ internal static class ProjectRequestValidator
         var summary = NormalizeRequired(request.Summary, "summary", "Summary", SummaryMaxLength, errors);
         var batch = NormalizeRequired(request.Batch, "batch", "Batch", BatchMaxLength, errors);
         var semester = NormalizeRequired(request.Semester, "semester", "Semester", SemesterMaxLength, errors);
+        ValidateSemester(semester, errors);
 
         var studentIds = (request.StudentIds ?? []).ToArray();
         if (studentIds.Length == 0)
@@ -115,6 +117,32 @@ internal static class ProjectRequestValidator
             studentIds,
             request.LeaderStudentId,
             milestones);
+    }
+
+    public static string ValidateSemester(string? value)
+    {
+        var errors = new List<ApiFieldError>();
+        var semester = NormalizeRequired(value, "semester", "Semester", SemesterMaxLength, errors);
+        ValidateSemester(semester, errors);
+
+        if (errors.Count > 0)
+        {
+            throw new ApiValidationException(errors);
+        }
+
+        return semester!;
+    }
+
+    private static void ValidateSemester(
+        string? semester,
+        ICollection<ApiFieldError> errors)
+    {
+        if (!string.IsNullOrWhiteSpace(semester) && !ProjectSemesters.IsSupported(semester))
+        {
+            errors.Add(new ApiFieldError(
+                "semester",
+                [$"Semester must be either '{ProjectSemesters.Semester1}' or '{ProjectSemesters.Semester2}'."]));
+        }
     }
 
     public static IReadOnlyList<Guid> ValidateMemberStudentIds(

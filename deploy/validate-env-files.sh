@@ -277,6 +277,7 @@ jira_file="$ENV_DIR/jira.env"
 for key in \
   Jira__ClientId \
   Jira__ClientSecret \
+  Jira__TokenEncryptionKey \
   Jira__RedirectUri \
   Jira__Scope \
   Jira__Audience \
@@ -287,6 +288,12 @@ for key in \
   Jira__WebhookUrl; do
   require_value "$jira_file" "$key" >/dev/null
 done
+
+jira_token_key="$(require_value "$jira_file" Jira__TokenEncryptionKey)"
+if ! decoded_key_bytes="$(printf '%s' "$jira_token_key" | base64 -d 2>/dev/null | wc -c | tr -d '[:space:]')" || [[ "$decoded_key_bytes" != "32" ]]; then
+  echo "jira.env Jira__TokenEncryptionKey must be valid Base64 that decodes to exactly 32 bytes." >&2
+  exit 1
+fi
 
 jira_scope="$(require_value "$jira_file" Jira__Scope)"
 [[ " $jira_scope " == *" manage:jira-webhook "* ]] || {

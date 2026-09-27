@@ -269,6 +269,7 @@ rt_validate_jira_environment() {
   rt_require_env \
     Jira__ClientId \
     Jira__ClientSecret \
+    Jira__TokenEncryptionKey \
     Jira__RedirectUri \
     Jira__Scope \
     Jira__Audience \
@@ -286,6 +287,7 @@ rt_validate_jira_environment() {
   for key in \
     Jira__ClientId \
     Jira__ClientSecret \
+    Jira__TokenEncryptionKey \
     Jira__RedirectUri \
     Jira__Scope \
     Jira__Audience \

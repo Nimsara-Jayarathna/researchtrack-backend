@@ -75,3 +75,107 @@ groups:
         annotations:
           summary: "GitHub reconciliation appears to have missed scheduled runs"
           description: "No GitHub reconciliation cycle has completed within twice the configured reconciliation interval."
+      - alert: ResearchTrackGitHubWebhookFailures
+        expr: sum(increase(researchtrack_github_webhooks_processed_total{job="researchtrack-services", instance="github:8080", status="failed"}[10m])) >= 3
+        for: 2m
+        labels:
+          severity: warning
+          category: github
+        annotations:
+          summary: "Repeated GitHub webhook processing failures"
+          description: "GitHub webhook processing has repeatedly failed within the last ten minutes."
+
+      - alert: ResearchTrackGitHubSyncQueueBacklog
+        expr: github_sync_queue_depth{job="researchtrack-services", instance="github:8080"} >= 10
+        for: 5m
+        labels:
+          severity: warning
+          category: github
+        annotations:
+          summary: "GitHub synchronization queue backlog"
+          description: "The GitHub synchronization queue has remained at ten or more repositories for five minutes."
+
+  - name: researchtrack-jira-integration
+    rules:
+      - alert: ResearchTrackJiraSyncFailures
+        expr: sum(increase(jira_sync_runs_total{job="researchtrack-services", instance="jira:8080", outcome=~"failed|authorization_error"}[10m])) >= 2
+        for: 1m
+        labels:
+          severity: warning
+          category: jira
+        annotations:
+          summary: "Repeated Jira synchronization failures"
+          description: "ResearchTrack has recorded multiple failed Jira synchronization runs within ten minutes."
+
+      - alert: ResearchTrackJiraWebhookFailures
+        expr: sum(increase(jira_webhook_events_total{job="researchtrack-services", instance="jira:8080", outcome=~"rejected_auth|failed"}[10m])) >= 3
+        for: 2m
+        labels:
+          severity: warning
+          category: jira
+        annotations:
+          summary: "Repeated Jira webhook authentication failures"
+          description: "Jira webhook deliveries have repeatedly failed authentication within ten minutes."
+
+      - alert: ResearchTrackJiraWebhookRegistrationDegraded
+        expr: sum(increase(jira_webhook_registration_total{job="researchtrack-services", instance="jira:8080", outcome="failed"}[30m])) >= 2
+        for: 2m
+        labels:
+          severity: warning
+          category: jira
+        annotations:
+          summary: "Jira webhook registration is degraded"
+          description: "ResearchTrack has repeatedly failed to register or refresh Jira webhooks."
+
+      - alert: ResearchTrackJiraReconciliationFailures
+        expr: sum(increase(jira_reconciliation_cycles_total{job="researchtrack-services", instance="jira:8080", outcome=~"partial_failure|failed"}[30m])) >= 2
+        for: 1m
+        labels:
+          severity: warning
+          category: jira
+        annotations:
+          summary: "Repeated Jira reconciliation failures"
+          description: "Jira reconciliation scheduling has repeatedly completed with failures."
+
+      - alert: ResearchTrackJiraReconciliationMissed
+        expr: |
+          (
+            jira_reconciliation_last_completed_timestamp_seconds{job="researchtrack-services", instance="jira:8080"} == 0
+            and
+            (time() - process_start_time_seconds{job="researchtrack-services", instance="jira:8080"})
+              > 2 * jira_reconciliation_interval_seconds{job="researchtrack-services", instance="jira:8080"}
+          )
+          or
+          (
+            jira_reconciliation_last_completed_timestamp_seconds{job="researchtrack-services", instance="jira:8080"} > 0
+            and
+            (time() - jira_reconciliation_last_completed_timestamp_seconds{job="researchtrack-services", instance="jira:8080"})
+              > 2 * jira_reconciliation_interval_seconds{job="researchtrack-services", instance="jira:8080"}
+          )
+        for: 5m
+        labels:
+          severity: warning
+          category: jira
+        annotations:
+          summary: "Jira reconciliation appears to have missed scheduled runs"
+          description: "No Jira reconciliation scheduling cycle has completed within twice the configured interval."
+
+      - alert: ResearchTrackJiraSyncQueueBacklog
+        expr: jira_sync_queue_depth{job="researchtrack-services", instance="jira:8080", status="pending"} >= 10
+        for: 5m
+        labels:
+          severity: warning
+          category: jira
+        annotations:
+          summary: "Jira synchronization queue backlog"
+          description: "Ten or more Jira synchronization jobs have remained pending for five minutes."
+
+      - alert: ResearchTrackJiraAtlassianApiFailures
+        expr: sum(increase(jira_atlassian_api_requests_total{job="researchtrack-services", instance="jira:8080", outcome=~"authorization_error|rate_limited|server_error|transport_error|timeout"}[10m])) >= 5
+        for: 2m
+        labels:
+          severity: warning
+          category: jira
+        annotations:
+          summary: "Repeated Atlassian API failures"
+          description: "Jira integration has recorded repeated Atlassian API authorization, rate-limit, server, timeout, or transport failures."

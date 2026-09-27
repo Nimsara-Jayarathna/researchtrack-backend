@@ -9,10 +9,10 @@ Work through these in order. Each step links to its details. Command examples us
 
 ## 2. Region and quota (student subscription)
 - [ ] Pick `AZURE_LOCATION`. **Confirm the region**: the repository records `southeastasia`, but `eastasia` has been reported as the region in use ([PRODUCTION_AZURE.md](PRODUCTION_AZURE.md#subscription-specific-values)).
-- [ ] Check that the VM family has quota in that region: `az vm list-usage -l <region> -o table | grep -Ei 'DASv4|DASv5'`
-- [ ] Check that the SKU is not fully restricted: `az vm list-skus -l <region> --size Standard_D2as_v4 --query '[].restrictions'`. A zone-only restriction is fine because no zone is pinned.
+- [ ] Check that the VM family has quota in that region: `az vm list-usage -l <region> -o table | grep -Ei 'Standard BS Family'`
+- [ ] Check that the SKU is not fully restricted: `az vm list-skus -l <region> --size Standard_B2s --query '[].restrictions'`. A zone-only restriction is fine because no zone is pinned.
 - [ ] Check that Container Apps is offered in the region: `az provider show -n Microsoft.App --query "resourceTypes[?resourceType=='managedEnvironments'].locations"`
-- [ ] Decide `AZURE_VM_SIZE`. This subscription uses `Standard_D2as_v4`; unset means `Standard_D2as_v5`.
+- [ ] Decide `AZURE_VM_SIZE`. This subscription uses `Standard_B2s`, which is also the default when unset.
 
 ## 3. Managed identity / OIDC bootstrap
 - [ ] `AZURE_LOCATION=<region> ./deploy/azure/scripts/bootstrap-oidc.sh`. It creates `rg-researchtrack-bootstrap`, `id-researchtrack-github-prod`, the federated credential for `environment:production`, and Contributor at subscription scope. It is idempotent.
@@ -27,7 +27,7 @@ Work through these in order. Each step links to its details. Command examples us
 
 ## 5. GitHub `production` variables
 - [ ] `AZURE_LOCATION`, `AZURE_VM_ADMIN_SSH_PUBLIC_KEY` (required)
-- [ ] `AZURE_VM_SIZE=Standard_D2as_v4` (this subscription)
+- [ ] `AZURE_VM_SIZE=Standard_B2s` (this subscription)
 - [ ] `LETSENCRYPT_EMAIL`, `TEST_HOSTNAMES`
 - [ ] Optional: `PRODUCTION_API_HOSTNAME`, `PRODUCTION_GRAFANA_HOSTNAME`, `ACA_TLS_VERIFY` (defaults are fine)
 - [ ] Do **not** set `PRODUCTION_VERIFY_PUBLIC_ENDPOINT` yet

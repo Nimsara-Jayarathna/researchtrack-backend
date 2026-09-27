@@ -29,7 +29,7 @@ Last updated: 2026-09-24. **Code complete, not yet executed against Azure.**
   - infra subnet `10.20.10.0/24` with NSG: 80/443 public only, 3306/9092 from the Container Apps subnet only, no SSH rule
   - Container Apps subnet `10.20.20.0/23` (delegated)
   - static public IP, NIC with static `10.20.10.4`
-  - VM (`Standard_D2as_v5`, non-Spot, Ubuntu 24.04)
+  - VM (`Standard_B2s`, 2 vCPU / 4 GiB burstable, non-Spot, Ubuntu 24.04)
   - separate data disk `disk-researchtrack-data-prod` at LUN 0 (detached, not deleted, with the VM)
   - internal Container Apps environment (workload profiles, optional capped Log Analytics)
   - private DNS zone for the environment domain with a wildcard A record and a VNet link
@@ -63,7 +63,7 @@ None.
 ## Known blockers
 
 - No Azure access in the implementation environment. Every Azure-side behaviour is unverified until the workflows run.
-- **Region needs confirmation:** the repository records `southeastasia` (Bicep fallback, RUNBOOK examples, and the D2as_v4 quota analysis below), but `eastasia` has been reported as the working region. Set `AZURE_LOCATION` to the real region *before* the first infrastructure run (a resource group's region cannot change afterwards), and re-check D2as_v4 quota there.
+- **Region needs confirmation:** the repository records `southeastasia` (Bicep fallback, RUNBOOK examples, and the original quota analysis), but `eastasia` has been reported as the working region. Set `AZURE_LOCATION` to the real region *before* the first infrastructure run (a resource group's region cannot change afterwards), and re-check Standard BS Family (B2s) quota there.
 - **Jira callback/webhook paths are unknown on this branch:** `ResearchTrack.JiraService` has persistence code only. Take the paths from the Jira feature code before the Jira cutover.
 
 Configuration and operator documentation: `docs/devops/configuration/` (added 2026-09-24).
@@ -134,12 +134,12 @@ Configuration and operator documentation: `docs/devops/configuration/` (added 20
 
 - **OIDC identity:** the SLIIT Entra tenant blocks `az ad app create`. GitHub Actions therefore authenticates as the user-assigned managed identity `id-researchtrack-github-prod`, which lives in `rg-researchtrack-bootstrap` (region from `AZURE_LOCATION`). Its federated credential has subject `repo:Nimsara-Jayarathna/researchtrack-backend:environment:production` and audience `api://AzureADTokenExchange`. It has Contributor at subscription scope and no client secret. `bootstrap-oidc.sh` now creates exactly this, idempotently, using `az identity create`, `az identity federated-credential create` and `az role assignment create`.
 
-- `AZURE_VM_SIZE=Standard_D2as_v4` must be set as a GitHub `production` Environment variable. The Azure for Students subscription in `southeastasia` has 0 DASv5 quota and 4 DASv4 vCPUs. The size has only a zone-1 restriction, and no zone is pinned. The Bicep default stays `Standard_D2as_v5`.
+- `AZURE_VM_SIZE=Standard_B2s` should be set as a GitHub `production` Environment variable; the Bicep default is also `Standard_B2s` (2 vCPU / 4 GiB, burstable B-series, non-Spot). No zone is pinned. Resizing an existing VM through the infrastructure workflow restarts it; the data disk stays attached.
 - The infrastructure workflow exports `AZURE_VM_SIZE` only when the variable is set. Previously an unset variable became an empty `vmSize`.
 
 ## Next 3 actions
 
-1. Human: run `bootstrap-oidc.sh` and set the GitHub `production` secrets/variables, including `AZURE_VM_SIZE=Standard_D2as_v4` (RUNBOOK §1–2).
+1. Human: run `bootstrap-oidc.sh` and set the GitHub `production` secrets/variables, including `AZURE_VM_SIZE=Standard_B2s` (RUNBOOK §1–2).
 2. Run the Azure Infrastructure workflow, then the application workflow with `force_full_build` (RUNBOOK §3). Fix whatever the real-Azure checks above expose.
 3. Data migration, then DNS/TLS/callback cutover (RUNBOOK §4–5).
 

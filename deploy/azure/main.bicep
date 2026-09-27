@@ -25,8 +25,8 @@ param containerAppsSubnetCidr string = '10.20.20.0/23'
 @description('Static private IP of the infrastructure VM (MySQL/Kafka endpoint for Container Apps).')
 param vmPrivateIp string = '10.20.10.4'
 
-@description('2 vCPU / 8 GiB, non-Spot.')
-param vmSize string = 'Standard_D2as_v5'
+@description('2 vCPU / 4 GiB, burstable B-series, non-Spot.')
+param vmSize string = 'Standard_B2s'
 
 param vmAdminUsername string = 'researchtrack'
 

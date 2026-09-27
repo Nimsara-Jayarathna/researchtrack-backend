@@ -83,6 +83,32 @@ public sealed class ProjectIntegrationTests : IAsyncLifetime
         Assert.Equal(2, await dbContext.ProjectMilestones.CountAsync(TestContext.Current.CancellationToken));
     }
 
+    [Theory]
+    [Trait("Category", "DatabaseIntegration")]
+    [InlineData("Semester 2\" AND \"1\"=\"1")]
+    [InlineData("Semester 3")]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task Project_creation_rejects_unsupported_semester_without_persisting(string semester)
+    {
+        using var response = await SendCreateAsync(ValidCreateRequest(semester));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        await AssertDatabaseEmptyAsync();
+    }
+
+    [Fact]
+    [Trait("Category", "DatabaseIntegration")]
+    public async Task Project_creation_accepts_semester_2()
+    {
+        using var response = await SendCreateAsync(ValidCreateRequest("Semester 2"));
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var payload = await response.Content.ReadFromJsonAsync<ApiResponse<CreateProjectResponse>>(
+            TestContext.Current.CancellationToken);
+        Assert.Equal("Semester 2", payload?.Data?.Semester);
+    }
+
     [Fact]
     [Trait("Category", "DatabaseIntegration")]
     public async Task Student_cannot_create_project()
@@ -231,6 +257,34 @@ public sealed class ProjectIntegrationTests : IAsyncLifetime
             studentProjects,
             project => project.Id == projectId);
         Assert.Equal("ACTIVE", studentProject.LifecycleStatus);
+    }
+
+    [Theory]
+    [Trait("Category", "DatabaseIntegration")]
+    [InlineData("Semester 2\" AND \"1\"=\"1")]
+    [InlineData("Semester 3")]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task Project_update_rejects_unsupported_semester_without_changing_project(string semester)
+    {
+        var projectId = await CreateProjectAsync();
+
+        using var request = CreateJsonRequest(
+            HttpMethod.Put,
+            $"/api/v1/projects/{projectId}",
+            SupervisorA,
+            AuthSecurityConstants.Roles.Supervisor,
+            ValidUpdateRequest("ACTIVE", semester));
+        using var response = await Client.SendAsync(request, TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        await using var dbContext = await CreateDbContextAsync();
+        var project = await dbContext.Projects.SingleAsync(
+            item => item.Id == projectId,
+            TestContext.Current.CancellationToken);
+        Assert.Equal("Semester 1", project.Semester);
+        Assert.Equal("PLANNING", project.LifecycleStatus);
     }
 
     [Fact]
@@ -912,21 +966,23 @@ public sealed class ProjectIntegrationTests : IAsyncLifetime
         return await Client.SendAsync(request, TestContext.Current.CancellationToken);
     }
 
-    private static object ValidUpdateRequest(string lifecycleStatus) => new
+    private static object ValidUpdateRequest(
+        string lifecycleStatus,
+        string semester = "Semester 1") => new
     {
         title = "AI Research Assistant",
         summary = "Research into reliable AI-assisted academic workflows.",
         batch = "2026",
-        semester = "Semester 1",
+        semester,
         lifecycleStatus
     };
 
-    private static object ValidCreateRequest() => new
+    private static object ValidCreateRequest(string semester = "Semester 1") => new
     {
         title = "AI Research Assistant",
         summary = "Research into reliable AI-assisted academic workflows.",
         batch = "2026",
-        semester = "Semester 1",
+        semester,
         studentIds = new[] { StudentA, StudentB },
         leaderStudentId = StudentA,
         milestones = ValidMilestones()

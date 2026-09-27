@@ -44,7 +44,7 @@ The script ends by printing the values to set on the GitHub Environment `product
 |---|---|
 | `AZURE_LOCATION` | required, e.g. `southeastasia` |
 | `AZURE_VM_ADMIN_SSH_PUBLIC_KEY` | required by Azure for Linux VMs. SSH is never opened in the NSG |
-| `AZURE_VM_SIZE` | optional; Bicep default `Standard_D2as_v5`. **This subscription: `Standard_D2as_v4`** (Azure for Students in `southeastasia` has 0 DASv5 quota and 4 DASv4 vCPUs; `Standard_D2as_v4` is restricted only in zone 1, and the VM is deployed without a zone) |
+| `AZURE_VM_SIZE` | optional; Bicep default `Standard_B2s` (2 vCPU / 4 GiB, burstable, non-Spot). **This subscription: `Standard_B2s`** (needs Standard BS Family vCPU quota in the region; the VM is deployed without a zone) |
 | `PRODUCTION_API_HOSTNAME` | `api.researchtrack.blipzo.xyz` |
 | `PRODUCTION_GRAFANA_HOSTNAME` | `grafana.researchtrack.blipzo.xyz` |
 | `LETSENCRYPT_EMAIL` | recommended |

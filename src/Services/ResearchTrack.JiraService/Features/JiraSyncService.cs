@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using ResearchTrack.BuildingBlocks.Api.Constants;
@@ -11,7 +12,7 @@ namespace ResearchTrack.JiraService.Features;
 
 public interface IJiraSyncService
 {
-    Task<JiraSyncResponse> SynchronizeAsync(Guid projectId, CancellationToken ct);
+    Task<JiraSyncResponse> SynchronizeAsync(Guid projectId, CancellationToken ct, string trigger = "MANUAL");
 }
 
 public sealed class JiraSyncService : IJiraSyncService
@@ -29,8 +30,10 @@ public sealed class JiraSyncService : IJiraSyncService
         _logger = logger;
     }
 
-    public async Task<JiraSyncResponse> SynchronizeAsync(Guid projectId, CancellationToken ct)
+    public async Task<JiraSyncResponse> SynchronizeAsync(Guid projectId, CancellationToken ct, string trigger = "MANUAL")
     {
+        var metricTrigger = JiraOperationalMetrics.Trigger(trigger);
+        var syncTimer = Stopwatch.StartNew();
         await using var db = await _factory.CreateDbContextAsync(ct);
 
         // Single-writer boundary for the complete project snapshot. MySQL GET_LOCK is
@@ -46,9 +49,7 @@ public sealed class JiraSyncService : IJiraSyncService
 
         // SYNCING describes the attempt. LastSyncedAt deliberately remains the timestamp of
         // the last fully successful snapshot, so readers can continue to use stale-good data.
-        connection.SyncStatus = "SYNCING";
-        connection.LastSyncError = null;
-        connection.UpdatedAt = DateTimeOffset.UtcNow;
+        JiraSyncStateTransitions.Begin(connection, DateTimeOffset.UtcNow);
         await db.SaveChangesAsync(ct);
 
         try
@@ -187,7 +188,7 @@ public sealed class JiraSyncService : IJiraSyncService
                     db.JiraIssues.Add(issue);
                     existingIssues[jiraId] = issue;
                 }
-                MapIssue(issue, key, issueFields, storyPointsField, now);
+                JiraIssueMapper.Map(issue, key, issueFields, storyPointsField, now);
             }
 
             var staleIssues = existingIssues.Values.Where(x => !seenIssueIds.Contains(x.JiraIssueId)).ToList();
@@ -264,41 +265,67 @@ public sealed class JiraSyncService : IJiraSyncService
                     connection.JiraProjectKey);
             }
 
-            connection.SyncStatus = "SYNCED";
-            connection.SyncRevision = checked(connection.SyncRevision + 1);
-            connection.LastSyncedAt = now;
-            connection.LastSyncError = null;
-            connection.LastReconciledAt = now;
-            connection.UpdatedAt = now;
+            JiraSyncStateTransitions.Complete(connection, now);
             await db.SaveChangesAsync(ct);
             await transaction.CommitAsync(ct);
 
+            JiraOperationalMetrics.SyncRuns.WithLabels(metricTrigger, "success").Inc();
+            JiraOperationalMetrics.LastSuccessfulSync.WithLabels(metricTrigger).Set(now.ToUnixTimeSeconds());
+            JiraOperationalMetrics.SnapshotIssues.Set(seenIssueIds.Count);
+            JiraOperationalMetrics.SnapshotSprints.Set(seenSprintIds.Count);
             return new JiraSyncResponse(seenIssueIds.Count, seenSprintIds.Count, now);
         }
         catch (Exception ex)
         {
+            JiraOperationalMetrics.SyncRuns.WithLabels(metricTrigger, IsAuthorizationFailure(ex) ? "authorization_error" : "failed").Inc();
             // Never move LastSyncedAt on failure. It identifies the last complete, usable snapshot.
             // Clear the tracker so a failed transaction cannot leak partially tracked mirror changes
             // into the failure-status write.
             db.ChangeTracker.Clear();
             var failedConnection = await db.JiraConnections.SingleAsync(x => x.ResearchProjectId == projectId, CancellationToken.None);
-            failedConnection.SyncStatus = IsAuthorizationFailure(ex) ? "INVALID_AUTH" : "FAILED";
-            failedConnection.LastSyncError = Safe(ex.Message);
-            failedConnection.UpdatedAt = DateTimeOffset.UtcNow;
+            JiraSyncStateTransitions.Fail(failedConnection, DateTimeOffset.UtcNow, IsAuthorizationFailure(ex), ex.Message);
             await db.SaveChangesAsync(CancellationToken.None);
             throw;
+        }
+        finally
+        {
+            JiraOperationalMetrics.SyncDuration.WithLabels(metricTrigger).Observe(syncTimer.Elapsed.TotalSeconds);
         }
     }
 
     private async Task<string> ValidTokenAsync(JiraDbContext db, JiraConnection connection, CancellationToken ct)
     {
-        if (!connection.TokenExpiresAt.HasValue || connection.TokenExpiresAt.Value > DateTimeOffset.UtcNow.AddMinutes(2))
-            return _protector.Unprotect(connection.AccessTokenProtected);
+        var accessToken = _protector.Unprotect(connection.AccessTokenProtected);
+        var changed = false;
 
-        if (string.IsNullOrWhiteSpace(connection.RefreshTokenProtected))
+        if (_protector.RequiresReprotection(connection.AccessTokenProtected))
+        {
+            connection.AccessTokenProtected = _protector.Protect(accessToken);
+            changed = true;
+        }
+
+        string? refreshToken = null;
+        var protectedRefreshToken = connection.RefreshTokenProtected;
+        if (!string.IsNullOrWhiteSpace(protectedRefreshToken))
+        {
+            refreshToken = _protector.Unprotect(protectedRefreshToken);
+            if (_protector.RequiresReprotection(protectedRefreshToken))
+            {
+                connection.RefreshTokenProtected = _protector.Protect(refreshToken);
+                changed = true;
+            }
+        }
+
+        if (!connection.TokenExpiresAt.HasValue || connection.TokenExpiresAt.Value > DateTimeOffset.UtcNow.AddMinutes(2))
+        {
+            if (changed) await db.SaveChangesAsync(ct);
+            return accessToken;
+        }
+
+        if (string.IsNullOrWhiteSpace(refreshToken))
             throw new ApiException(401, ErrorCodes.Unauthorized, "Jira authorization has expired. Reconnect Jira.");
 
-        var refreshed = await _client.RefreshTokenAsync(_protector.Unprotect(connection.RefreshTokenProtected), ct);
+        var refreshed = await _client.RefreshTokenAsync(refreshToken, ct);
         connection.AccessTokenProtected = _protector.Protect(refreshed.AccessToken);
         if (!string.IsNullOrWhiteSpace(refreshed.RefreshToken))
             connection.RefreshTokenProtected = _protector.Protect(refreshed.RefreshToken);
@@ -309,30 +336,17 @@ public sealed class JiraSyncService : IJiraSyncService
     }
 
     private static bool IsAuthorizationFailure(Exception ex) =>
+        ex is JiraTokenProtectionException ||
         ex is ApiException api && api.StatusCode == 401;
 
-    private static void MapIssue(JiraIssue x, string key, JsonElement f, string? sp, DateTimeOffset now)
-    {
-        x.IssueKey = key;
-        x.Summary = S(f, "summary") ?? "(No summary)";
-        x.DescriptionJson = f.TryGetProperty("description", out var desc) && desc.ValueKind is not JsonValueKind.Null and not JsonValueKind.Undefined ? desc.GetRawText() : null;
-        if (f.TryGetProperty("issuetype", out var it)) { x.IssueTypeId = S(it, "id"); x.IssueTypeName = S(it, "name") ?? "Unknown"; x.IsSubtask = B(it, "subtask"); }
-        if (f.TryGetProperty("status", out var st)) { x.StatusId = S(st, "id"); x.StatusName = S(st, "name") ?? "Unknown"; if (st.TryGetProperty("statusCategory", out var sc)) { x.StatusCategoryId = S(sc, "id"); x.StatusCategoryKey = S(sc, "key"); x.StatusCategoryName = S(sc, "name"); } }
-        if (f.TryGetProperty("priority", out var pr) && pr.ValueKind == JsonValueKind.Object) { x.PriorityId = S(pr, "id"); x.PriorityName = S(pr, "name"); } else { x.PriorityId = null; x.PriorityName = null; }
-        Person(f, "assignee", out var aa, out var an); x.AssigneeAccountId = aa; x.AssigneeDisplayName = an;
-        Person(f, "reporter", out var ra, out var rn); x.ReporterAccountId = ra; x.ReporterDisplayName = rn;
-        if (f.TryGetProperty("parent", out var pa) && pa.ValueKind == JsonValueKind.Object) { x.ParentIssueId = S(pa, "id"); x.ParentIssueKey = S(pa, "key"); } else { x.ParentIssueId = null; x.ParentIssueKey = null; }
-        if (f.TryGetProperty("resolution", out var re) && re.ValueKind == JsonValueKind.Object) { x.ResolutionId = S(re, "id"); x.ResolutionName = S(re, "name"); } else { x.ResolutionId = null; x.ResolutionName = null; }
-        x.DueDate = D(f, "duedate"); x.ResolutionDate = D(f, "resolutiondate"); x.JiraCreatedAt = D(f, "created"); x.JiraUpdatedAt = D(f, "updated");
-        if (f.TryGetProperty("timetracking", out var tt) && tt.ValueKind == JsonValueKind.Object) { x.OriginalEstimateSeconds = L(tt, "originalEstimateSeconds"); x.RemainingEstimateSeconds = L(tt, "remainingEstimateSeconds"); x.TimeSpentSeconds = L(tt, "timeSpentSeconds"); }
-        if (!string.IsNullOrWhiteSpace(sp) && f.TryGetProperty(sp, out var spe) && spe.ValueKind == JsonValueKind.Number && spe.TryGetDecimal(out var n)) x.StoryPoints = n; else x.StoryPoints = null;
-        x.SyncedAt = now;
-    }
+    private static string? S(JsonElement element, string name) =>
+        element.TryGetProperty(name, out var property) && property.ValueKind == JsonValueKind.String
+            ? property.GetString()
+            : null;
 
-    private static void Person(JsonElement f, string name, out string? id, out string? display) { id = null; display = null; if (f.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.Object) { id = S(p, "accountId"); display = S(p, "displayName"); } }
-    private static string? S(JsonElement e, string n) => e.TryGetProperty(n, out var p) && p.ValueKind == JsonValueKind.String ? p.GetString() : null;
-    private static bool B(JsonElement e, string n) => e.TryGetProperty(n, out var p) && p.ValueKind == JsonValueKind.True;
-    private static long? L(JsonElement e, string n) => e.TryGetProperty(n, out var p) && p.TryGetInt64(out var v) ? v : null;
-    private static DateTimeOffset? D(JsonElement e, string n) => e.TryGetProperty(n, out var p) && p.ValueKind == JsonValueKind.String && DateTimeOffset.TryParse(p.GetString(), out var d) ? d : null;
-    private static string Safe(string m) => m.Length <= 1000 ? m : m[..1000];
+    private static DateTimeOffset? D(JsonElement element, string name) =>
+        element.TryGetProperty(name, out var property) && property.ValueKind == JsonValueKind.String &&
+        DateTimeOffset.TryParse(property.GetString(), out var date)
+            ? date
+            : null;
 }

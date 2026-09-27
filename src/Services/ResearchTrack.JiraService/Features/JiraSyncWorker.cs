@@ -1,5 +1,7 @@
 using Microsoft.EntityFrameworkCore;
+using ResearchTrack.BuildingBlocks.Api.Exceptions;
 using ResearchTrack.JiraService.Configuration;
+using ResearchTrack.JiraService.Infrastructure;
 using ResearchTrack.JiraService.Persistence;
 
 namespace ResearchTrack.JiraService.Features;
@@ -16,6 +18,7 @@ public sealed class JiraSyncWorker : BackgroundService
         _scopes = scopes;
         _options = options;
         _logger = logger;
+        JiraOperationalMetrics.ReconciliationInterval.Set(Math.Max(1, options.ReconciliationIntervalMinutes) * 60);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -25,9 +28,11 @@ public sealed class JiraSyncWorker : BackgroundService
             try
             {
                 await RecoverStaleJobsAsync(stoppingToken);
+                await SuppressUnrunnableJobsAsync(stoppingToken);
                 await QueueReconciliationAsync(stoppingToken);
                 await RefreshWebhookRegistrationsAsync(stoppingToken);
                 await ProcessOneAsync(stoppingToken);
+                await UpdateQueueDepthAsync(stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
             catch (Exception ex) { _logger.LogError(ex, "Jira synchronization worker iteration failed."); }
@@ -59,7 +64,50 @@ public sealed class JiraSyncWorker : BackgroundService
             job.LastError = "Recovered after a worker stopped before completing this synchronization.";
         }
         await db.SaveChangesAsync(ct);
+        JiraOperationalMetrics.StaleJobsRecovered.Inc(stale.Count);
         _logger.LogWarning("Recovered {Count} stale Jira synchronization job(s).", stale.Count);
+    }
+
+    private async Task SuppressUnrunnableJobsAsync(CancellationToken ct)
+    {
+        using var scope = _scopes.CreateScope();
+        var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<JiraDbContext>>();
+        await using var db = await factory.CreateDbContextAsync(ct);
+
+        var jobs = await db.JiraSyncJobs
+            .Where(x => x.Status == "PENDING")
+            .ToListAsync(ct);
+        if (jobs.Count == 0) return;
+
+        var projectIds = jobs.Select(x => x.ResearchProjectId).Distinct().ToList();
+        var connections = await db.JiraConnections.AsNoTracking()
+            .Where(x => projectIds.Contains(x.ResearchProjectId))
+            .Select(x => new { x.ResearchProjectId, x.SyncStatus })
+            .ToDictionaryAsync(x => x.ResearchProjectId, ct);
+
+        var now = DateTimeOffset.UtcNow;
+        var suppressed = 0;
+        foreach (var job in jobs)
+        {
+            if (!connections.TryGetValue(job.ResearchProjectId, out var connection))
+            {
+                job.Status = "FAILED";
+                job.CompletedAt = now;
+                job.LastError = "Synchronization cancelled because the Jira connection no longer exists.";
+                suppressed++;
+            }
+            else if (string.Equals(connection.SyncStatus, "INVALID_AUTH", StringComparison.Ordinal))
+            {
+                job.Status = "FAILED";
+                job.CompletedAt = now;
+                job.LastError = "Synchronization cancelled because Jira authorization requires reconnection.";
+                suppressed++;
+            }
+        }
+
+        if (suppressed == 0) return;
+        await db.SaveChangesAsync(ct);
+        _logger.LogInformation("Suppressed {Count} Jira synchronization job(s) that can no longer run.", suppressed);
     }
 
     private async Task QueueReconciliationAsync(CancellationToken ct)
@@ -70,15 +118,30 @@ public sealed class JiraSyncWorker : BackgroundService
         await using var db = await factory.CreateDbContextAsync(ct);
         var cutoff = DateTimeOffset.UtcNow.AddMinutes(-Math.Max(1, _options.ReconciliationIntervalMinutes));
         var ids = await db.JiraConnections.AsNoTracking()
-            .Where(x => !x.LastReconciledAt.HasValue || x.LastReconciledAt < cutoff)
+            .Where(x => x.SyncStatus != "INVALID_AUTH" && (!x.LastReconciledAt.HasValue || x.LastReconciledAt < cutoff))
             .OrderBy(x => x.LastReconciledAt)
             .Select(x => x.ResearchProjectId)
             .Take(20)
             .ToListAsync(ct);
 
         var now = DateTimeOffset.UtcNow;
+        var failed = 0;
         foreach (var id in ids)
-            await scheduler.RequestAsync(id, "RECONCILIATION", now, null, ct);
+        {
+            try
+            {
+                await scheduler.RequestAsync(id, "RECONCILIATION", now, null, ct);
+                JiraOperationalMetrics.ReconciliationProjects.WithLabels("queued").Inc();
+            }
+            catch
+            {
+                failed++;
+                JiraOperationalMetrics.ReconciliationProjects.WithLabels("failed").Inc();
+            }
+        }
+        JiraOperationalMetrics.ReconciliationCycles.WithLabels(failed == 0 ? "success" : "partial_failure").Inc();
+        JiraOperationalMetrics.ReconciliationLastCompleted.Set(now.ToUnixTimeSeconds());
+        if (failed == 0) JiraOperationalMetrics.ReconciliationLastSuccess.Set(now.ToUnixTimeSeconds());
     }
 
     private async Task RefreshWebhookRegistrationsAsync(CancellationToken ct)
@@ -89,7 +152,7 @@ public sealed class JiraSyncWorker : BackgroundService
         await using var db = await factory.CreateDbContextAsync(ct);
         var cutoff = DateTimeOffset.UtcNow.AddDays(7);
         var ids = await db.JiraConnections.AsNoTracking()
-            .Where(x => x.WebhookStatus != "ACTIVE" || !x.WebhookExpiresAt.HasValue || x.WebhookExpiresAt < cutoff)
+            .Where(x => x.SyncStatus != "INVALID_AUTH" && (x.WebhookStatus != "ACTIVE" || !x.WebhookExpiresAt.HasValue || x.WebhookExpiresAt < cutoff))
             .OrderBy(x => x.UpdatedAt)
             .Select(x => x.ResearchProjectId)
             .Take(10)
@@ -101,14 +164,14 @@ public sealed class JiraSyncWorker : BackgroundService
     {
         var claimed = await ClaimOneAsync(ct);
         if (claimed is null) return;
-        var (jobId, projectId, startedAt) = claimed.Value;
+        var (jobId, projectId, startedAt, reason) = claimed.Value;
 
         Exception? error = null;
         try
         {
             using var scope = _scopes.CreateScope();
             var sync = scope.ServiceProvider.GetRequiredService<IJiraSyncService>();
-            await sync.SynchronizeAsync(projectId, ct);
+            await sync.SynchronizeAsync(projectId, ct, reason);
         }
         catch (Exception ex)
         {
@@ -116,10 +179,10 @@ public sealed class JiraSyncWorker : BackgroundService
             _logger.LogWarning(ex, "Queued Jira synchronization failed for project {ProjectId}.", projectId);
         }
 
-        await CompleteAsync(jobId, projectId, startedAt, error, ct);
+        await CompleteAsync(jobId, projectId, startedAt, reason, error, ct);
     }
 
-    private async Task<(Guid JobId, Guid ProjectId, DateTimeOffset StartedAt)?> ClaimOneAsync(CancellationToken ct)
+    private async Task<(Guid JobId, Guid ProjectId, DateTimeOffset StartedAt, string Reason)?> ClaimOneAsync(CancellationToken ct)
     {
         using var scope = _scopes.CreateScope();
         var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<JiraDbContext>>();
@@ -130,6 +193,7 @@ public sealed class JiraSyncWorker : BackgroundService
         var now = DateTimeOffset.UtcNow;
         var job = await db.JiraSyncJobs
             .Where(x => x.Status == "PENDING" && x.AvailableAt <= now &&
+                db.JiraConnections.Any(c => c.ResearchProjectId == x.ResearchProjectId && c.SyncStatus != "INVALID_AUTH") &&
                 !db.JiraSyncJobs.Any(r => r.ResearchProjectId == x.ResearchProjectId && r.Status == "RUNNING"))
             .OrderBy(x => x.AvailableAt)
             .ThenBy(x => x.RequestedAt)
@@ -142,10 +206,10 @@ public sealed class JiraSyncWorker : BackgroundService
         job.CompletedAt = null;
         job.AttemptCount++;
         await db.SaveChangesAsync(ct);
-        return (job.Id, job.ResearchProjectId, now);
+        return (job.Id, job.ResearchProjectId, now, job.Reason);
     }
 
-    private async Task CompleteAsync(Guid jobId, Guid projectId, DateTimeOffset startedAt, Exception? error, CancellationToken ct)
+    private async Task CompleteAsync(Guid jobId, Guid projectId, DateTimeOffset startedAt, string reason, Exception? error, CancellationToken ct)
     {
         using var scope = _scopes.CreateScope();
         var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<JiraDbContext>>();
@@ -159,6 +223,7 @@ public sealed class JiraSyncWorker : BackgroundService
             job.Status = "COMPLETED";
             job.CompletedAt = now;
             job.LastError = null;
+            JiraOperationalMetrics.SyncJobOutcomes.WithLabels(JiraOperationalMetrics.Trigger(reason), "completed").Inc();
 
             // Only acknowledge webhook events that existed before this synchronization began.
             // Events received while it was running are intentionally left RECEIVED; the scheduler
@@ -172,13 +237,38 @@ public sealed class JiraSyncWorker : BackgroundService
                 webhookEvent.ProcessedAt = now;
                 webhookEvent.AttemptCount++;
                 webhookEvent.LastError = null;
+                JiraOperationalMetrics.WebhookEvents.WithLabels(JiraOperationalMetrics.Event(webhookEvent.EventType), "processed").Inc();
             }
         }
-        else if (job.AttemptCount >= 5)
+        else if (IsPermanentAuthorizationFailure(error) || job.AttemptCount >= 5)
         {
             job.Status = "FAILED";
             job.CompletedAt = now;
             job.LastError = Safe(error.Message);
+            JiraOperationalMetrics.SyncJobOutcomes.WithLabels(JiraOperationalMetrics.Trigger(reason), "failed").Inc();
+
+            if (IsPermanentAuthorizationFailure(error))
+            {
+                var connection = await db.JiraConnections.SingleOrDefaultAsync(x => x.ResearchProjectId == projectId, ct);
+                if (connection is not null)
+                {
+                    connection.SyncStatus = "INVALID_AUTH";
+                    connection.WebhookStatus = "REAUTH_REQUIRED";
+                    connection.LastSyncError = Safe(error.Message);
+                    connection.UpdatedAt = now;
+                }
+
+                var pending = await db.JiraSyncJobs
+                    .Where(x => x.ResearchProjectId == projectId && x.Id != jobId && x.Status == "PENDING")
+                    .ToListAsync(ct);
+                foreach (var pendingJob in pending)
+                {
+                    pendingJob.Status = "FAILED";
+                    pendingJob.CompletedAt = now;
+                    pendingJob.LastError = "Synchronization cancelled because Jira authorization requires reconnection.";
+                }
+            }
+
             var coveredEvents = await db.JiraWebhookEvents
                 .Where(x => x.ResearchProjectId == projectId && x.Status == "RECEIVED" && x.ReceivedAt <= startedAt)
                 .ToListAsync(ct);
@@ -188,6 +278,7 @@ public sealed class JiraSyncWorker : BackgroundService
                 webhookEvent.ProcessedAt = now;
                 webhookEvent.AttemptCount++;
                 webhookEvent.LastError = Safe(error.Message);
+                JiraOperationalMetrics.WebhookEvents.WithLabels(JiraOperationalMetrics.Event(webhookEvent.EventType), "failed").Inc();
             }
         }
         else
@@ -196,9 +287,28 @@ public sealed class JiraSyncWorker : BackgroundService
             job.StartedAt = null;
             job.LastError = Safe(error.Message);
             job.AvailableAt = now.Add(RetryDelay(job.AttemptCount));
+            JiraOperationalMetrics.SyncJobOutcomes.WithLabels(JiraOperationalMetrics.Trigger(reason), "retry_scheduled").Inc();
         }
         await db.SaveChangesAsync(ct);
     }
+
+    private async Task UpdateQueueDepthAsync(CancellationToken ct)
+    {
+        using var scope = _scopes.CreateScope();
+        var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<JiraDbContext>>();
+        await using var db = await factory.CreateDbContextAsync(ct);
+        var counts = await db.JiraSyncJobs.AsNoTracking()
+            .Where(x => x.Status == "PENDING" || x.Status == "RUNNING" || x.Status == "FAILED")
+            .GroupBy(x => x.Status)
+            .Select(x => new { Status = x.Key, Count = x.Count() })
+            .ToListAsync(ct);
+        foreach (var status in new[] { "PENDING", "RUNNING", "FAILED" })
+            JiraOperationalMetrics.SyncQueueDepth.WithLabels(status.ToLowerInvariant()).Set(counts.FirstOrDefault(x => x.Status == status)?.Count ?? 0);
+    }
+
+    private static bool IsPermanentAuthorizationFailure(Exception error) =>
+        error is JiraTokenProtectionException ||
+        error is ApiException api && api.StatusCode == 401;
 
     private static TimeSpan RetryDelay(int attempt) => attempt switch
     {
