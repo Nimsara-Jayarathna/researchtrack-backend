@@ -23,6 +23,12 @@ fi
 
 if [[ "$scope" == "all" ]]; then
   target="ResearchTrack.sln"
+elif [[ "${scope,,}" == "e2e" ]]; then
+  target="tests/ResearchTrack.E2E.Tests/ResearchTrack.E2E.Tests.csproj"
+  dotnet test "$target" \
+    -c "${CONFIGURATION:-Debug}" \
+    --filter "Category=E2E"
+  exit 0
 else
   case "${scope,,}" in
     gateway) target="tests/ResearchTrack.Gateway.Tests/ResearchTrack.Gateway.Tests.csproj" ;;
@@ -33,7 +39,7 @@ else
       target="tests/ResearchTrack.${cap}Service.Tests/ResearchTrack.${cap}Service.Tests.csproj"
       ;;
     *)
-      echo "Usage: ./scripts/test.sh <all|gateway|auth|project|github|jira|meeting|submission|integration>" >&2
+      echo "Usage: ./scripts/test.sh <all|gateway|auth|project|github|jira|meeting|submission|integration|e2e>" >&2
       exit 1
       ;;
   esac
@@ -41,5 +47,5 @@ fi
 
 dotnet test "$target" \
   -c "${CONFIGURATION:-Debug}" \
-  --filter "Category!=DatabaseIntegration" \
+  --filter "Category!=DatabaseIntegration&Category!=E2E" \
   --collect:"XPlat Code Coverage"
