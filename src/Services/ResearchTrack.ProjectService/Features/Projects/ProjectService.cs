@@ -394,7 +394,7 @@ public sealed class ProjectService : IProjectService
         var title = request.Title?.Trim();
         var summary = request.Summary?.Trim();
         var batch = request.Batch?.Trim();
-        var semester = request.Semester?.Trim();
+        var semester = ProjectRequestValidator.ValidateSemester(request.Semester);
 
         var lifecycleStatus =
             request.LifecycleStatus?
@@ -425,13 +425,6 @@ public sealed class ProjectService : IProjectService
                 "Project batch is required.");
         }
 
-        if (string.IsNullOrWhiteSpace(semester))
-        {
-            throw new ApiException(
-                StatusCodes.Status400BadRequest,
-                ErrorCodes.ValidationError,
-                "Project semester is required.");
-        }
 
         if (!string.IsNullOrWhiteSpace(lifecycleStatus) &&
             lifecycleStatus != ProjectLifecycleStatuses.Planning &&
