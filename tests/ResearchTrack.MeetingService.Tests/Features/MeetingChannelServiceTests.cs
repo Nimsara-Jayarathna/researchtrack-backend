@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Http;
 using ResearchTrack.BuildingBlocks.Api.Exceptions;
 using ResearchTrack.BuildingBlocks.Api.Security;
 using ResearchTrack.MeetingService.Contracts;
@@ -52,6 +53,7 @@ public sealed class MeetingChannelServiceTests
         var fixture = new Fixture();
         var projectId = Guid.NewGuid();
         var studentId = Guid.NewGuid();
+        fixture.Profile.DisplayName = "Sam Student";
 
         var result = await fixture.Service.CreateAsync(
             projectId,
@@ -66,11 +68,33 @@ public sealed class MeetingChannelServiceTests
         Assert.Equal(MeetingChannelConstants.StatusPending, result.Status);
         Assert.Equal(AuthSecurityConstants.Roles.Student, result.AddedByRole);
         Assert.Equal(studentId, result.AddedBy);
+        Assert.Equal("Sam Student", result.AddedByName);
         Assert.Null(result.ApprovedBy);
         Assert.Null(result.ApprovedByName);
         Assert.Null(result.ApprovedAt);
         Assert.Equal(0, fixture.Authorization.ManageChecks);
         Assert.Equal(1, fixture.Authorization.AccessChecks);
+        Assert.Equal(1, fixture.Profile.Calls);
+    }
+
+    [Fact]
+    public async Task Create_rejects_roles_outside_supervisor_and_student_before_persisting()
+    {
+        var fixture = new Fixture();
+
+        var exception = await Assert.ThrowsAsync<ApiException>(async () =>
+            await fixture.Service.CreateAsync(
+                Guid.NewGuid(),
+                Guid.NewGuid(),
+                "ADMIN",
+                ValidRequest(),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(StatusCodes.Status403Forbidden, exception.StatusCode);
+        Assert.Empty(fixture.Repository.Items);
+        Assert.Equal(0, fixture.Authorization.AccessChecks);
+        Assert.Equal(0, fixture.Authorization.ManageChecks);
+        Assert.Equal(0, fixture.Profile.Calls);
     }
 
     [Fact]
