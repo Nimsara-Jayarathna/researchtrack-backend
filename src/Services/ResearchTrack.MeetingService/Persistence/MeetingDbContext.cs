@@ -11,6 +11,7 @@ public sealed class MeetingDbContext : DbContext
     }
 
     public DbSet<MeetingChannel> MeetingChannels => Set<MeetingChannel>();
+    public DbSet<MeetingRecord> MeetingRecords => Set<MeetingRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
