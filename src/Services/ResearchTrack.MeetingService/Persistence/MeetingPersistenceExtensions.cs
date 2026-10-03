@@ -6,14 +6,18 @@ namespace ResearchTrack.MeetingService.Persistence;
 
 public static class MeetingPersistenceExtensions
 {
-    public static IServiceCollection AddMeetingPersistence(this IServiceCollection services, IConfiguration configuration)
+    public static IServiceCollection AddMeetingPersistence(
+        this IServiceCollection services,
+        IConfiguration configuration)
     {
         var connectionString = DatabaseConnectionStringResolver.Resolve(configuration);
 
-        services.AddDbContextFactory<MeetingDbContext>(options => options.UseMySQL(connectionString));
+        services.AddDbContextFactory<MeetingDbContext>(
+            options => options.UseMySQL(connectionString));
+
         services.AddHealthChecks().AddCheck<DatabaseHealthCheck<MeetingDbContext>>(
             "mysql",
-            tags: new[] { "ready" });
+            tags: ["ready"]);
 
         return services;
     }
