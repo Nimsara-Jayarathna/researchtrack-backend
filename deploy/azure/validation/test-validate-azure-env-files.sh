@@ -45,6 +45,8 @@ for contract, name in files.items():
         elif key == "ConnectionStrings__DefaultConnection":
             value = (f"Server=10.20.10.4;Port=3306;Database=researchtrack_{contract};"
                      f"User=rt_{contract};Password={fake_pw[contract]};SslMode=Required")
+        elif key == "Database__Password":
+            value = fake_pw[contract]
         elif key.endswith("_DB_PASSWORD"):
             value = fake_pw[key.split("_")[0].lower()]
         elif key == "MYSQL_ROOT_PASSWORD":
