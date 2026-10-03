@@ -80,12 +80,10 @@ public sealed class MeetingChannel
     }
 
     public void Update(
-        string platform,
         string channelName,
         string linkOrIdentifier,
         DateTimeOffset now)
     {
-        Platform = platform;
         ChannelName = channelName;
         LinkOrIdentifier = linkOrIdentifier;
         UpdatedAt = now;

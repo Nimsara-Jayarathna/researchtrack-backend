@@ -12,13 +12,13 @@ public interface IMeetingChannelService
         Guid projectId,
         Guid userId,
         string role,
-        MeetingChannelUpsertRequest request,
+        MeetingChannelCreateRequest request,
         CancellationToken cancellationToken);
 
     Task<MeetingChannelResponse> UpdateAsync(
         Guid projectId,
         Guid channelId,
-        MeetingChannelUpsertRequest request,
+        MeetingChannelUpdateRequest request,
         CancellationToken cancellationToken);
 
     Task DeleteAsync(

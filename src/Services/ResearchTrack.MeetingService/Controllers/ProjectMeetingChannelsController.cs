@@ -41,7 +41,7 @@ public sealed class ProjectMeetingChannelsController : ApiControllerBase
         StatusCodes.Status201Created)]
     public async Task<ActionResult<ApiResponse<MeetingChannelResponse>>> Create(
         Guid projectId,
-        [FromBody] MeetingChannelUpsertRequest request,
+        [FromBody] MeetingChannelCreateRequest request,
         CancellationToken cancellationToken)
     {
         var created = await _meetingChannelService.CreateAsync(
@@ -61,7 +61,7 @@ public sealed class ProjectMeetingChannelsController : ApiControllerBase
     public async Task<ActionResult<ApiResponse<MeetingChannelResponse>>> Update(
         Guid projectId,
         Guid channelId,
-        [FromBody] MeetingChannelUpsertRequest request,
+        [FromBody] MeetingChannelUpdateRequest request,
         CancellationToken cancellationToken)
     {
         return ApiOk(

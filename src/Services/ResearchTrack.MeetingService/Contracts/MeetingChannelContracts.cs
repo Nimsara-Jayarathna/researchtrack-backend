@@ -3,10 +3,18 @@ using ResearchTrack.MeetingService.Domain;
 
 namespace ResearchTrack.MeetingService.Contracts;
 
-public sealed record MeetingChannelUpsertRequest(
+public sealed record MeetingChannelCreateRequest(
     [Required]
     [MaxLength(32)]
     string Platform,
+    [Required]
+    [MaxLength(MeetingChannelConstants.ChannelNameMaxLength)]
+    string ChannelName,
+    [Required]
+    [MaxLength(MeetingChannelConstants.LinkMaxLength)]
+    string LinkOrIdentifier);
+
+public sealed record MeetingChannelUpdateRequest(
     [Required]
     [MaxLength(MeetingChannelConstants.ChannelNameMaxLength)]
     string ChannelName,

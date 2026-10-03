@@ -23,7 +23,7 @@ public sealed class MeetingChannelServiceTests
             projectId,
             supervisorId,
             AuthSecurityConstants.Roles.Supervisor,
-            new MeetingChannelUpsertRequest(
+            new MeetingChannelCreateRequest(
                 " zoom ",
                 "  Weekly supervision  ",
                 "  https://example.test/room  "),
@@ -57,7 +57,7 @@ public sealed class MeetingChannelServiceTests
             projectId,
             studentId,
             AuthSecurityConstants.Roles.Student,
-            new MeetingChannelUpsertRequest(
+            new MeetingChannelCreateRequest(
                 "TEAMS",
                 "Student proposal",
                 "https://teams.example.test/meeting"),
@@ -83,7 +83,7 @@ public sealed class MeetingChannelServiceTests
                 Guid.NewGuid(),
                 Guid.NewGuid(),
                 AuthSecurityConstants.Roles.Supervisor,
-                new MeetingChannelUpsertRequest(
+                new MeetingChannelCreateRequest(
                     "ZOOM",
                     "Weekly supervision",
                     "javascript:alert(1)"),
@@ -97,7 +97,7 @@ public sealed class MeetingChannelServiceTests
     }
 
     [Fact]
-    public async Task Update_preserves_approval_metadata_and_sets_updated_time()
+    public async Task Update_preserves_platform_and_approval_metadata_and_sets_updated_time()
     {
         var fixture = new Fixture();
         var projectId = Guid.NewGuid();
@@ -114,13 +114,12 @@ public sealed class MeetingChannelServiceTests
         var updated = await fixture.Service.UpdateAsync(
             projectId,
             created.Id,
-            new MeetingChannelUpsertRequest(
-                "GOOGLE_MEET",
+            new MeetingChannelUpdateRequest(
                 "Updated channel",
                 "https://meet.example.test/updated"),
             TestContext.Current.CancellationToken);
 
-        Assert.Equal("GOOGLE_MEET", updated.Platform);
+        Assert.Equal("ZOOM", updated.Platform);
         Assert.Equal("Updated channel", updated.ChannelName);
         Assert.Equal(created.ApprovedBy, updated.ApprovedBy);
         Assert.Equal(created.ApprovedAt, updated.ApprovedAt);
@@ -225,7 +224,7 @@ public sealed class MeetingChannelServiceTests
         Assert.Equal(1, fixture.Authorization.ManageChecks);
     }
 
-    private static MeetingChannelUpsertRequest ValidRequest() =>
+    private static MeetingChannelCreateRequest ValidRequest() =>
         new("ZOOM", "Weekly supervision", "https://example.test/weekly");
 
     private sealed class Fixture

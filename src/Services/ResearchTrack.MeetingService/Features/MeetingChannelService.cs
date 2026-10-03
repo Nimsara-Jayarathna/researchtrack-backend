@@ -41,7 +41,7 @@ public sealed class MeetingChannelService : IMeetingChannelService
         Guid projectId,
         Guid userId,
         string role,
-        MeetingChannelUpsertRequest request,
+        MeetingChannelCreateRequest request,
         CancellationToken cancellationToken)
     {
         var normalizedRole = NormalizeRole(role);
@@ -62,7 +62,7 @@ public sealed class MeetingChannelService : IMeetingChannelService
                 "Your role cannot create meeting channels.");
         }
 
-        var values = Validate(request);
+        var values = ValidateCreate(request);
         var displayName =
             await _userProfileClient.GetCurrentUserDisplayNameAsync(cancellationToken);
         var now = _timeProvider.GetUtcNow();
@@ -92,17 +92,16 @@ public sealed class MeetingChannelService : IMeetingChannelService
     public async Task<MeetingChannelResponse> UpdateAsync(
         Guid projectId,
         Guid channelId,
-        MeetingChannelUpsertRequest request,
+        MeetingChannelUpdateRequest request,
         CancellationToken cancellationToken)
     {
         await _projectAuthorization.EnsureCanManageAsync(projectId, cancellationToken);
 
         var channel =
             await RequireChannelAsync(projectId, channelId, cancellationToken);
-        var values = Validate(request);
+        var values = ValidateUpdate(request);
 
         channel.Update(
-            values.Platform,
             values.ChannelName,
             values.Link,
             _timeProvider.GetUtcNow());
@@ -166,14 +165,11 @@ public sealed class MeetingChannelService : IMeetingChannelService
                 "The requested meeting channel was not found.");
     }
 
-    private static (string Platform, string ChannelName, string Link) Validate(
-        MeetingChannelUpsertRequest request)
+    private static (string Platform, string ChannelName, string Link) ValidateCreate(
+        MeetingChannelCreateRequest request)
     {
         var errors = new List<ApiFieldError>();
-
-        var platform = (request.Platform ?? string.Empty)
-            .Trim()
-            .ToUpperInvariant();
+        var platform = (request.Platform ?? string.Empty).Trim().ToUpperInvariant();
 
         if (!MeetingChannelConstants.SupportedPlatforms.Contains(platform))
         {
@@ -182,7 +178,42 @@ public sealed class MeetingChannelService : IMeetingChannelService
                 ["Unsupported meeting platform."]));
         }
 
-        var channelName = (request.ChannelName ?? string.Empty).Trim();
+        var values = ValidateEditableFields(
+            request.ChannelName,
+            request.LinkOrIdentifier,
+            errors);
+
+        if (errors.Count > 0)
+        {
+            throw new ApiValidationException(errors);
+        }
+
+        return (platform, values.ChannelName, values.Link);
+    }
+
+    private static (string ChannelName, string Link) ValidateUpdate(
+        MeetingChannelUpdateRequest request)
+    {
+        var errors = new List<ApiFieldError>();
+        var values = ValidateEditableFields(
+            request.ChannelName,
+            request.LinkOrIdentifier,
+            errors);
+
+        if (errors.Count > 0)
+        {
+            throw new ApiValidationException(errors);
+        }
+
+        return values;
+    }
+
+    private static (string ChannelName, string Link) ValidateEditableFields(
+        string? requestedChannelName,
+        string? requestedLink,
+        List<ApiFieldError> errors)
+    {
+        var channelName = (requestedChannelName ?? string.Empty).Trim();
 
         if (channelName.Length == 0)
         {
@@ -197,7 +228,7 @@ public sealed class MeetingChannelService : IMeetingChannelService
                 [$"Channel name must be at most {MeetingChannelConstants.ChannelNameMaxLength} characters."]));
         }
 
-        var link = (request.LinkOrIdentifier ?? string.Empty).Trim();
+        var link = (requestedLink ?? string.Empty).Trim();
 
         if (link.Length == 0)
         {
@@ -220,12 +251,7 @@ public sealed class MeetingChannelService : IMeetingChannelService
                 ["Enter a valid link starting with http:// or https://."]));
         }
 
-        if (errors.Count > 0)
-        {
-            throw new ApiValidationException(errors);
-        }
-
-        return (platform, channelName, link);
+        return (channelName, link);
     }
 
     private static string NormalizeRole(string role) =>
