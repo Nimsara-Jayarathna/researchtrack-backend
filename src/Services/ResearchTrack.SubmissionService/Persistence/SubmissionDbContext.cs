@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using ResearchTrack.SubmissionService.Domain;
 
 namespace ResearchTrack.SubmissionService.Persistence;
 
@@ -9,5 +10,13 @@ public sealed class SubmissionDbContext : DbContext
     {
     }
 
-    // Sprint feature implementations add service-owned entity sets here.
+    public DbSet<SubmissionRequirement> SubmissionRequirements => Set<SubmissionRequirement>();
+    public DbSet<ResearchSubmission> ResearchSubmissions => Set<ResearchSubmission>();
+    public DbSet<SubmissionVersion> SubmissionVersions => Set<SubmissionVersion>();
+    public DbSet<SubmissionUploadSession> SubmissionUploadSessions => Set<SubmissionUploadSession>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        modelBuilder.ApplyConfigurationsFromAssembly(typeof(SubmissionDbContext).Assembly);
+    }
 }

@@ -46,7 +46,7 @@ Use placeholders like `<azure-client-id>`, `<tenant-id>` and `<subscription-id>`
 
 | Rule | Files |
 |---|---|
-| Every key of the matching `.env.example` present; no duplicates; no `CHANGE_ME…`/`YOUR_…`/`<…>` placeholders (the reserved `Storage__*` keys are exempt) | all ten |
+| Every key of the matching `.env.example` present; no duplicates; no `CHANGE_ME…`/`YOUR_…`/`<…>` placeholders | all ten |
 | `ASPNETCORE_ENVIRONMENT=Production`, `DOTNET_ENVIRONMENT=Production`, `ASPNETCORE_URLS=http://+:8080` | 7 service files |
 | `AUTH_SERVICE_URL=http://rt-auth-prod` (likewise `project`, `github`, `jira`, `meeting`, `submission`); Compose names and `localhost` are rejected | `gateway.env` |
 | `Services__Auth__BaseUrl=http://rt-auth-prod/` | `project.env` |

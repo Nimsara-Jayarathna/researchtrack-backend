@@ -1,0 +1,93 @@
+namespace ResearchTrack.SubmissionService.Contracts;
+
+public sealed record SubmissionRequirementCreateRequest(
+    string? Title,
+    string? Description,
+    DateTimeOffset? DueAt,
+    IReadOnlyList<string>? AllowedFileTypes,
+    long MaxFileSizeBytes);
+
+public sealed record SubmissionRequirementUpdateRequest(
+    string? Title,
+    string? Description,
+    DateTimeOffset? DueAt,
+    IReadOnlyList<string>? AllowedFileTypes,
+    long MaxFileSizeBytes);
+
+public sealed record SubmissionSummaryResponse(
+    Guid Id,
+    string Status,
+    int VersionCount,
+    int? CurrentVersionNumber,
+    DateTimeOffset LastSubmittedAt);
+
+public sealed record SubmissionRequirementResponse(
+    Guid Id,
+    Guid ProjectId,
+    string Title,
+    string? Description,
+    DateTimeOffset? DueAt,
+    IReadOnlyList<string> AllowedFileTypes,
+    long MaxFileSizeBytes,
+    string Status,
+    Guid CreatedBy,
+    string CreatedByName,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? UpdatedAt,
+    SubmissionSummaryResponse? SubmissionSummary);
+
+public sealed record CreateUploadSessionRequest(
+    string? FileName,
+    string? ContentType,
+    long FileSizeBytes,
+    string? SubmissionNote);
+
+public sealed record SubmissionUploadSessionResponse(
+    Guid UploadSessionId,
+    string UploadUrl,
+    DateTimeOffset ExpiresAt,
+    int VersionNumber,
+    long MaxFileSizeBytes,
+    IReadOnlyDictionary<string, string> RequiredHeaders);
+
+public sealed record SubmissionVersionResponse(
+    Guid Id,
+    Guid SubmissionId,
+    int VersionNumber,
+    string OriginalFileName,
+    string FileExtension,
+    string ContentType,
+    long FileSizeBytes,
+    Guid UploadedBy,
+    string UploadedByName,
+    string? SubmissionNote,
+    DateTimeOffset SubmittedAt,
+    bool IsLate,
+    bool IsCurrent,
+    bool IsApproved);
+
+public sealed record SubmissionRequirementSummaryResponse(
+    Guid Id,
+    string Title,
+    string? Description,
+    DateTimeOffset? DueAt,
+    IReadOnlyList<string> AllowedFileTypes,
+    long MaxFileSizeBytes,
+    string Status);
+
+public sealed record ResearchSubmissionResponse(
+    Guid Id,
+    Guid ProjectId,
+    Guid RequirementId,
+    string Status,
+    int VersionCount,
+    Guid CurrentVersionId,
+    Guid? ApprovedVersionId,
+    DateTimeOffset LastSubmittedAt,
+    DateTimeOffset? ApprovedAt,
+    SubmissionRequirementSummaryResponse Requirement,
+    IReadOnlyList<SubmissionVersionResponse> Versions);
+
+public sealed record SubmissionDownloadUrlResponse(
+    string Url,
+    DateTimeOffset ExpiresAt);

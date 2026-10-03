@@ -169,7 +169,25 @@ public sealed class ResearchTrackWebApplicationFactory<TProgram> : WebApplicatio
 
             // Services
             ["Services:Auth:BaseUrl"] = "http://localhost:5101/",
-            ["Services:Project:BaseUrl"] = "http://localhost:5102/"
+            ["Services:Project:BaseUrl"] = "http://localhost:5102/",
+
+            // Submission storage. Deterministic fake credentials are sufficient for host startup;
+            // feature tests replace IObjectStorageService instead of calling external S3.
+            ["Storage:Bucket"] = "researchtrack-tests",
+            ["Storage:AccessKey"] = "test-access-key",
+            ["Storage:SecretKey"] = "test-secret-key",
+            ["Storage:Region"] = "ap-south-1",
+            ["Storage:MaximumFileSizeBytes"] = "10485760",
+            ["Storage:PresignedUrlExpirySeconds"] = "300",
+            ["Storage:ForcePathStyle"] = "false",
+            ["Submission:DependencyTimeoutSeconds"] = "10",
+            ["Submission:MaxFileNameLength"] = "255",
+            ["Submission:AllowedFileTypes:0"] = "pdf",
+            ["Submission:AllowedFileTypes:1"] = "docx",
+            ["Submission:AllowedFileTypes:2"] = "pptx",
+            ["Submission:AllowedFileTypes:3"] = "zip",
+            ["Submission:UploadSessionLifetimeMinutes"] = "10",
+            ["Submission:CleanupIntervalMinutes"] = "15"
         };
 
         values["ConnectionStrings:DefaultConnection"] =
