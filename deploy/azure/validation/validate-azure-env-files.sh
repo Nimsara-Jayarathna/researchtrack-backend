@@ -113,9 +113,7 @@ for file in "${!contracts[@]}"; do
     seen[$key]=1
 
     value="$(get_value "$runtime" "$key" || true)"
-    # Blob storage is not implemented yet; its S3-shaped keys are allowed to
-    # stay unset until the Azure storage contract replaces them.
-    if is_placeholder "$value" && [[ ! ( "$file" == submission.env && "$key" == Storage__* ) ]]; then
+    if is_placeholder "$value"; then
       error "$file: '$key' still contains a placeholder."
     fi
   done < "$runtime"

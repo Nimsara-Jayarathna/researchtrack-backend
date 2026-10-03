@@ -59,8 +59,14 @@ for contract, name in files.items():
             value = "true"
         elif key in public:
             value = public[key]
-        elif key.startswith("Storage__"):
-            pass  # deferred Blob integration: placeholders allowed
+        elif key == "Storage__Endpoint":
+            value = "https://s3.ap-south-1.amazonaws.com"
+        elif key == "Storage__Bucket":
+            value = "researchtrack-prod-submissions"
+        elif key == "Storage__AccessKey":
+            value = "synthetic-storage-access-key"
+        elif key == "Storage__SecretKey":
+            value = "synthetic-storage-secret-key"
         elif "CHANGE_ME" in value:
             value = "synthetic-" + key.lower().replace("__", "-")
         lines.append(f"{key}={value}")
