@@ -28,7 +28,9 @@ public static class MeetingFeatureExtensions
         services.AddSingleton(TimeProvider.System);
         services.AddHttpContextAccessor();
         services.AddScoped<IMeetingChannelRepository, MeetingChannelRepository>();
+        services.AddScoped<IMeetingRecordRepository, MeetingRecordRepository>();
         services.AddScoped<IMeetingChannelService, MeetingChannelService>();
+        services.AddScoped<IMeetingRecordService, MeetingRecordService>();
 
         services.AddHttpClient<IProjectAuthorizationClient, ProjectAuthorizationClient>(
             client =>
