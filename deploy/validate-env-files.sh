@@ -313,6 +313,23 @@ jira_project_url="$(require_value "$jira_file" Services__Project__BaseUrl)"
   exit 1
 }
 
+meeting_file="$ENV_DIR/meeting.env"
+meeting_project_url="$(require_value "$meeting_file" Services__Project__BaseUrl)"
+[[ "$meeting_project_url" == "http://project:8080" ]] || {
+  echo "meeting.env Services__Project__BaseUrl must be 'http://project:8080' inside Compose." >&2
+  exit 1
+}
+meeting_auth_url="$(require_value "$meeting_file" Services__Auth__BaseUrl)"
+[[ "$meeting_auth_url" == "http://auth:8080" ]] || {
+  echo "meeting.env Services__Auth__BaseUrl must be 'http://auth:8080' inside Compose." >&2
+  exit 1
+}
+meeting_dependency_timeout="$(require_value "$meeting_file" Meeting__DependencyTimeoutSeconds)"
+if [[ ! "$meeting_dependency_timeout" =~ ^[0-9]+$ ]] || (( meeting_dependency_timeout <= 0 )); then
+  echo "meeting.env Meeting__DependencyTimeoutSeconds must be a positive integer." >&2
+  exit 1
+fi
+
 for key in \
   Jira__OAuthStateTtlMinutes \
   Jira__SelectionTtlMinutes \
