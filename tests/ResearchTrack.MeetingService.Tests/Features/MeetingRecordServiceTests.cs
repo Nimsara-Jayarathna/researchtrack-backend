@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Http;
 using ResearchTrack.BuildingBlocks.Api.Exceptions;
 using ResearchTrack.BuildingBlocks.Api.Security;
 using ResearchTrack.MeetingService.Contracts;
@@ -71,6 +72,50 @@ public sealed class MeetingRecordServiceTests
         Assert.Null(result.ApprovedAt);
         Assert.Equal(1, fixture.Authorization.AccessChecks);
         Assert.Equal(0, fixture.Authorization.ManageChecks);
+    }
+
+
+    [Fact]
+    public async Task Student_create_accepts_optional_channel_from_same_project_and_stays_pending()
+    {
+        var fixture = new Fixture();
+        var projectId = Guid.NewGuid();
+        var studentId = Guid.NewGuid();
+        var channel = AddSupervisorChannel(fixture, projectId);
+        fixture.Profile.DisplayName = "Student One";
+
+        var result = await fixture.Service.CreateAsync(
+            projectId,
+            studentId,
+            AuthSecurityConstants.Roles.Student,
+            ValidRequest(channel.Id),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(channel.Id, result.ChannelId);
+        Assert.Equal(MeetingRecordConstants.StatusPending, result.Status);
+        Assert.Equal(studentId, result.AddedBy);
+        Assert.Null(result.ApprovedBy);
+        Assert.Single(fixture.Records.Items);
+    }
+
+    [Fact]
+    public async Task Create_rejects_roles_outside_supervisor_and_student_before_persisting()
+    {
+        var fixture = new Fixture();
+
+        var exception = await Assert.ThrowsAsync<ApiException>(async () =>
+            await fixture.Service.CreateAsync(
+                Guid.NewGuid(),
+                Guid.NewGuid(),
+                "ADMIN",
+                ValidRequest(),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(StatusCodes.Status403Forbidden, exception.StatusCode);
+        Assert.Empty(fixture.Records.Items);
+        Assert.Equal(0, fixture.Authorization.AccessChecks);
+        Assert.Equal(0, fixture.Authorization.ManageChecks);
+        Assert.Equal(0, fixture.Profile.Calls);
     }
 
     [Fact]
