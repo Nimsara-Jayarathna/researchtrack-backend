@@ -136,6 +136,10 @@ rt_load_dev_env() {
     rt_validate_jira_environment
   fi
 
+  if [[ "${service,,}" == "meeting" ]]; then
+    rt_validate_meeting_environment
+  fi
+
   export ASPNETCORE_ENVIRONMENT="${ASPNETCORE_ENVIRONMENT:-Development}"
   export DOTNET_ENVIRONMENT="${DOTNET_ENVIRONMENT:-Development}"
   if [[ "${service,,}" != "gateway" ]]; then
@@ -328,6 +332,30 @@ rt_validate_jira_environment() {
       return 1
     fi
   done
+}
+
+rt_validate_meeting_environment() {
+  rt_require_env \
+    Services__Project__BaseUrl \
+    Services__Auth__BaseUrl \
+    Meeting__DependencyTimeoutSeconds
+
+  local key
+  for key in Services__Project__BaseUrl Services__Auth__BaseUrl Meeting__DependencyTimeoutSeconds; do
+    rt_reject_placeholder "$key"
+  done
+
+  for key in Services__Project__BaseUrl Services__Auth__BaseUrl; do
+    if [[ ! "${!key}" =~ ^https?:// ]]; then
+      echo "$key must be an absolute http(s) URL." >&2
+      return 1
+    fi
+  done
+
+  if [[ ! "$Meeting__DependencyTimeoutSeconds" =~ ^[1-9][0-9]*$ ]]; then
+    echo "Meeting__DependencyTimeoutSeconds must be a positive integer." >&2
+    return 1
+  fi
 }
 
 rt_validate_db_environment() {

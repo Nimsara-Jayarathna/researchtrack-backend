@@ -210,6 +210,13 @@ if [[ "$VALIDATE_SCOPE" == all ]]; then
   done
   check_service_url project.env Services__Auth__BaseUrl auth
   check_service_url github.env Services__Project__BaseUrl project
+  check_service_url meeting.env Services__Project__BaseUrl project
+  check_service_url meeting.env Services__Auth__BaseUrl auth
+
+  meeting_dependency_timeout="$(require_value meeting.env Meeting__DependencyTimeoutSeconds)"
+  if [[ -n "$meeting_dependency_timeout" ]] && { [[ ! "$meeting_dependency_timeout" =~ ^[0-9]+$ ]] || (( meeting_dependency_timeout <= 0 )); }; then
+    error "meeting.env: Meeting__DependencyTimeoutSeconds must be a positive integer."
+  fi
 
   # ---------------------------------------------------------------------------
   # Databases: private VM MySQL over TLS, credentials matching mysql.env
