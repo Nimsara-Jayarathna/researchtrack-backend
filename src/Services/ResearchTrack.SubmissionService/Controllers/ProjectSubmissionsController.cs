@@ -31,7 +31,7 @@ public sealed class ProjectSubmissionsController : ApiControllerBase
     [HttpPost("requirements/{requirementId:guid}/upload-sessions")]
     public async Task<ActionResult<ApiResponse<SubmissionUploadSessionResponse>>> CreateUploadSession(Guid projectId, Guid requirementId, [FromBody] CreateUploadSessionRequest request, CancellationToken cancellationToken)
     {
-        var session = await _service.CreateInitialUploadSessionAsync(projectId, requirementId, GetRequiredUserId(), request, cancellationToken);
+        var session = await _service.CreateUploadSessionAsync(projectId, requirementId, GetRequiredUserId(), request, cancellationToken);
         return ApiCreated($"/api/v1/projects/{projectId}/submissions/upload-sessions/{session.UploadSessionId}", session);
     }
 
@@ -47,11 +47,38 @@ public sealed class ProjectSubmissionsController : ApiControllerBase
         return ApiOk(await _service.GetDownloadUrlAsync(projectId, submissionId, versionId, inline, cancellationToken));
     }
 
+    [Authorize(Policy = AuthSecurityConstants.Policies.SupervisorOnly)]
+    [HttpPost("{submissionId:guid}/reviews")]
+    public async Task<ActionResult<ApiResponse<ResearchSubmissionResponse>>> Review(Guid projectId, Guid submissionId, [FromBody] CreateSubmissionReviewRequest request, CancellationToken cancellationToken) =>
+        ApiOk(await _service.ReviewAsync(projectId, submissionId, GetRequiredUserId(), request, cancellationToken));
+
+    [HttpGet("{submissionId:guid}/comments")]
+    public async Task<ActionResult<ApiResponse<IReadOnlyList<SubmissionCommentResponse>>>> ListComments(Guid projectId, Guid submissionId, CancellationToken cancellationToken) =>
+        ApiOk(await _service.ListCommentsAsync(projectId, submissionId, cancellationToken));
+
+    [HttpPost("{submissionId:guid}/comments")]
+    public async Task<ActionResult<ApiResponse<SubmissionCommentResponse>>> AddComment(Guid projectId, Guid submissionId, [FromBody] CreateSubmissionCommentRequest request, CancellationToken cancellationToken)
+    {
+        var comment = await _service.AddCommentAsync(projectId, submissionId, GetRequiredUserId(), GetRequiredRole(), request, cancellationToken);
+        return ApiCreated($"/api/v1/projects/{projectId}/submissions/{submissionId}/comments/{comment.Id}", comment);
+    }
+
     private Guid GetRequiredUserId()
     {
         var value = User.FindFirstValue(AuthSecurityConstants.SubjectClaim);
         return Guid.TryParse(value, out var userId)
             ? userId
-            : throw new ApiException(StatusCodes.Status401Unauthorized, ErrorCodes.Unauthorized, "Authentication is required.");
+            : throw AuthenticationRequired();
     }
+
+    private string GetRequiredRole()
+    {
+        var value = User.FindFirstValue(AuthSecurityConstants.RoleClaim);
+        return string.IsNullOrWhiteSpace(value)
+            ? throw AuthenticationRequired()
+            : value.Trim().ToUpperInvariant();
+    }
+
+    private static ApiException AuthenticationRequired() =>
+        new(StatusCodes.Status401Unauthorized, ErrorCodes.Unauthorized, "Authentication is required.");
 }

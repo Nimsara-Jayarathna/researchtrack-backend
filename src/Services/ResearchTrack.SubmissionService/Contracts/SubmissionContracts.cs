@@ -50,6 +50,16 @@ public sealed record SubmissionUploadSessionResponse(
     long MaxFileSizeBytes,
     IReadOnlyDictionary<string, string> RequiredHeaders);
 
+public sealed record SubmissionReviewResponse(
+    Guid Id,
+    Guid SubmissionId,
+    Guid VersionId,
+    string Decision,
+    string? Feedback,
+    Guid ReviewedBy,
+    string ReviewedByName,
+    DateTimeOffset ReviewedAt);
+
 public sealed record SubmissionVersionResponse(
     Guid Id,
     Guid SubmissionId,
@@ -64,7 +74,8 @@ public sealed record SubmissionVersionResponse(
     DateTimeOffset SubmittedAt,
     bool IsLate,
     bool IsCurrent,
-    bool IsApproved);
+    bool IsApproved,
+    SubmissionReviewResponse? Review);
 
 public sealed record SubmissionRequirementSummaryResponse(
     Guid Id,
@@ -91,3 +102,22 @@ public sealed record ResearchSubmissionResponse(
 public sealed record SubmissionDownloadUrlResponse(
     string Url,
     DateTimeOffset ExpiresAt);
+
+public sealed record CreateSubmissionReviewRequest(
+    Guid VersionId,
+    string? Decision,
+    string? Feedback);
+
+public sealed record CreateSubmissionCommentRequest(
+    Guid? VersionId,
+    string? Comment);
+
+public sealed record SubmissionCommentResponse(
+    Guid Id,
+    Guid SubmissionId,
+    Guid? VersionId,
+    Guid AuthorId,
+    string AuthorName,
+    string AuthorRole,
+    string Comment,
+    DateTimeOffset CreatedAt);

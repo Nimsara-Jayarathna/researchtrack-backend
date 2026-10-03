@@ -11,6 +11,8 @@ public static class SubmissionConstants
     public const int ObjectKeyMaxLength = 1024;
     public const int UserDisplayNameMaxLength = 200;
     public const int SubmissionNoteMaxLength = 2000;
+    public const int ReviewFeedbackMaxLength = 4000;
+    public const int CommentMaxLength = 2000;
     public const int UploadFailureReasonMaxLength = 1000;
 
     public static class RequirementStatus
@@ -26,6 +28,19 @@ public static class SubmissionConstants
         public const string ChangesRequested = "CHANGES_REQUESTED";
         public const string Approved = "APPROVED";
         public const string Rejected = "REJECTED";
+    }
+
+    public static class ReviewDecision
+    {
+        public const string Approved = "APPROVED";
+        public const string ChangesRequested = "CHANGES_REQUESTED";
+        public const string Rejected = "REJECTED";
+
+        public static bool IsKnown(string value) =>
+            value is Approved or ChangesRequested or Rejected;
+
+        public static bool RequiresFeedback(string value) =>
+            value is ChangesRequested or Rejected;
     }
 
     public static class UploadSessionStatus

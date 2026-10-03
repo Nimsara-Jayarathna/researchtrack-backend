@@ -20,7 +20,7 @@ public sealed class ProjectAuthorizationClient : IProjectAuthorizationClient
         EnsureAsync($"api/v1/projects/{projectId}/authorization/access", "You do not have access to this project.", cancellationToken);
 
     public Task EnsureCanManageAsync(Guid projectId, CancellationToken cancellationToken) =>
-        EnsureAsync($"api/v1/projects/{projectId}/authorization/manage", "Only the owning Supervisor can manage this project's submission requirements.", cancellationToken);
+        EnsureAsync($"api/v1/projects/{projectId}/authorization/manage", "Only the owning Supervisor can manage and review this project's submissions.", cancellationToken);
 
     private async Task EnsureAsync(string relativePath, string forbiddenMessage, CancellationToken cancellationToken)
     {

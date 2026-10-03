@@ -50,10 +50,16 @@ public sealed class SubmissionRequirementService : ISubmissionRequirementService
         var submissions = await db.ResearchSubmissions.AsNoTracking()
             .Where(x => x.ProjectId == projectId)
             .ToListAsync(cancellationToken);
-        var currentIds = submissions.Where(x => x.CurrentVersionId.HasValue).Select(x => x.CurrentVersionId!.Value).ToArray();
-        var versions = currentIds.Length == 0
-            ? new List<SubmissionVersion>()
-            : await db.SubmissionVersions.AsNoTracking().Where(x => currentIds.Contains(x.Id)).ToListAsync(cancellationToken);
+        // Avoid MySql.EntityFrameworkCore 10 multi-value Guid.Contains(...) parameterization.
+        // Load versions through their project-scoped submission relationship and resolve
+        // CurrentVersionId in memory.
+        var versions = await (
+                from version in db.SubmissionVersions.AsNoTracking()
+                join submission in db.ResearchSubmissions.AsNoTracking()
+                    on version.SubmissionId equals submission.Id
+                where submission.ProjectId == projectId
+                select version)
+            .ToListAsync(cancellationToken);
         var versionById = versions.ToDictionary(x => x.Id);
         var submissionByRequirement = submissions.ToDictionary(x => x.RequirementId);
 
