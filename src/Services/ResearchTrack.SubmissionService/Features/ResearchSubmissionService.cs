@@ -2,7 +2,6 @@ using Microsoft.EntityFrameworkCore;
 using ResearchTrack.BuildingBlocks.Api.Constants;
 using ResearchTrack.BuildingBlocks.Api.Contracts;
 using ResearchTrack.BuildingBlocks.Api.Exceptions;
-using ResearchTrack.BuildingBlocks.Api.Security;
 using ResearchTrack.SubmissionService.Configuration;
 using ResearchTrack.SubmissionService.Contracts;
 using ResearchTrack.SubmissionService.Domain;
@@ -462,76 +461,6 @@ public sealed class ResearchSubmissionService : IResearchSubmissionService
         return await LoadResponseAsync(db, projectId, submission.Id, cancellationToken);
     }
 
-    public async Task<IReadOnlyList<SubmissionCommentResponse>> ListCommentsAsync(
-        Guid projectId,
-        Guid submissionId,
-        CancellationToken cancellationToken)
-    {
-        await _projectAuthorization.EnsureCanAccessAsync(projectId, cancellationToken);
-        await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-        var exists = await db.ResearchSubmissions.AsNoTracking()
-            .AnyAsync(x => x.Id == submissionId && x.ProjectId == projectId, cancellationToken);
-        if (!exists) throw NotFound("Submission not found.");
-
-        var comments = await db.SubmissionComments.AsNoTracking()
-            .Where(x => x.SubmissionId == submissionId)
-            .OrderBy(x => x.CreatedAt)
-            .ThenBy(x => x.Id)
-            .ToListAsync(cancellationToken);
-        return comments.Select(BuildCommentResponse).ToArray();
-    }
-
-    public async Task<SubmissionCommentResponse> AddCommentAsync(
-        Guid projectId,
-        Guid submissionId,
-        Guid authorId,
-        string authorRole,
-        CreateSubmissionCommentRequest request,
-        CancellationToken cancellationToken)
-    {
-        await _projectAuthorization.EnsureCanAccessAsync(projectId, cancellationToken);
-        var normalizedRole = (authorRole ?? string.Empty).Trim().ToUpperInvariant();
-        if (normalizedRole != AuthSecurityConstants.Roles.Student && normalizedRole != AuthSecurityConstants.Roles.Supervisor)
-            throw new ApiException(StatusCodes.Status403Forbidden, ErrorCodes.Forbidden, "Only project Students and Supervisors can comment on submissions.");
-
-        var text = (request.Comment ?? string.Empty).Trim();
-        var errors = new List<ApiFieldError>();
-        if (text.Length == 0)
-            errors.Add(new ApiFieldError("comment", ["Comment is required."]));
-        else if (text.Length > SubmissionConstants.CommentMaxLength)
-            errors.Add(new ApiFieldError("comment", [$"Comment must be at most {SubmissionConstants.CommentMaxLength} characters."]));
-        if (errors.Count > 0) throw new ApiValidationException(errors);
-
-        await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-        var submission = await db.ResearchSubmissions.AsNoTracking()
-            .SingleOrDefaultAsync(x => x.Id == submissionId && x.ProjectId == projectId, cancellationToken)
-            ?? throw NotFound("Submission not found.");
-
-        if (request.VersionId.HasValue)
-        {
-            var versionExists = await db.SubmissionVersions.AsNoTracking()
-                .AnyAsync(x => x.Id == request.VersionId.Value && x.SubmissionId == submission.Id, cancellationToken);
-            if (!versionExists)
-                throw new ApiValidationException([new ApiFieldError("versionId", ["The selected version does not belong to this submission."])]);
-        }
-
-        var authorName = await _userProfileClient.GetCurrentUserDisplayNameAsync(cancellationToken);
-        var comment = new SubmissionComment
-        {
-            Id = Guid.NewGuid(),
-            SubmissionId = submission.Id,
-            VersionId = request.VersionId,
-            AuthorId = authorId,
-            AuthorName = authorName,
-            AuthorRole = normalizedRole,
-            Comment = text,
-            CreatedAt = _timeProvider.GetUtcNow()
-        };
-        db.SubmissionComments.Add(comment);
-        await db.SaveChangesAsync(cancellationToken);
-        return BuildCommentResponse(comment);
-    }
-
     private (string FileName, string Extension, string ContentType, string? Note) ValidateUploadRequest(
         SubmissionRequirement requirement,
         CreateUploadSessionRequest request)
@@ -675,17 +604,6 @@ public sealed class ResearchSubmissionService : IResearchSubmissionService
             review.ReviewedBy,
             review.ReviewedByName,
             review.ReviewedAt);
-
-    private static SubmissionCommentResponse BuildCommentResponse(SubmissionComment comment) =>
-        new(
-            comment.Id,
-            comment.SubmissionId,
-            comment.VersionId,
-            comment.AuthorId,
-            comment.AuthorName,
-            comment.AuthorRole,
-            comment.Comment,
-            comment.CreatedAt);
 
     private static string NormalizeDecision(string? value) => (value ?? string.Empty).Trim().ToUpperInvariant();
     private static ApiException NotFound(string message) => new(StatusCodes.Status404NotFound, ErrorCodes.NotFound, message);

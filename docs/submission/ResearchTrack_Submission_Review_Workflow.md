@@ -19,7 +19,7 @@ CHANGES_REQUESTED + OPEN requirement
         -> PENDING_REVIEW
 ```
 
-Formal reviews are immutable and version-specific. `CHANGES_REQUESTED` and `REJECTED` require feedback. Comments are append-only project discussion and never change submission status.
+Formal reviews are immutable and version-specific. `CHANGES_REQUESTED` and `REJECTED` require feedback. The separate submission-comments feature has been removed; formal review feedback is the authoritative Supervisor message for a reviewed version.
 
 ## APIs
 
@@ -29,8 +29,6 @@ Formal reviews are immutable and version-specific. `CHANGES_REQUESTED` and `REJE
 - `POST /api/v1/projects/{projectId}/submissions/upload-sessions/{uploadSessionId}/complete`
 - `GET /api/v1/projects/{projectId}/submissions/{submissionId}/versions/{versionId}/download-url`
 - `POST /api/v1/projects/{projectId}/submissions/{submissionId}/reviews` (Supervisor only + project manage check)
-- `GET /api/v1/projects/{projectId}/submissions/{submissionId}/comments`
-- `POST /api/v1/projects/{projectId}/submissions/{submissionId}/comments`
 
 ## Concurrency and integrity rules
 
@@ -41,4 +39,5 @@ Formal reviews are immutable and version-specific. `CHANGES_REQUESTED` and `REJE
 - The backend allocates `VersionCount + 1`; the browser never chooses a version number.
 - Only one active upload session can exist for a requirement/version slot.
 - Completion re-checks requirement status, submission status, current review, and expected version before recording the new version.
-- Previous S3 objects, versions, formal reviews, and comments are never overwritten by a revision.
+- Previous S3 objects, versions, and formal reviews are never overwritten by a revision.
+- New or changed deadlines must be in the future. Existing historical deadlines may remain unchanged during unrelated requirement edits.

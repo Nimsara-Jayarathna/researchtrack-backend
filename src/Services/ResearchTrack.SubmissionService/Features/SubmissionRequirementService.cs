@@ -88,6 +88,7 @@ public sealed class SubmissionRequirementService : ISubmissionRequirementService
     {
         await _projectAuthorization.EnsureCanManageAsync(projectId, cancellationToken);
         var values = Validate(request.Title, request.Description, request.AllowedFileTypes, request.MaxFileSizeBytes);
+        ValidateNewDueAt(request.DueAt);
         var displayName = await _userProfileClient.GetCurrentUserDisplayNameAsync(cancellationToken);
         var now = _timeProvider.GetUtcNow();
         var requirement = new SubmissionRequirement
@@ -110,6 +111,7 @@ public sealed class SubmissionRequirementService : ISubmissionRequirementService
         await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
         var requirement = await FindRequiredAsync(db, projectId, requirementId, cancellationToken);
         if (requirement.Status == SubmissionConstants.RequirementStatus.Archived) throw Conflict("Archived requirements are read-only.");
+        ValidateUpdatedDueAt(requirement.DueAt, request.DueAt);
         requirement.Title = values.Title;
         requirement.Description = values.Description;
         requirement.DueAt = request.DueAt;
@@ -174,6 +176,26 @@ public sealed class SubmissionRequirementService : ISubmissionRequirementService
         if (maxSize <= 0 || maxSize > _storageOptions.MaximumFileSizeBytes) errors.Add(new("maxFileSizeBytes", [$"Maximum file size must be between 1 and {_storageOptions.MaximumFileSizeBytes} bytes."]));
         if (errors.Count > 0) throw new ApiValidationException(errors);
         return (title, description, allowed);
+    }
+
+
+    private void ValidateNewDueAt(DateTimeOffset? dueAt)
+    {
+        if (dueAt is not null && dueAt <= _timeProvider.GetUtcNow())
+            throw new ApiValidationException([new ApiFieldError("dueAt", ["Due date and time must be in the future."])]);
+    }
+
+    private void ValidateUpdatedDueAt(DateTimeOffset? existingDueAt, DateTimeOffset? requestedDueAt)
+    {
+        if (requestedDueAt is null) return;
+
+        // Existing historical deadlines may already be in the past. Do not block an unrelated
+        // edit when the deadline has not changed, but any newly selected deadline must be future.
+        if (existingDueAt is not null &&
+            Math.Abs((existingDueAt.Value - requestedDueAt.Value).TotalSeconds) < 60) return;
+
+        if (requestedDueAt <= _timeProvider.GetUtcNow())
+            throw new ApiValidationException([new ApiFieldError("dueAt", ["Due date and time must be in the future."])]);
     }
 
     private static async Task<SubmissionRequirement> FindRequiredAsync(SubmissionDbContext db, Guid projectId, Guid requirementId, CancellationToken cancellationToken) =>

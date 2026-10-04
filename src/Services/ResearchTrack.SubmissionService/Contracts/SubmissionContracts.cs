@@ -107,17 +107,3 @@ public sealed record CreateSubmissionReviewRequest(
     Guid VersionId,
     string? Decision,
     string? Feedback);
-
-public sealed record CreateSubmissionCommentRequest(
-    Guid? VersionId,
-    string? Comment);
-
-public sealed record SubmissionCommentResponse(
-    Guid Id,
-    Guid SubmissionId,
-    Guid? VersionId,
-    Guid AuthorId,
-    string AuthorName,
-    string AuthorRole,
-    string Comment,
-    DateTimeOffset CreatedAt);

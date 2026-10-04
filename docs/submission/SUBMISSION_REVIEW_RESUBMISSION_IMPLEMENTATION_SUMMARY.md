@@ -1,100 +1,34 @@
-# ResearchTrack Submission Review + Resubmission Implementation
+# ResearchTrack Submission Workflow UX + Review Update
 
-## Scope implemented
+## Backend
 
-The supplied SCRUM-68 backend/frontend were extended without replacing the existing private-S3 upload engine.
+- Secure S3 upload/session/version flow retained unchanged.
+- Immutable version-specific `SubmissionReview` remains the only formal Supervisor feedback mechanism.
+- Removed the separate `SubmissionComment` domain, API, service methods, and runtime EF model.
+- Added forward migration `20261004030000_RemoveSubmissionComments` so existing databases safely drop `submission_comments` without rewriting already-applied history.
+- Added deadline validation: new deadlines must be future; changed deadlines must be future; an already-existing historical deadline may remain unchanged during other edits.
+- Multi-submission MySQL query workaround remains intact.
 
-### Backend
+## Supervisor frontend
 
-- Immutable formal `SubmissionReview` records tied to the exact `SubmissionVersion`.
-- Append-only `SubmissionComment` records, optionally tied to a version.
-- Formal decisions: `APPROVED`, `CHANGES_REQUESTED`, `REJECTED`.
-- Feedback required for changes-requested and rejected decisions.
-- Owning-Supervisor authorization for formal review.
-- Stale review protection: request VersionId must equal CurrentVersionId.
-- Exact ApprovedVersionId/ApprovedAt recording.
-- Existing upload-session flow generalized from V1-only to next-version resubmission.
-- Resubmission allowed only for `CHANGES_REQUESTED + OPEN`.
-- Backend assigns `VersionCount + 1`; browser cannot choose a version number.
-- Completion re-checks state before committing a revision.
-- Previous versions and reviews remain immutable.
-- Comments are status-neutral and have no edit/delete API.
-- New EF migration: `20261004003000_AddSubmissionReviewWorkflow`.
-- MySQL FK/index identifiers use explicit names below MySQL's 64-character limit.
+- Replaced the split review/requirements presentation with one workflow-oriented Research Submissions workspace.
+- Ordering now prioritizes: Needs review -> Waiting on revision -> Open requirements -> Completed reviews -> Closed/archived.
+- Pending review cards receive the strongest primary action: `Review submission`.
+- Approved/rejected items are intentionally lower in the page.
+- Requirement-management actions are moved into a compact overflow menu so Edit/Close/Archive/Delete do not compete with review actions.
+- Requirement status and submission status are visually separated.
+- Removed redundant `Approved version recorded` copy.
+- Submission detail focuses on current version, formal decision, and immutable version history; comment UI is removed.
+- Requirement editor now uses separate date/time controls, a No deadline option, future-only selection, and clearer file-type/size controls.
+- Existing submission history is explicitly protected when requirement constraints change.
 
-### Supervisor frontend
+## Student frontend
 
-- Pending-review queue and status summary.
-- Submission detail view with all versions.
-- Preview/download any version using the existing short-lived S3 GET grant.
-- Approve / Request changes / Reject workflow.
-- Required feedback handling.
-- Stale `409` refresh behavior.
-- Full historical formal-review display.
-- Shared append-only comments.
-- Existing requirement CRUD/lifecycle retained.
-
-### Student frontend
-
-- Formal feedback displayed on the current reviewed version.
-- `Upload revised version` only for `CHANGES_REQUESTED + OPEN`.
-- Same secure direct-S3 uploader reused for V2/V3/etc.
-- Full version history with current/approved/review markers.
-- Preview/download all authorized versions.
-- Shared append-only comments.
-- Upload remains locked for pending-review, approved, rejected, closed, and archived states.
-
-## State machine
-
-```text
-OPEN requirement
-      |
-      | Student uploads V1
-      v
-PENDING_REVIEW
-      |
-      +--> APPROVED ---------> locked
-      |
-      +--> REJECTED ---------> locked
-      |
-      +--> CHANGES_REQUESTED
-                |
-                | Student uploads next immutable version
-                v
-          PENDING_REVIEW
-```
-
-Each formal decision is attached to the exact version that was reviewed.
-
-## Storage behavior
-
-No new storage architecture was introduced. Each initial/revised version uses the existing flow:
-
-```text
-create upload session
-       -> browser PUT to private S3 pending key
-       -> backend HEAD/verify
-       -> server-side promote/copy to immutable final version key
-       -> DB version commit
-```
-
-Completed versions have no delete/replace endpoint.
+- Ordering now prioritizes changes requested and unsubmitted open requirements, followed by pending review, completed submissions, then closed/archived items.
+- Formal Supervisor feedback remains prominent for `CHANGES_REQUESTED`.
+- Existing direct-S3 upload/resubmission and immutable version history remain unchanged.
+- Comment UI/API usage is removed.
 
 ## Migration
 
-If `AddSubmissionFoundation` is already correctly applied, run the normal SubmissionService migration flow. The new workflow migration adds only:
-
-- `submission_reviews`
-- `submission_comments`
-
-No new S3 environment variables are required for this workflow.
-
-## Verification performed in the artifact environment
-
-- Parsed all frontend TS/TSX files with TypeScript parser: no syntax failures.
-- Checked all internal frontend imports resolve to repository files.
-- Checked C# source files for gross delimiter-balance errors: none found.
-- Checked generated migration identifiers: no identifier exceeds MySQL's 64-character limit.
-- Confirmed migration Designer target model and ModelSnapshot target model are structurally aligned.
-
-Full CI could not be executed in this environment: the .NET SDK is unavailable, and `npm ci --offline` cannot restore uncached `zxcvbn`. Run the repository's normal backend tests/build and `npm run ci` locally/CI before merge.
+After `20261004003000_AddSubmissionReviewWorkflow` has been applied, run the normal SubmissionService migration command. The new migration removes only `submission_comments`.
