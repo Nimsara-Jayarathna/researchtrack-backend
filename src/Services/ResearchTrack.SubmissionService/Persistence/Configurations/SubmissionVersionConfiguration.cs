@@ -21,6 +21,8 @@ public sealed class SubmissionVersionConfiguration : IEntityTypeConfiguration<Su
         builder.Property(x => x.ObjectETag).HasMaxLength(255);
         builder.Property(x => x.UploadedBy).IsRequired();
         builder.Property(x => x.UploadedByName).HasMaxLength(SubmissionConstants.UserDisplayNameMaxLength).IsRequired();
+        builder.Property(x => x.SubmitterRoleSnapshot).HasMaxLength(SubmissionConstants.SubmitterRoleSnapshotMaxLength);
+        builder.Property(x => x.ResponsibilityModeSnapshot).HasMaxLength(SubmissionConstants.ResponsibilityModeMaxLength);
         builder.Property(x => x.SubmissionNote).HasMaxLength(SubmissionConstants.SubmissionNoteMaxLength);
         builder.Property(x => x.SubmittedAt).HasColumnType("datetime(6)").IsRequired();
         builder.Property(x => x.IsLate).IsRequired();

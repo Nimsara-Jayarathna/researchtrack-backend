@@ -37,7 +37,7 @@ public sealed class SubmissionRequirementService : ISubmissionRequirementService
 
     public async Task<IReadOnlyList<SubmissionRequirementResponse>> ListAsync(Guid projectId, CancellationToken cancellationToken)
     {
-        await _projectAuthorization.EnsureCanAccessAsync(projectId, cancellationToken);
+        var projectContext = await _projectAuthorization.GetSubmissionContextAsync(projectId, cancellationToken);
         await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
         var requirements = await db.SubmissionRequirements.AsNoTracking()
             .Where(x => x.ProjectId == projectId)
@@ -50,9 +50,6 @@ public sealed class SubmissionRequirementService : ISubmissionRequirementService
         var submissions = await db.ResearchSubmissions.AsNoTracking()
             .Where(x => x.ProjectId == projectId)
             .ToListAsync(cancellationToken);
-        // Avoid MySql.EntityFrameworkCore 10 multi-value Guid.Contains(...) parameterization.
-        // Load versions through their project-scoped submission relationship and resolve
-        // CurrentVersionId in memory.
         var versions = await (
                 from version in db.SubmissionVersions.AsNoTracking()
                 join submission in db.ResearchSubmissions.AsNoTracking()
@@ -68,46 +65,60 @@ public sealed class SubmissionRequirementService : ISubmissionRequirementService
             submissionByRequirement.TryGetValue(requirement.Id, out var submission);
             SubmissionVersion? current = null;
             if (submission?.CurrentVersionId is Guid currentId) versionById.TryGetValue(currentId, out current);
-            return ToResponse(requirement, submission, current);
+            return ToResponse(requirement, submission, current, projectContext);
         }).ToArray();
     }
 
     public async Task<SubmissionRequirementResponse> GetAsync(Guid projectId, Guid requirementId, CancellationToken cancellationToken)
     {
-        await _projectAuthorization.EnsureCanAccessAsync(projectId, cancellationToken);
+        var projectContext = await _projectAuthorization.GetSubmissionContextAsync(projectId, cancellationToken);
         await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
         var requirement = await FindRequiredAsync(db, projectId, requirementId, cancellationToken);
         var submission = await db.ResearchSubmissions.AsNoTracking().SingleOrDefaultAsync(x => x.ProjectId == projectId && x.RequirementId == requirementId, cancellationToken);
         SubmissionVersion? current = null;
         if (submission?.CurrentVersionId is Guid currentId)
             current = await db.SubmissionVersions.AsNoTracking().SingleOrDefaultAsync(x => x.Id == currentId, cancellationToken);
-        return ToResponse(requirement, submission, current);
+        return ToResponse(requirement, submission, current, projectContext);
     }
 
     public async Task<SubmissionRequirementResponse> CreateAsync(Guid projectId, Guid userId, SubmissionRequirementCreateRequest request, CancellationToken cancellationToken)
     {
         await _projectAuthorization.EnsureCanManageAsync(projectId, cancellationToken);
+        var projectContext = await _projectAuthorization.GetSubmissionContextAsync(projectId, cancellationToken);
         var values = Validate(request.Title, request.Description, request.AllowedFileTypes, request.MaxFileSizeBytes);
+        var responsibility = SubmissionResponsibilityRules.ValidateForSave(request.ResponsibilityMode, request.AssignedStudentId, projectContext);
         ValidateNewDueAt(request.DueAt);
         var displayName = await _userProfileClient.GetCurrentUserDisplayNameAsync(cancellationToken);
         var now = _timeProvider.GetUtcNow();
         var requirement = new SubmissionRequirement
         {
-            Id = Guid.NewGuid(), ProjectId = projectId, Title = values.Title, Description = values.Description,
-            DueAt = request.DueAt, AllowedFileTypes = SubmissionFileRules.SerializeAllowedTypes(values.AllowedTypes),
-            MaxFileSizeBytes = request.MaxFileSizeBytes, Status = SubmissionConstants.RequirementStatus.Open,
-            CreatedBy = userId, CreatedByName = displayName, CreatedAt = now
+            Id = Guid.NewGuid(),
+            ProjectId = projectId,
+            Title = values.Title,
+            Description = values.Description,
+            DueAt = request.DueAt,
+            AllowedFileTypes = SubmissionFileRules.SerializeAllowedTypes(values.AllowedTypes),
+            MaxFileSizeBytes = request.MaxFileSizeBytes,
+            Status = SubmissionConstants.RequirementStatus.Open,
+            ResponsibilityMode = responsibility.Mode,
+            AssignedStudentId = responsibility.AssignedStudentId,
+            AssignedStudentName = responsibility.AssignedStudentName,
+            CreatedBy = userId,
+            CreatedByName = displayName,
+            CreatedAt = now
         };
         await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
         db.SubmissionRequirements.Add(requirement);
         await db.SaveChangesAsync(cancellationToken);
-        return ToResponse(requirement, null, null);
+        return ToResponse(requirement, null, null, projectContext);
     }
 
     public async Task<SubmissionRequirementResponse> UpdateAsync(Guid projectId, Guid requirementId, SubmissionRequirementUpdateRequest request, CancellationToken cancellationToken)
     {
         await _projectAuthorization.EnsureCanManageAsync(projectId, cancellationToken);
+        var projectContext = await _projectAuthorization.GetSubmissionContextAsync(projectId, cancellationToken);
         var values = Validate(request.Title, request.Description, request.AllowedFileTypes, request.MaxFileSizeBytes);
+        var responsibility = SubmissionResponsibilityRules.ValidateForSave(request.ResponsibilityMode, request.AssignedStudentId, projectContext);
         await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
         var requirement = await FindRequiredAsync(db, projectId, requirementId, cancellationToken);
         if (requirement.Status == SubmissionConstants.RequirementStatus.Archived) throw Conflict("Archived requirements are read-only.");
@@ -117,12 +128,15 @@ public sealed class SubmissionRequirementService : ISubmissionRequirementService
         requirement.DueAt = request.DueAt;
         requirement.AllowedFileTypes = SubmissionFileRules.SerializeAllowedTypes(values.AllowedTypes);
         requirement.MaxFileSizeBytes = request.MaxFileSizeBytes;
+        requirement.ResponsibilityMode = responsibility.Mode;
+        requirement.AssignedStudentId = responsibility.AssignedStudentId;
+        requirement.AssignedStudentName = responsibility.AssignedStudentName;
         requirement.UpdatedAt = _timeProvider.GetUtcNow();
         await db.SaveChangesAsync(cancellationToken);
         var submission = await db.ResearchSubmissions.AsNoTracking().SingleOrDefaultAsync(x => x.RequirementId == requirementId, cancellationToken);
         SubmissionVersion? current = null;
         if (submission?.CurrentVersionId is Guid currentId) current = await db.SubmissionVersions.AsNoTracking().SingleOrDefaultAsync(x => x.Id == currentId, cancellationToken);
-        return ToResponse(requirement, submission, current);
+        return ToResponse(requirement, submission, current, projectContext);
     }
 
     public Task<SubmissionRequirementResponse> CloseAsync(Guid projectId, Guid requirementId, CancellationToken cancellationToken) => ChangeStatusAsync(projectId, requirementId, SubmissionConstants.RequirementStatus.Closed, cancellationToken);
@@ -145,6 +159,7 @@ public sealed class SubmissionRequirementService : ISubmissionRequirementService
     private async Task<SubmissionRequirementResponse> ChangeStatusAsync(Guid projectId, Guid requirementId, string target, CancellationToken cancellationToken)
     {
         await _projectAuthorization.EnsureCanManageAsync(projectId, cancellationToken);
+        var projectContext = await _projectAuthorization.GetSubmissionContextAsync(projectId, cancellationToken);
         await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
         var requirement = await FindRequiredAsync(db, projectId, requirementId, cancellationToken);
         if (requirement.Status == SubmissionConstants.RequirementStatus.Archived) throw Conflict("Archived requirements cannot change state.");
@@ -158,7 +173,7 @@ public sealed class SubmissionRequirementService : ISubmissionRequirementService
         var submission = await db.ResearchSubmissions.AsNoTracking().SingleOrDefaultAsync(x => x.RequirementId == requirementId, cancellationToken);
         SubmissionVersion? current = null;
         if (submission?.CurrentVersionId is Guid currentId) current = await db.SubmissionVersions.AsNoTracking().SingleOrDefaultAsync(x => x.Id == currentId, cancellationToken);
-        return ToResponse(requirement, submission, current);
+        return ToResponse(requirement, submission, current, projectContext);
     }
 
     private (string Title, string? Description, IReadOnlyList<string> AllowedTypes) Validate(string? titleRaw, string? descriptionRaw, IReadOnlyList<string>? allowedRaw, long maxSize)
@@ -178,7 +193,6 @@ public sealed class SubmissionRequirementService : ISubmissionRequirementService
         return (title, description, allowed);
     }
 
-
     private void ValidateNewDueAt(DateTimeOffset? dueAt)
     {
         if (dueAt is not null && dueAt <= _timeProvider.GetUtcNow())
@@ -188,12 +202,7 @@ public sealed class SubmissionRequirementService : ISubmissionRequirementService
     private void ValidateUpdatedDueAt(DateTimeOffset? existingDueAt, DateTimeOffset? requestedDueAt)
     {
         if (requestedDueAt is null) return;
-
-        // Existing historical deadlines may already be in the past. Do not block an unrelated
-        // edit when the deadline has not changed, but any newly selected deadline must be future.
-        if (existingDueAt is not null &&
-            Math.Abs((existingDueAt.Value - requestedDueAt.Value).TotalSeconds) < 60) return;
-
+        if (existingDueAt is not null && Math.Abs((existingDueAt.Value - requestedDueAt.Value).TotalSeconds) < 60) return;
         if (requestedDueAt <= _timeProvider.GetUtcNow())
             throw new ApiValidationException([new ApiFieldError("dueAt", ["Due date and time must be in the future."])]);
     }
@@ -202,10 +211,15 @@ public sealed class SubmissionRequirementService : ISubmissionRequirementService
         await db.SubmissionRequirements.SingleOrDefaultAsync(x => x.Id == requirementId && x.ProjectId == projectId, cancellationToken)
         ?? throw new ApiException(StatusCodes.Status404NotFound, ErrorCodes.NotFound, "Submission requirement not found.");
 
-    private static SubmissionRequirementResponse ToResponse(SubmissionRequirement requirement, ResearchSubmission? submission, SubmissionVersion? current) =>
+    private static SubmissionRequirementResponse ToResponse(
+        SubmissionRequirement requirement,
+        ResearchSubmission? submission,
+        SubmissionVersion? current,
+        ProjectSubmissionContext projectContext) =>
         new(requirement.Id, requirement.ProjectId, requirement.Title, requirement.Description, requirement.DueAt,
             SubmissionFileRules.ParseAllowedTypes(requirement.AllowedFileTypes), requirement.MaxFileSizeBytes, requirement.Status,
             requirement.CreatedBy, requirement.CreatedByName, requirement.CreatedAt, requirement.UpdatedAt,
+            SubmissionResponsibilityRules.BuildResponse(requirement, projectContext),
             submission is null ? null : new SubmissionSummaryResponse(submission.Id, submission.Status, submission.VersionCount, current?.VersionNumber, submission.LastSubmittedAt));
 
     private static ApiException Conflict(string message) => new(StatusCodes.Status409Conflict, ErrorCodes.Conflict, message);

@@ -9,7 +9,7 @@ public sealed class SupervisorDashboardService : ISupervisorDashboardService
 {
     private const int UpcomingWindowDays = 14;
     private const int RecentProjectsLimit = 5;
-    private const string NotConnected = "NOT_CONNECTED";
+    private const string JiraProjectionUnavailable = "UNAVAILABLE";
 
     private readonly IDbContextFactory<ProjectDbContext> _dbContextFactory;
     private readonly TimeProvider _timeProvider;
@@ -47,7 +47,7 @@ public sealed class SupervisorDashboardService : ISupervisorDashboardService
                     project.ProgressPercent,
                     dbContext.ProjectMembers.Count(member =>
                         member.ProjectId == project.Id),
-                    NotConnected))
+                    JiraProjectionUnavailable))
             .ToListAsync(cancellationToken);
 
         var today = DateOnly.FromDateTime(
@@ -81,9 +81,10 @@ public sealed class SupervisorDashboardService : ISupervisorDashboardService
             .Take(RecentProjectsLimit)
             .ToArray();
 
-        // Jira dashboard health is intentionally explicit while the project has
-        // no Jira dashboard projection. Later Jira stories can enrich this read
-        // model without making the Sprint 1 dashboard depend on Jira availability.
+        // JiraService owns the authoritative Jira connection/issue projection.
+        // These legacy aggregate fields remain zero in the ProjectService base
+        // dashboard for contract compatibility; the web dashboard composes this
+        // project aggregate with /api/v1/jira/dashboard/health before rendering.
         const int jiraAtRiskCount = 0;
         const int jiraBehindCount = 0;
 

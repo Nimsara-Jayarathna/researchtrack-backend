@@ -13,6 +13,23 @@ public static class SubmissionConstants
     public const int SubmissionNoteMaxLength = 2000;
     public const int ReviewFeedbackMaxLength = 4000;
     public const int UploadFailureReasonMaxLength = 1000;
+    public const int ResponsibilityModeMaxLength = 32;
+    public const int SubmitterRoleSnapshotMaxLength = 32;
+
+    public static class ResponsibilityMode
+    {
+        public const string ProjectLeader = "PROJECT_LEADER";
+        public const string AssignedStudent = "ASSIGNED_STUDENT";
+
+        public static bool IsKnown(string value) =>
+            value is ProjectLeader or AssignedStudent;
+    }
+
+    public static class SubmitterRole
+    {
+        public const string ProjectLeader = "PROJECT_LEADER";
+        public const string AssignedStudent = "ASSIGNED_STUDENT";
+    }
 
     public static class RequirementStatus
     {

@@ -5,14 +5,18 @@ public sealed record SubmissionRequirementCreateRequest(
     string? Description,
     DateTimeOffset? DueAt,
     IReadOnlyList<string>? AllowedFileTypes,
-    long MaxFileSizeBytes);
+    long MaxFileSizeBytes,
+    string? ResponsibilityMode,
+    Guid? AssignedStudentId);
 
 public sealed record SubmissionRequirementUpdateRequest(
     string? Title,
     string? Description,
     DateTimeOffset? DueAt,
     IReadOnlyList<string>? AllowedFileTypes,
-    long MaxFileSizeBytes);
+    long MaxFileSizeBytes,
+    string? ResponsibilityMode,
+    Guid? AssignedStudentId);
 
 public sealed record SubmissionSummaryResponse(
     Guid Id,
@@ -20,6 +24,15 @@ public sealed record SubmissionSummaryResponse(
     int VersionCount,
     int? CurrentVersionNumber,
     DateTimeOffset LastSubmittedAt);
+
+public sealed record SubmissionResponsibilityResponse(
+    string Mode,
+    Guid? AssignedStudentId,
+    string? AssignedStudentName,
+    Guid? ResponsibleStudentId,
+    string? ResponsibleStudentName,
+    string? ResponsibleStudentRole,
+    bool RequiresAssignment);
 
 public sealed record SubmissionRequirementResponse(
     Guid Id,
@@ -34,6 +47,7 @@ public sealed record SubmissionRequirementResponse(
     string CreatedByName,
     DateTimeOffset CreatedAt,
     DateTimeOffset? UpdatedAt,
+    SubmissionResponsibilityResponse Responsibility,
     SubmissionSummaryResponse? SubmissionSummary);
 
 public sealed record CreateUploadSessionRequest(
@@ -70,6 +84,8 @@ public sealed record SubmissionVersionResponse(
     long FileSizeBytes,
     Guid UploadedBy,
     string UploadedByName,
+    string? SubmitterRoleSnapshot,
+    string? ResponsibilityModeSnapshot,
     string? SubmissionNote,
     DateTimeOffset SubmittedAt,
     bool IsLate,
@@ -84,7 +100,8 @@ public sealed record SubmissionRequirementSummaryResponse(
     DateTimeOffset? DueAt,
     IReadOnlyList<string> AllowedFileTypes,
     long MaxFileSizeBytes,
-    string Status);
+    string Status,
+    SubmissionResponsibilityResponse Responsibility);
 
 public sealed record ResearchSubmissionResponse(
     Guid Id,
