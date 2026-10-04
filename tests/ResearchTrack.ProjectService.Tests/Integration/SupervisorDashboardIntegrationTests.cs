@@ -125,7 +125,7 @@ public sealed class SupervisorDashboardIntegrationTests : IAsyncLifetime
         var activeProject = dashboard.Projects.Single(
             project => project.Id == activeProjectId);
         Assert.Equal(3, activeProject.MemberCount);
-        Assert.Equal("NOT_CONNECTED", activeProject.JiraHealthIndicator);
+        Assert.Equal("UNAVAILABLE", activeProject.JiraHealthIndicator);
         Assert.Equal(activeProjectId, dashboard.RecentProjects[0].Id);
     }
 

@@ -17,6 +17,61 @@ namespace ResearchTrack.MeetingService.Persistence.Migrations
             modelBuilder
                 .HasAnnotation("ProductVersion", "10.0.9")
                 .HasAnnotation("Relational:MaxIdentifierLength", 64);
+
+            modelBuilder.Entity("ResearchTrack.MeetingService.Domain.MeetingChannel", b =>
+            {
+                b.Property<Guid>("Id").ValueGeneratedNever().HasColumnType("char(36)");
+                b.Property<Guid>("AddedBy").HasColumnType("char(36)");
+                b.Property<string>("AddedByName").IsRequired().HasMaxLength(201).HasColumnType("varchar(201)");
+                b.Property<string>("AddedByRole").IsRequired().HasMaxLength(32).HasColumnType("varchar(32)");
+                b.Property<DateTimeOffset?>("ApprovedAt").HasColumnType("datetime(6)");
+                b.Property<Guid?>("ApprovedBy").HasColumnType("char(36)");
+                b.Property<string>("ApprovedByName").HasMaxLength(201).HasColumnType("varchar(201)");
+                b.Property<string>("ChannelName").IsRequired().HasMaxLength(120).HasColumnType("varchar(120)");
+                b.Property<DateTimeOffset>("CreatedAt").HasColumnType("datetime(6)");
+                b.Property<string>("LinkOrIdentifier").IsRequired().HasMaxLength(1024).HasColumnType("varchar(1024)");
+                b.Property<string>("Platform").IsRequired().HasMaxLength(32).HasColumnType("varchar(32)");
+                b.Property<Guid>("ProjectId").HasColumnType("char(36)");
+                b.Property<string>("Status").IsRequired().HasMaxLength(32).HasColumnType("varchar(32)");
+                b.Property<DateTimeOffset?>("UpdatedAt").HasColumnType("datetime(6)");
+                b.HasKey("Id");
+                b.HasIndex("ProjectId").HasDatabaseName("ix_meeting_channels_project_id");
+                b.HasIndex("ProjectId", "Status", "CreatedAt").HasDatabaseName("ix_meeting_channels_project_status_created_at");
+                b.ToTable("meeting_channels", (string)null);
+            });
+
+            modelBuilder.Entity("ResearchTrack.MeetingService.Domain.MeetingRecord", b =>
+            {
+                b.Property<Guid>("Id").ValueGeneratedNever().HasColumnType("char(36)");
+                b.Property<Guid>("AddedBy").HasColumnType("char(36)");
+                b.Property<string>("AddedByName").IsRequired().HasMaxLength(201).HasColumnType("varchar(201)");
+                b.Property<string>("AddedByRole").IsRequired().HasMaxLength(32).HasColumnType("varchar(32)");
+                b.Property<DateTimeOffset?>("ApprovedAt").HasColumnType("datetime(6)");
+                b.Property<Guid?>("ApprovedBy").HasColumnType("char(36)");
+                b.Property<string>("ApprovedByName").HasMaxLength(201).HasColumnType("varchar(201)");
+                b.Property<Guid?>("ChannelId").HasColumnType("char(36)");
+                b.Property<DateTimeOffset>("CreatedAt").HasColumnType("datetime(6)");
+                b.Property<string>("DiscussionDetails").HasMaxLength(5000).HasColumnType("varchar(5000)");
+                b.Property<string>("DiscussionSummary").IsRequired().HasMaxLength(1024).HasColumnType("varchar(1024)");
+                b.Property<int>("DurationMinutes").HasColumnType("int");
+                b.Property<DateTime>("MeetingDate").HasColumnType("date");
+                b.Property<Guid>("ProjectId").HasColumnType("char(36)");
+                b.Property<string>("Status").IsRequired().HasMaxLength(32).HasColumnType("varchar(32)");
+                b.Property<DateTimeOffset?>("UpdatedAt").HasColumnType("datetime(6)");
+                b.HasKey("Id");
+                b.HasIndex("ChannelId").HasDatabaseName("ix_meeting_records_channel_id");
+                b.HasIndex("ProjectId").HasDatabaseName("ix_meeting_records_project_id");
+                b.HasIndex("ProjectId", "Status", "MeetingDate", "CreatedAt").HasDatabaseName("ix_meeting_records_project_status_date_created_at");
+                b.ToTable("meeting_records", (string)null);
+            });
+
+            modelBuilder.Entity("ResearchTrack.MeetingService.Domain.MeetingRecord", b =>
+            {
+                b.HasOne("ResearchTrack.MeetingService.Domain.MeetingChannel", null)
+                    .WithMany()
+                    .HasForeignKey("ChannelId")
+                    .OnDelete(DeleteBehavior.SetNull);
+            });
 #pragma warning restore 612, 618
         }
     }

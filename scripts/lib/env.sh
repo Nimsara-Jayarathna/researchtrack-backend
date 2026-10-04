@@ -136,6 +136,14 @@ rt_load_dev_env() {
     rt_validate_jira_environment
   fi
 
+  if [[ "${service,,}" == "meeting" ]]; then
+    rt_validate_meeting_environment
+  fi
+
+  if [[ "${service,,}" == "submission" ]]; then
+    rt_validate_submission_environment
+  fi
+
   export ASPNETCORE_ENVIRONMENT="${ASPNETCORE_ENVIRONMENT:-Development}"
   export DOTNET_ENVIRONMENT="${DOTNET_ENVIRONMENT:-Development}"
   if [[ "${service,,}" != "gateway" ]]; then
@@ -328,6 +336,77 @@ rt_validate_jira_environment() {
       return 1
     fi
   done
+}
+
+rt_validate_meeting_environment() {
+  rt_require_env \
+    Services__Project__BaseUrl \
+    Services__Auth__BaseUrl \
+    Meeting__DependencyTimeoutSeconds
+
+  local key
+  for key in Services__Project__BaseUrl Services__Auth__BaseUrl Meeting__DependencyTimeoutSeconds; do
+    rt_reject_placeholder "$key"
+  done
+
+  for key in Services__Project__BaseUrl Services__Auth__BaseUrl; do
+    if [[ ! "${!key}" =~ ^https?:// ]]; then
+      echo "$key must be an absolute http(s) URL." >&2
+      return 1
+    fi
+  done
+
+  if [[ ! "$Meeting__DependencyTimeoutSeconds" =~ ^[1-9][0-9]*$ ]]; then
+    echo "Meeting__DependencyTimeoutSeconds must be a positive integer." >&2
+    return 1
+  fi
+}
+
+rt_validate_submission_environment() {
+  rt_require_env \
+    Services__Project__BaseUrl \
+    Services__Auth__BaseUrl \
+    Submission__DependencyTimeoutSeconds \
+    Submission__MaxFileNameLength \
+    Submission__UploadSessionLifetimeMinutes \
+    Submission__CleanupIntervalMinutes \
+    Storage__Bucket \
+    Storage__AccessKey \
+    Storage__SecretKey \
+    Storage__Region \
+    Storage__MaximumFileSizeBytes \
+    Storage__PresignedUrlExpirySeconds \
+    Storage__ForcePathStyle
+
+  local key
+  for key in Services__Project__BaseUrl Services__Auth__BaseUrl Storage__Bucket Storage__AccessKey Storage__SecretKey Storage__Region; do
+    rt_reject_placeholder "$key"
+  done
+
+  for key in Services__Project__BaseUrl Services__Auth__BaseUrl; do
+    if [[ ! "${!key}" =~ ^https?:// ]]; then
+      echo "$key must be an absolute http(s) URL." >&2
+      return 1
+    fi
+  done
+
+  for key in Submission__DependencyTimeoutSeconds Submission__MaxFileNameLength Submission__UploadSessionLifetimeMinutes Submission__CleanupIntervalMinutes Storage__MaximumFileSizeBytes Storage__PresignedUrlExpirySeconds; do
+    rt_reject_placeholder "$key"
+    if [[ ! "${!key}" =~ ^[1-9][0-9]*$ ]]; then
+      echo "$key must be a positive integer." >&2
+      return 1
+    fi
+  done
+
+  if [[ "$Storage__ForcePathStyle" != "true" && "$Storage__ForcePathStyle" != "false" ]]; then
+    echo "Storage__ForcePathStyle must be true or false." >&2
+    return 1
+  fi
+
+  if [[ -n "${Storage__Endpoint:-}" && "${Storage__Endpoint}" != "CHANGE_ME" && ! "${Storage__Endpoint}" =~ ^https?:// ]]; then
+    echo "Storage__Endpoint must be empty or an absolute http(s) URL." >&2
+    return 1
+  fi
 }
 
 rt_validate_db_environment() {

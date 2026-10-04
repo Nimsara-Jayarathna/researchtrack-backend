@@ -12,6 +12,7 @@ public static class JiraFeatureExtensions
         ValidateRequiredConfiguration(options, configuration);
 
         services.AddSingleton(options);
+        services.AddSingleton(TimeProvider.System);
         services.AddHttpContextAccessor();
         services.AddDataProtection();
         services.AddScoped<IJiraTokenProtector, JiraTokenProtector>();
@@ -22,6 +23,7 @@ public static class JiraFeatureExtensions
         services.AddScoped<IJiraSprintProgressService, JiraSprintProgressService>();
         services.AddScoped<IJiraWorkloadService, JiraWorkloadService>();
         services.AddScoped<IJiraSyncStateQueryService, JiraSyncStateQueryService>();
+        services.AddScoped<IJiraDashboardHealthService, JiraDashboardHealthService>();
         services.AddScoped<IJiraWebhookService, JiraWebhookService>();
         services.AddHostedService<JiraSyncWorker>();
 

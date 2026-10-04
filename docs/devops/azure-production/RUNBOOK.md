@@ -84,7 +84,7 @@ Cookie__Secure=true
 GF_SERVER_ROOT_URL=https://grafana.researchtrack.blipzo.xyz
 ```
 
-Public URLs (frontend origin, password reset, GitHub callback and return origin, Jira redirect) must be `https://`. Use a JWT signing key that is different from Test's. The S3-shaped `Storage__*` keys may stay as placeholders because Blob integration is deferred.
+Public URLs (frontend origin, password reset, GitHub callback and return origin, Jira redirect) must be `https://`. Use a JWT signing key that is different from Test's. The Submission Service `Storage__*` keys are active and must point to the private S3 bucket used for research submissions.
 
 ## 3. First deployment (before any DNS change)
 

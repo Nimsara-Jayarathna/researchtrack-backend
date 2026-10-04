@@ -17,6 +17,172 @@ namespace ResearchTrack.SubmissionService.Persistence.Migrations
             modelBuilder
                 .HasAnnotation("ProductVersion", "10.0.9")
                 .HasAnnotation("Relational:MaxIdentifierLength", 64);
+
+            modelBuilder.Entity("ResearchTrack.SubmissionService.Domain.SubmissionRequirement", b =>
+            {
+                b.Property<Guid>("Id").ValueGeneratedNever().HasColumnType("char(36)");
+                b.Property<string>("AllowedFileTypes").IsRequired().HasMaxLength(512).HasColumnType("varchar(512)");
+                b.Property<Guid?>("AssignedStudentId").HasColumnType("char(36)");
+                b.Property<string>("AssignedStudentName").HasMaxLength(200).HasColumnType("varchar(200)");
+                b.Property<DateTimeOffset>("CreatedAt").HasColumnType("datetime(6)");
+                b.Property<Guid>("CreatedBy").HasColumnType("char(36)");
+                b.Property<string>("CreatedByName").IsRequired().HasMaxLength(200).HasColumnType("varchar(200)");
+                b.Property<string>("Description").HasMaxLength(4000).HasColumnType("varchar(4000)");
+                b.Property<DateTimeOffset?>("DueAt").HasColumnType("datetime(6)");
+                b.Property<long>("MaxFileSizeBytes").HasColumnType("bigint");
+                b.Property<Guid>("ProjectId").HasColumnType("char(36)");
+                b.Property<string>("ResponsibilityMode").IsRequired().HasMaxLength(32).HasColumnType("varchar(32)");
+                b.Property<string>("Status").IsRequired().HasMaxLength(32).HasColumnType("varchar(32)");
+                b.Property<string>("Title").IsRequired().HasMaxLength(200).HasColumnType("varchar(200)");
+                b.Property<DateTimeOffset?>("UpdatedAt").HasColumnType("datetime(6)");
+                b.HasKey("Id");
+                b.HasIndex("ProjectId", "AssignedStudentId").HasDatabaseName("ix_submission_requirements_project_assignee");
+                b.HasIndex("ProjectId", "DueAt").HasDatabaseName("ix_submission_requirements_project_due_at");
+                b.HasIndex("ProjectId", "Status").HasDatabaseName("ix_submission_requirements_project_status");
+                b.ToTable("submission_requirements");
+            });
+
+            modelBuilder.Entity("ResearchTrack.SubmissionService.Domain.ResearchSubmission", b =>
+            {
+                b.Property<Guid>("Id").ValueGeneratedNever().HasColumnType("char(36)");
+                b.Property<DateTimeOffset?>("ApprovedAt").HasColumnType("datetime(6)");
+                b.Property<Guid?>("ApprovedVersionId").HasColumnType("char(36)");
+                b.Property<DateTimeOffset>("CreatedAt").HasColumnType("datetime(6)");
+                b.Property<Guid?>("CurrentVersionId").HasColumnType("char(36)");
+                b.Property<DateTimeOffset>("LastSubmittedAt").HasColumnType("datetime(6)");
+                b.Property<Guid>("ProjectId").HasColumnType("char(36)");
+                b.Property<Guid>("RequirementId").HasColumnType("char(36)");
+                b.Property<string>("Status").IsRequired().HasMaxLength(32).HasColumnType("varchar(32)");
+                b.Property<DateTimeOffset?>("UpdatedAt").HasColumnType("datetime(6)");
+                b.Property<int>("VersionCount").HasColumnType("int");
+                b.HasKey("Id");
+                b.HasIndex("RequirementId").HasDatabaseName("ix_research_submissions_requirement_id");
+                b.HasIndex("ProjectId", "RequirementId").IsUnique().HasDatabaseName("ux_research_submissions_project_requirement");
+                b.HasIndex("ProjectId", "Status").HasDatabaseName("ix_research_submissions_project_status");
+                b.ToTable("research_submissions");
+            });
+
+
+            modelBuilder.Entity("ResearchTrack.SubmissionService.Domain.SubmissionVersion", b =>
+            {
+                b.Property<Guid>("Id").ValueGeneratedNever().HasColumnType("char(36)");
+                b.Property<string>("ContentType").IsRequired().HasMaxLength(255).HasColumnType("varchar(255)");
+                b.Property<string>("FileExtension").IsRequired().HasMaxLength(16).HasColumnType("varchar(16)");
+                b.Property<long>("FileSizeBytes").HasColumnType("bigint");
+                b.Property<bool>("IsLate").HasColumnType("tinyint(1)");
+                b.Property<string>("ObjectETag").HasMaxLength(255).HasColumnType("varchar(255)");
+                b.Property<string>("ObjectKey").IsRequired().HasMaxLength(1024).HasColumnType("varchar(1024)");
+                b.Property<string>("OriginalFileName").IsRequired().HasMaxLength(255).HasColumnType("varchar(255)");
+                b.Property<string>("ResponsibilityModeSnapshot").HasMaxLength(32).HasColumnType("varchar(32)");
+                b.Property<DateTimeOffset>("SubmittedAt").HasColumnType("datetime(6)");
+                b.Property<Guid>("SubmissionId").HasColumnType("char(36)");
+                b.Property<string>("SubmissionNote").HasMaxLength(2000).HasColumnType("varchar(2000)");
+                b.Property<string>("SubmitterRoleSnapshot").HasMaxLength(32).HasColumnType("varchar(32)");
+                b.Property<Guid>("UploadedBy").HasColumnType("char(36)");
+                b.Property<string>("UploadedByName").IsRequired().HasMaxLength(200).HasColumnType("varchar(200)");
+                b.Property<int>("VersionNumber").HasColumnType("int");
+                b.HasKey("Id");
+                b.HasIndex("SubmissionId", "VersionNumber").IsUnique().HasDatabaseName("ux_submission_versions_submission_version");
+                b.ToTable("submission_versions");
+            });
+
+            modelBuilder.Entity("ResearchTrack.SubmissionService.Domain.SubmissionUploadSession", b =>
+            {
+                b.Property<Guid>("Id").ValueGeneratedNever().HasColumnType("char(36)");
+                b.Property<string>("ActiveSlot").HasMaxLength(16).HasColumnType("varchar(16)");
+                b.Property<DateTimeOffset?>("CompletedAt").HasColumnType("datetime(6)");
+                b.Property<DateTimeOffset>("CreatedAt").HasColumnType("datetime(6)");
+                b.Property<Guid>("CreatedBy").HasColumnType("char(36)");
+                b.Property<string>("CreatedByName").IsRequired().HasMaxLength(200).HasColumnType("varchar(200)");
+                b.Property<long>("DeclaredFileSizeBytes").HasColumnType("bigint");
+                b.Property<DateTimeOffset>("ExpiresAt").HasColumnType("datetime(6)");
+                b.Property<string>("ExpectedContentType").IsRequired().HasMaxLength(255).HasColumnType("varchar(255)");
+                b.Property<long>("ExpectedMaxFileSizeBytes").HasColumnType("bigint");
+                b.Property<int>("ExpectedVersionNumber").HasColumnType("int");
+                b.Property<string>("FailureReason").HasMaxLength(1000).HasColumnType("varchar(1000)");
+                b.Property<string>("FileExtension").IsRequired().HasMaxLength(16).HasColumnType("varchar(16)");
+                b.Property<string>("FinalObjectKey").IsRequired().HasMaxLength(1024).HasColumnType("varchar(1024)");
+                b.Property<string>("OriginalFileName").IsRequired().HasMaxLength(255).HasColumnType("varchar(255)");
+                b.Property<Guid>("ProjectId").HasColumnType("char(36)");
+                b.Property<Guid>("RequirementId").HasColumnType("char(36)");
+                b.Property<string>("Status").IsRequired().HasMaxLength(32).HasColumnType("varchar(32)");
+                b.Property<Guid>("SubmissionId").HasColumnType("char(36)");
+                b.Property<string>("SubmissionNote").HasMaxLength(2000).HasColumnType("varchar(2000)");
+                b.Property<string>("TemporaryObjectKey").IsRequired().HasMaxLength(1024).HasColumnType("varchar(1024)");
+                b.Property<Guid>("VersionId").HasColumnType("char(36)");
+                b.HasKey("Id");
+                b.HasIndex("ExpiresAt").HasDatabaseName("ix_submission_upload_sessions_expires_at");
+                b.HasIndex("ProjectId", "RequirementId", "ExpectedVersionNumber", "ActiveSlot").IsUnique().HasDatabaseName("ux_submission_upload_sessions_active_version");
+                b.HasIndex("ProjectId", "RequirementId", "Status").HasDatabaseName("ix_submission_upload_sessions_project_requirement_status");
+                b.HasIndex("RequirementId").HasDatabaseName("ix_submission_upload_sessions_requirement_id");
+                b.ToTable("submission_upload_sessions");
+            });
+
+
+            modelBuilder.Entity("ResearchTrack.SubmissionService.Domain.SubmissionReview", b =>
+            {
+                b.Property<Guid>("Id").ValueGeneratedNever().HasColumnType("char(36)");
+                b.Property<string>("Decision").IsRequired().HasMaxLength(32).HasColumnType("varchar(32)");
+                b.Property<string>("Feedback").HasMaxLength(4000).HasColumnType("varchar(4000)");
+                b.Property<DateTimeOffset>("ReviewedAt").HasColumnType("datetime(6)");
+                b.Property<Guid>("ReviewedBy").HasColumnType("char(36)");
+                b.Property<string>("ReviewedByName").IsRequired().HasMaxLength(200).HasColumnType("varchar(200)");
+                b.Property<Guid>("SubmissionId").HasColumnType("char(36)");
+                b.Property<Guid>("VersionId").HasColumnType("char(36)");
+                b.HasKey("Id");
+                b.HasIndex("SubmissionId", "ReviewedAt").HasDatabaseName("ix_submission_reviews_submission_time");
+                b.HasIndex("VersionId").IsUnique().HasDatabaseName("ux_submission_reviews_version");
+                b.ToTable("submission_reviews");
+            });
+
+            modelBuilder.Entity("ResearchTrack.SubmissionService.Domain.ResearchSubmission", b =>
+            {
+                b.HasOne("ResearchTrack.SubmissionService.Domain.SubmissionRequirement", null)
+                    .WithMany()
+                    .HasForeignKey("RequirementId")
+                    .HasConstraintName("fk_research_submission_requirement")
+                    .OnDelete(DeleteBehavior.Restrict)
+                    .IsRequired();
+            });
+
+
+            modelBuilder.Entity("ResearchTrack.SubmissionService.Domain.SubmissionUploadSession", b =>
+            {
+                b.HasOne("ResearchTrack.SubmissionService.Domain.SubmissionRequirement", null)
+                    .WithMany()
+                    .HasForeignKey("RequirementId")
+                    .HasConstraintName("fk_upload_session_requirement")
+                    .OnDelete(DeleteBehavior.Cascade)
+                    .IsRequired();
+            });
+
+            modelBuilder.Entity("ResearchTrack.SubmissionService.Domain.SubmissionVersion", b =>
+            {
+                b.HasOne("ResearchTrack.SubmissionService.Domain.ResearchSubmission", null)
+                    .WithMany()
+                    .HasForeignKey("SubmissionId")
+                    .HasConstraintName("fk_submission_version_submission")
+                    .OnDelete(DeleteBehavior.Cascade)
+                    .IsRequired();
+            });
+
+            modelBuilder.Entity("ResearchTrack.SubmissionService.Domain.SubmissionReview", b =>
+            {
+                b.HasOne("ResearchTrack.SubmissionService.Domain.ResearchSubmission", null)
+                    .WithMany()
+                    .HasForeignKey("SubmissionId")
+                    .HasConstraintName("fk_review_submission")
+                    .OnDelete(DeleteBehavior.Restrict)
+                    .IsRequired();
+
+                b.HasOne("ResearchTrack.SubmissionService.Domain.SubmissionVersion", null)
+                    .WithMany()
+                    .HasForeignKey("VersionId")
+                    .HasConstraintName("fk_review_version")
+                    .OnDelete(DeleteBehavior.Restrict)
+                    .IsRequired();
+            });
+
 #pragma warning restore 612, 618
         }
     }

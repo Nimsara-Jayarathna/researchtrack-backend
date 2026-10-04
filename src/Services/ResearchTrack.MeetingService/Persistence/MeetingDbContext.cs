@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using ResearchTrack.MeetingService.Domain;
 
 namespace ResearchTrack.MeetingService.Persistence;
 
@@ -9,5 +10,12 @@ public sealed class MeetingDbContext : DbContext
     {
     }
 
-    // Sprint feature implementations add service-owned entity sets here.
+    public DbSet<MeetingChannel> MeetingChannels => Set<MeetingChannel>();
+    public DbSet<MeetingRecord> MeetingRecords => Set<MeetingRecord>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        modelBuilder.ApplyConfigurationsFromAssembly(typeof(MeetingDbContext).Assembly);
+        base.OnModelCreating(modelBuilder);
+    }
 }

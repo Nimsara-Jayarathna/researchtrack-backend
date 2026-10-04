@@ -113,9 +113,7 @@ for file in "${!contracts[@]}"; do
     seen[$key]=1
 
     value="$(get_value "$runtime" "$key" || true)"
-    # Blob storage is not implemented yet; its S3-shaped keys are allowed to
-    # stay unset until the Azure storage contract replaces them.
-    if is_placeholder "$value" && [[ ! ( "$file" == submission.env && "$key" == Storage__* ) ]]; then
+    if is_placeholder "$value"; then
       error "$file: '$key' still contains a placeholder."
     fi
   done < "$runtime"
@@ -210,6 +208,13 @@ if [[ "$VALIDATE_SCOPE" == all ]]; then
   done
   check_service_url project.env Services__Auth__BaseUrl auth
   check_service_url github.env Services__Project__BaseUrl project
+  check_service_url meeting.env Services__Project__BaseUrl project
+  check_service_url meeting.env Services__Auth__BaseUrl auth
+
+  meeting_dependency_timeout="$(require_value meeting.env Meeting__DependencyTimeoutSeconds)"
+  if [[ -n "$meeting_dependency_timeout" ]] && { [[ ! "$meeting_dependency_timeout" =~ ^[0-9]+$ ]] || (( meeting_dependency_timeout <= 0 )); }; then
+    error "meeting.env: Meeting__DependencyTimeoutSeconds must be a positive integer."
+  fi
 
   # ---------------------------------------------------------------------------
   # Databases: private VM MySQL over TLS, credentials matching mysql.env
