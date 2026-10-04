@@ -52,31 +52,12 @@ public sealed class ProjectSubmissionsController : ApiControllerBase
     public async Task<ActionResult<ApiResponse<ResearchSubmissionResponse>>> Review(Guid projectId, Guid submissionId, [FromBody] CreateSubmissionReviewRequest request, CancellationToken cancellationToken) =>
         ApiOk(await _service.ReviewAsync(projectId, submissionId, GetRequiredUserId(), request, cancellationToken));
 
-    [HttpGet("{submissionId:guid}/comments")]
-    public async Task<ActionResult<ApiResponse<IReadOnlyList<SubmissionCommentResponse>>>> ListComments(Guid projectId, Guid submissionId, CancellationToken cancellationToken) =>
-        ApiOk(await _service.ListCommentsAsync(projectId, submissionId, cancellationToken));
-
-    [HttpPost("{submissionId:guid}/comments")]
-    public async Task<ActionResult<ApiResponse<SubmissionCommentResponse>>> AddComment(Guid projectId, Guid submissionId, [FromBody] CreateSubmissionCommentRequest request, CancellationToken cancellationToken)
-    {
-        var comment = await _service.AddCommentAsync(projectId, submissionId, GetRequiredUserId(), GetRequiredRole(), request, cancellationToken);
-        return ApiCreated($"/api/v1/projects/{projectId}/submissions/{submissionId}/comments/{comment.Id}", comment);
-    }
-
     private Guid GetRequiredUserId()
     {
         var value = User.FindFirstValue(AuthSecurityConstants.SubjectClaim);
         return Guid.TryParse(value, out var userId)
             ? userId
             : throw AuthenticationRequired();
-    }
-
-    private string GetRequiredRole()
-    {
-        var value = User.FindFirstValue(AuthSecurityConstants.RoleClaim);
-        return string.IsNullOrWhiteSpace(value)
-            ? throw AuthenticationRequired()
-            : value.Trim().ToUpperInvariant();
     }
 
     private static ApiException AuthenticationRequired() =>

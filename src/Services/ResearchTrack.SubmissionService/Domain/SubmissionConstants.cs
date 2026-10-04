@@ -12,7 +12,6 @@ public static class SubmissionConstants
     public const int UserDisplayNameMaxLength = 200;
     public const int SubmissionNoteMaxLength = 2000;
     public const int ReviewFeedbackMaxLength = 4000;
-    public const int CommentMaxLength = 2000;
     public const int UploadFailureReasonMaxLength = 1000;
 
     public static class RequirementStatus

@@ -15,7 +15,6 @@ public sealed class SubmissionDbContext : DbContext
     public DbSet<SubmissionVersion> SubmissionVersions => Set<SubmissionVersion>();
     public DbSet<SubmissionUploadSession> SubmissionUploadSessions => Set<SubmissionUploadSession>();
     public DbSet<SubmissionReview> SubmissionReviews => Set<SubmissionReview>();
-    public DbSet<SubmissionComment> SubmissionComments => Set<SubmissionComment>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
