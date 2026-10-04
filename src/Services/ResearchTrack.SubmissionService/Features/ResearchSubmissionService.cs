@@ -40,7 +40,7 @@ public sealed class ResearchSubmissionService : IResearchSubmissionService
 
     public async Task<IReadOnlyList<ResearchSubmissionResponse>> ListAsync(Guid projectId, CancellationToken cancellationToken)
     {
-        await _projectAuthorization.EnsureCanAccessAsync(projectId, cancellationToken);
+        var projectContext = await _projectAuthorization.GetSubmissionContextAsync(projectId, cancellationToken);
         await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
         var submissions = await db.ResearchSubmissions.AsNoTracking()
@@ -83,15 +83,16 @@ public sealed class ResearchSubmissionService : IResearchSubmissionService
                 x,
                 requirements[x.RequirementId],
                 versionsBySubmission.GetValueOrDefault(x.Id) ?? Array.Empty<SubmissionVersion>(),
-                reviews))
+                reviews,
+                projectContext))
             .ToArray();
     }
 
     public async Task<ResearchSubmissionResponse> GetAsync(Guid projectId, Guid submissionId, CancellationToken cancellationToken)
     {
-        await _projectAuthorization.EnsureCanAccessAsync(projectId, cancellationToken);
+        var projectContext = await _projectAuthorization.GetSubmissionContextAsync(projectId, cancellationToken);
         await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-        return await LoadResponseAsync(db, projectId, submissionId, cancellationToken);
+        return await LoadResponseAsync(db, projectId, submissionId, projectContext, cancellationToken);
     }
 
     public async Task<SubmissionUploadSessionResponse> CreateUploadSessionAsync(
@@ -101,7 +102,7 @@ public sealed class ResearchSubmissionService : IResearchSubmissionService
         CreateUploadSessionRequest request,
         CancellationToken cancellationToken)
     {
-        await _projectAuthorization.EnsureCanAccessAsync(projectId, cancellationToken);
+        var projectContext = await _projectAuthorization.GetSubmissionContextAsync(projectId, cancellationToken);
         await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
         var requirement = await db.SubmissionRequirements.AsNoTracking()
@@ -109,6 +110,8 @@ public sealed class ResearchSubmissionService : IResearchSubmissionService
             ?? throw NotFound("Submission requirement not found.");
         if (requirement.Status != SubmissionConstants.RequirementStatus.Open)
             throw Conflict("This submission requirement is not open for uploads.");
+
+        _ = SubmissionResponsibilityRules.EnsureCanSubmit(requirement, projectContext, userId);
 
         var existingSubmission = await db.ResearchSubmissions.AsNoTracking()
             .SingleOrDefaultAsync(x => x.ProjectId == projectId && x.RequirementId == requirementId, cancellationToken);
@@ -136,17 +139,34 @@ public sealed class ResearchSubmissionService : IResearchSubmissionService
             nextVersionNumber = checked(existingSubmission.VersionCount + 1);
         }
 
-        if (await db.SubmissionUploadSessions.AnyAsync(
+        var now = _timeProvider.GetUtcNow();
+        var activeSession = await db.SubmissionUploadSessions
+            .SingleOrDefaultAsync(
                 x => x.ProjectId == projectId
                      && x.RequirementId == requirementId
                      && x.ExpectedVersionNumber == nextVersionNumber
                      && x.ActiveSlot == "ACTIVE",
-                cancellationToken))
-            throw Conflict("An upload is already in progress for this submission version.");
+                cancellationToken);
+        if (activeSession is not null)
+        {
+            var canReplaceStaleSession =
+                activeSession.ExpiresAt <= now || activeSession.CreatedBy != userId;
+            if (!canReplaceStaleSession)
+                throw Conflict("An upload is already in progress for this submission version.");
+
+            activeSession.Status = activeSession.ExpiresAt <= now
+                ? SubmissionConstants.UploadSessionStatus.Expired
+                : SubmissionConstants.UploadSessionStatus.Failed;
+            activeSession.ActiveSlot = null;
+            activeSession.FailureReason = activeSession.ExpiresAt <= now
+                ? "Upload session expired before a new upload started."
+                : "Upload session was replaced after submission responsibility changed.";
+            await db.SaveChangesAsync(cancellationToken);
+            await TryDeleteTemporaryAsync(activeSession.TemporaryObjectKey);
+        }
 
         var validated = ValidateUploadRequest(requirement, request);
         var displayName = await _userProfileClient.GetCurrentUserDisplayNameAsync(cancellationToken);
-        var now = _timeProvider.GetUtcNow();
         var sessionId = Guid.NewGuid();
         var versionId = Guid.NewGuid();
         var session = new SubmissionUploadSession
@@ -215,7 +235,7 @@ public sealed class ResearchSubmissionService : IResearchSubmissionService
         Guid userId,
         CancellationToken cancellationToken)
     {
-        await _projectAuthorization.EnsureCanAccessAsync(projectId, cancellationToken);
+        var projectContext = await _projectAuthorization.GetSubmissionContextAsync(projectId, cancellationToken);
         await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
         var session = await db.SubmissionUploadSessions
@@ -224,7 +244,7 @@ public sealed class ResearchSubmissionService : IResearchSubmissionService
         if (session.CreatedBy != userId)
             throw new ApiException(StatusCodes.Status403Forbidden, ErrorCodes.Forbidden, "Only the user who started this upload can finalize it.");
         if (session.Status == SubmissionConstants.UploadSessionStatus.Completed)
-            return await LoadResponseAsync(db, projectId, session.SubmissionId, cancellationToken);
+            return await LoadResponseAsync(db, projectId, session.SubmissionId, projectContext, cancellationToken);
         if (session.Status != SubmissionConstants.UploadSessionStatus.Pending)
             throw Conflict("This upload session is no longer active.");
 
@@ -244,6 +264,8 @@ public sealed class ResearchSubmissionService : IResearchSubmissionService
             ?? throw NotFound("Submission requirement not found.");
         if (requirement.Status != SubmissionConstants.RequirementStatus.Open)
             throw Conflict("The requirement was closed or archived before the upload was finalized.");
+
+        var submitterRoleSnapshot = SubmissionResponsibilityRules.EnsureCanSubmit(requirement, projectContext, userId);
 
         var submission = await db.ResearchSubmissions
             .SingleOrDefaultAsync(x => x.ProjectId == projectId && x.RequirementId == session.RequirementId, cancellationToken);
@@ -323,6 +345,8 @@ public sealed class ResearchSubmissionService : IResearchSubmissionService
             ObjectETag = finalMetadata.ETag,
             UploadedBy = session.CreatedBy,
             UploadedByName = session.CreatedByName,
+            SubmitterRoleSnapshot = submitterRoleSnapshot,
+            ResponsibilityModeSnapshot = requirement.ResponsibilityMode,
             SubmissionNote = session.SubmissionNote,
             SubmittedAt = now,
             IsLate = isLate
@@ -346,7 +370,7 @@ public sealed class ResearchSubmissionService : IResearchSubmissionService
             var currentSession = await retryDb.SubmissionUploadSessions.AsNoTracking()
                 .SingleOrDefaultAsync(x => x.Id == uploadSessionId, CancellationToken.None);
             if (currentSession?.Status == SubmissionConstants.UploadSessionStatus.Completed)
-                return await LoadResponseAsync(retryDb, projectId, currentSession.SubmissionId, CancellationToken.None);
+                return await LoadResponseAsync(retryDb, projectId, currentSession.SubmissionId, projectContext, CancellationToken.None);
 
             await TryDeleteFinalAsync(session.FinalObjectKey);
             throw new ApiException(
@@ -357,7 +381,7 @@ public sealed class ResearchSubmissionService : IResearchSubmissionService
         }
 
         await TryDeleteTemporaryAsync(session.TemporaryObjectKey);
-        return await LoadResponseAsync(db, projectId, submission.Id, cancellationToken);
+        return await LoadResponseAsync(db, projectId, submission.Id, projectContext, cancellationToken);
     }
 
     public async Task<SubmissionDownloadUrlResponse> GetDownloadUrlAsync(
@@ -387,6 +411,7 @@ public sealed class ResearchSubmissionService : IResearchSubmissionService
         CancellationToken cancellationToken)
     {
         await _projectAuthorization.EnsureCanManageAsync(projectId, cancellationToken);
+        var projectContext = await _projectAuthorization.GetSubmissionContextAsync(projectId, cancellationToken);
         await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
         var decision = NormalizeDecision(request.Decision);
@@ -458,7 +483,7 @@ public sealed class ResearchSubmissionService : IResearchSubmissionService
                 innerException: exception);
         }
 
-        return await LoadResponseAsync(db, projectId, submission.Id, cancellationToken);
+        return await LoadResponseAsync(db, projectId, submission.Id, projectContext, cancellationToken);
     }
 
     private (string FileName, string Extension, string ContentType, string? Note) ValidateUploadRequest(
@@ -535,6 +560,7 @@ public sealed class ResearchSubmissionService : IResearchSubmissionService
         SubmissionDbContext db,
         Guid projectId,
         Guid submissionId,
+        ProjectSubmissionContext projectContext,
         CancellationToken cancellationToken)
     {
         var submission = await db.ResearchSubmissions.AsNoTracking()
@@ -550,14 +576,15 @@ public sealed class ResearchSubmissionService : IResearchSubmissionService
             .Where(x => x.SubmissionId == submissionId)
             .ToListAsync(cancellationToken);
         var reviews = reviewRows.ToDictionary(x => x.VersionId);
-        return BuildResponse(submission, requirement, versions, reviews);
+        return BuildResponse(submission, requirement, versions, reviews, projectContext);
     }
 
     private static ResearchSubmissionResponse BuildResponse(
         ResearchSubmission submission,
         SubmissionRequirement requirement,
         IReadOnlyList<SubmissionVersion> versions,
-        IReadOnlyDictionary<Guid, SubmissionReview> reviews) =>
+        IReadOnlyDictionary<Guid, SubmissionReview> reviews,
+        ProjectSubmissionContext projectContext) =>
         new(
             submission.Id,
             submission.ProjectId,
@@ -575,7 +602,8 @@ public sealed class ResearchSubmissionService : IResearchSubmissionService
                 requirement.DueAt,
                 SubmissionFileRules.ParseAllowedTypes(requirement.AllowedFileTypes),
                 requirement.MaxFileSizeBytes,
-                requirement.Status),
+                requirement.Status,
+                SubmissionResponsibilityRules.BuildResponse(requirement, projectContext)),
             versions.Select(v => new SubmissionVersionResponse(
                 v.Id,
                 v.SubmissionId,
@@ -586,6 +614,8 @@ public sealed class ResearchSubmissionService : IResearchSubmissionService
                 v.FileSizeBytes,
                 v.UploadedBy,
                 v.UploadedByName,
+                v.SubmitterRoleSnapshot,
+                v.ResponsibilityModeSnapshot,
                 v.SubmissionNote,
                 v.SubmittedAt,
                 v.IsLate,
