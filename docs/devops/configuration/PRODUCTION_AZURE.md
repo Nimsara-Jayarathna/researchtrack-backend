@@ -80,6 +80,22 @@ To test the validator locally without real values: `./deploy/azure/validation/te
 
 Do **not** set the Test-only values (`SSH_*`, `BACKEND_DEPLOY_ROOT`, `NPM_NET_NAME`, `GRAFANA_HOST_PORT`, `GRAFANA_MEMORY_LIMIT`) for Production. See [GITHUB_ENVIRONMENTS.md § Legacy](GITHUB_ENVIRONMENTS.md#legacy--unused-in-production).
 
+### Performance workflow variables
+
+The `production` Environment is also used by the deployed-system k6 workflows. These settings are optional because safe defaults exist in the workflows.
+
+| Name | Type | Default | Purpose |
+|---|---|---|---|
+| `PERFORMANCE_BASE_URL` | Variable | `https://<PRODUCTION_API_HOSTNAME>` | Explicit k6 target if it differs from the normal public API hostname |
+| `K6_TEST_PATH` | Variable | `/health/ready` | Safe read-only path used by smoke/load/stress profiles |
+| `K6_SMOKE_P95_MS` | Variable | `500` | Smoke p95 threshold in milliseconds |
+| `K6_LOAD_P95_MS` | Variable | `750` | Load p95 threshold in milliseconds |
+| `K6_STRESS_P95_MS` | Variable | `1200` | Stress p95 threshold in milliseconds |
+| `K6_WEBHOOK_P95_MS` | Variable | `1000` | Signed webhook spike p95 threshold in milliseconds |
+| `ENABLE_NIGHTLY_PERFORMANCE` | Variable | unset / false | Set to `true` to enable the scheduled full workflow. Scheduled runs execute the load profile only; stress remains manual |
+
+No extra Azure credentials are required: the performance jobs use the existing Production OIDC identity. The optional webhook-spike step extracts `GitHub__WebhookSecret` from the existing `RT_GITHUB_SERVICE_ENV` secret at runtime and masks it; no duplicate webhook secret needs to be created.
+
 ## Subscription-specific values
 
 These are recorded in `../azure-production/IMPLEMENTATION_STATUS.md` for the current Azure for Students subscription:

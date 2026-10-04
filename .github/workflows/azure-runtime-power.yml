@@ -1,0 +1,80 @@
+name: Azure Runtime Power - Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Power action for the existing Production runtime.
+        required: true
+        type: choice
+        default: status
+        options:
+          - status
+          - start
+          - stop
+      confirmation:
+        description: For stop, type STOP_PRODUCTION. Not required for status/start.
+        required: false
+        type: string
+        default: ''
+
+concurrency:
+  group: researchtrack-azure-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  runtime:
+    name: ${{ inputs.action }} Production runtime
+    runs-on: ubuntu-latest
+    environment: production
+
+    env:
+      RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP || 'rg-researchtrack-prod' }}
+      INFRA_VM: ${{ vars.AZURE_INFRA_VM || 'vm-researchtrack-infra-prod' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate request and OIDC configuration
+        shell: bash
+        env:
+          REQUESTED_ACTION: ${{ inputs.action }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          set -euo pipefail
+          if [[ "$REQUESTED_ACTION" == "stop" && "$CONFIRMATION" != "STOP_PRODUCTION" ]]; then
+            echo "Stopping Production requires confirmation text STOP_PRODUCTION." >&2
+            exit 1
+          fi
+          for key in AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID; do
+            [[ -n "${!key:-}" ]] || { echo "$key is not configured in the production GitHub Environment." >&2; exit 1; }
+          done
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Install Container Apps CLI extension
+        shell: bash
+        run: az extension add --name containerapp --upgrade --only-show-errors
+
+      - name: Run requested power action
+        shell: bash
+        env:
+          REQUESTED_ACTION: ${{ inputs.action }}
+        run: |
+          set -euo pipefail
+          ./deploy/azure/scripts/runtime-power.sh "$REQUESTED_ACTION"
+          echo
+          ./deploy/azure/scripts/runtime-power.sh status
