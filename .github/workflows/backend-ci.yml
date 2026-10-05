@@ -33,6 +33,16 @@ jobs:
           python -m json.tool deploy/monitoring/grafana/provisioning/dashboards/json/researchtrack-overview.json >/dev/null
           python -m json.tool deploy/monitoring/grafana/provisioning/dashboards/json/github-sync.json >/dev/null
 
+      - name: Validate performance test source layout
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f tests/Performance/smoke.js
+          test -f tests/Performance/load.js
+          test -f tests/Performance/stress.js
+          test -f tests/Performance/webhook-spike.js
+          test -f deploy/azure/scripts/runtime-power.sh
+
       - name: Validate Azure infrastructure definition
         run: |
           az bicep build --file deploy/azure/main.bicep --stdout >/dev/null

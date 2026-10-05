@@ -24,13 +24,18 @@ ResearchTrack is an ASP.NET Core microservice backend for a final-year research 
 
 ResearchTrack uses `develop` for integrated sprint work and Test deployment candidates, and `main` for production-ready releases.
 
-- Pull requests to `develop` and `main` run restore, build, non-database test, format, and publish checks.
+- Pull requests to `develop` and `main` run deterministic restore, build, test, infrastructure-validation, and configuration checks.
 - Pushes to `develop` represent the backend Test deployment candidate.
 - Pushes to `main` represent the backend Production deployment candidate.
-- Deployment jobs use GitHub Environments named `test` and `production`; provider-specific Docker publishing and deployment commands can be added after infrastructure credentials are configured.
-- Test/production runtime values should be injected through the CI/CD or deployment platform's environment/secrets mechanism. They must not be committed as real `.env` files.
+- A successful Production deployment can trigger the separate `Performance Smoke` workflow (k6, 5 VUs / 15 seconds).
+- Deeper k6 load/stress profiles live in the separate `Performance Full` workflow; it is manual by default, with an optional scheduled mode.
+- Production performance workflows capture the Azure runtime state, start the infrastructure VM and seven Container Apps only when required, wait for readiness, and restore the captured state after testing to avoid unnecessary compute use.
+- The manual `Azure Runtime Power - Production` workflow provides `status`, `start`, and confirmed `stop` controls directly from GitHub Actions, so team members do not need to keep local shell functions for routine power management.
+- Deployment jobs use GitHub Environments named `test` and `production`; real runtime values are injected from GitHub Environments and are never committed as real `.env` files.
 
 For branching rules, merge gates, and release approval requirements, see `CONTRIBUTING.md` and `docs/devops/branching-strategy.md`.
+
+Performance-test design, thresholds, Azure lifecycle behaviour, and viva rationale are documented in `docs/devops/performance-testing/README.md`; runnable k6 profiles are under `tests/Performance/`.
 
 NuGet versions are centralized in `Directory.Packages.props`.
 
