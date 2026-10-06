@@ -80,21 +80,15 @@ To test the validator locally without real values: `./deploy/azure/validation/te
 
 Do **not** set the Test-only values (`SSH_*`, `BACKEND_DEPLOY_ROOT`, `NPM_NET_NAME`, `GRAFANA_HOST_PORT`, `GRAFANA_MEMORY_LIMIT`) for Production. See [GITHUB_ENVIRONMENTS.md § Legacy](GITHUB_ENVIRONMENTS.md#legacy--unused-in-production).
 
-### Performance workflow variables
+### Runtime lifecycle workflows
 
-The `production` Environment is also used by the deployed-system k6 workflows. These settings are optional because safe defaults exist in the workflows.
+The `production` Environment is also used by the manual **Azure Runtime Power - Production** and **Azure Runtime Session - Production** workflows. They reuse the same OIDC credentials above; no additional Azure secret is required.
 
-| Name | Type | Default | Purpose |
-|---|---|---|---|
-| `PERFORMANCE_BASE_URL` | Variable | `https://<PRODUCTION_API_HOSTNAME>` | Explicit k6 target if it differs from the normal public API hostname |
-| `K6_TEST_PATH` | Variable | `/health/ready` | Safe read-only path used by smoke/load/stress profiles |
-| `K6_SMOKE_P95_MS` | Variable | `500` | Smoke p95 threshold in milliseconds |
-| `K6_LOAD_P95_MS` | Variable | `750` | Load p95 threshold in milliseconds |
-| `K6_STRESS_P95_MS` | Variable | `1200` | Stress p95 threshold in milliseconds |
-| `K6_WEBHOOK_P95_MS` | Variable | `1000` | Signed webhook spike p95 threshold in milliseconds |
-| `ENABLE_NIGHTLY_PERFORMANCE` | Variable | unset / false | Set to `true` to enable the scheduled full workflow. Scheduled runs execute the load profile only; stress remains manual |
+`Azure Runtime Session - Production` is intentionally not a performance test. It currently performs only a short configurable hold (default 5 seconds) after the runtime is fully ready, then restores the exact captured VM and Container App states. This validates the lifecycle before future load-testing work is attached.
 
-No extra Azure credentials are required: the performance jobs use the existing Production OIDC identity. The optional webhook-spike step extracts `GitHub__WebhookSecret` from the existing `RT_GITHUB_SERVICE_ENV` secret at runtime and masks it; no duplicate webhook secret needs to be created.
+If `PRODUCTION_VERIFY_PUBLIC_ENDPOINT=true`, the runtime controller also requires `https://<PRODUCTION_API_HOSTNAME>/health/ready` to succeed before temporary work begins. Independently of that public check, startup validates the VM-hosted stack and each service `/health/ready` from inside the VNet.
+
+The controller manages only these explicit resources: `vm-researchtrack-infra-prod` and `rt-auth-prod`, `rt-project-prod`, `rt-github-prod`, `rt-jira-prod`, `rt-meeting-prod`, `rt-submission-prod`, `rt-gateway-prod`. An unrelated Container App is never powered on/off implicitly. If another app looks like a ResearchTrack Production app, the controller fails closed until the explicit managed set is reviewed, because the shared VM may still be a dependency.
 
 ## Subscription-specific values
 

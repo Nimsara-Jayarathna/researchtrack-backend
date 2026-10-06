@@ -2,7 +2,7 @@ name: Backend Deploy - Production
 
 on:
   push:
-    branches: ["main"]
+    branches: ["feature/azure-performance-workflow"]
   workflow_dispatch:
     inputs:
       force_full_build:
