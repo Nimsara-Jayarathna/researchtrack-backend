@@ -33,15 +33,17 @@ jobs:
           python -m json.tool deploy/monitoring/grafana/provisioning/dashboards/json/researchtrack-overview.json >/dev/null
           python -m json.tool deploy/monitoring/grafana/provisioning/dashboards/json/github-sync.json >/dev/null
 
-      - name: Validate performance test source layout
+      - name: Test Azure runtime state-preservation logic (mocked Azure)
         shell: bash
-        run: |
-          set -euo pipefail
-          test -f tests/Performance/smoke.js
-          test -f tests/Performance/load.js
-          test -f tests/Performance/stress.js
-          test -f tests/Performance/webhook-spike.js
-          test -f deploy/azure/scripts/runtime-power.sh
+        run: ./deploy/azure/validation/test-runtime-power.sh
+
+      - name: Test Azure runtime readiness logic (mocked VM)
+        shell: bash
+        run: ./deploy/azure/validation/test-runtime-readiness.sh
+
+      - name: Test Azure Production preflight power-state handling (mocked Azure)
+        shell: bash
+        run: ./deploy/azure/validation/test-preflight.sh
 
       - name: Validate Azure infrastructure definition
         run: |

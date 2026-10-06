@@ -2,7 +2,7 @@ name: Backend Deploy - Production
 
 on:
   push:
-    branches: ["feature/azure-performance-workflow"]
+    branches: ["main"]
   workflow_dispatch:
     inputs:
       force_full_build:
@@ -20,6 +20,7 @@ concurrency:
   # Shared with azure-infrastructure.yml so rollouts and VM reconciles never overlap.
   group: researchtrack-azure-production
   cancel-in-progress: false
+  queue: max
 
 permissions:
   contents: read
