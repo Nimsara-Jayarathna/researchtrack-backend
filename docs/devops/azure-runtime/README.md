@@ -71,6 +71,27 @@ verify exact restoration
 
 The hold is **not** a startup delay. Startup is readiness-driven; if the system is ready quickly, the temporary work begins immediately. The default five seconds is only the placeholder work section.
 
+## Production deployments use the same lifecycle
+
+`Backend Deploy - Production` no longer assumes the VM is already running. Its
+Azure deployment job performs a static preflight that explicitly accepts
+`PowerState/running`, `PowerState/stopped`, and `PowerState/deallocated`, then
+captures the exact runtime state before waking anything. After deployment and
+verification, an `if: always()` step restores and verifies that exact snapshot.
+
+This means all of these are supported deployment starting conditions:
+
+```text
+VM deallocated + all apps stopped
+VM stopped + mixed app states
+VM running + mixed app states
+VM running + all apps running
+```
+
+The runtime deployment preflight is intentionally performed **after** wake-up.
+A deallocated VM is a normal cost-saving state; it is only an error if the VM
+fails to become Running after the workflow acquires the runtime.
+
 ## Stable-state rule
 
 Snapshots never record transitional state as desired state.
@@ -171,8 +192,12 @@ This prevents a runtime session from restoring old states while an infrastructur
 # Validate that a snapshot belongs to this exact runtime
 ./deploy/azure/scripts/runtime-power.sh validate-snapshot /tmp/rt-state.json
 
-# Start + prove readiness
+# Start + prove full application readiness (temporary sessions/tests)
 ./deploy/azure/scripts/runtime-power.sh start
+
+# Deployment acquisition: VM dependencies + all apps Running, but defer old
+# revision /health/ready checks so a deployment can repair an unhealthy app
+./deploy/azure/scripts/runtime-power.sh start deployment
 
 # Explicitly stop all managed apps and deallocate the VM
 ./deploy/azure/scripts/runtime-power.sh stop

@@ -67,17 +67,43 @@ contents: read
 
 No stored Azure password.
 
-## Preflight
+## Runtime acquisition and preflight
 
-Before app deployment check:
+Production is deliberately allowed to be powered down between deployments. A
+deallocated VM or stopped Container App is therefore a **valid starting state**,
+not a deployment failure.
 
-- Resource Group,
-- VM,
-- Container Apps environment,
-- expected applications,
-- private network readiness.
+The Production deployment uses the same state-preserving runtime controller as
+temporary runtime sessions:
 
-Fail clearly if infrastructure is missing.
+```text
+static infrastructure preflight
+→ capture exact stable VM + Container App states
+→ upload recovery snapshot
+→ acquire runtime ownership
+→ start VM if Stopped/Deallocated
+→ wait for MySQL + Kafka + Nginx readiness
+→ start the seven managed Container Apps
+→ defer old-revision app health checks (so deployment can repair an unhealthy app)
+→ runtime deployment preflight
+→ migrate/deploy/verify
+→ always restore exact captured states
+→ verify restoration
+```
+
+`deploy/azure/scripts/preflight.sh static` checks the long-lived resources
+(Resource Group, VNet, VM definition, internal Container Apps environment and
+private DNS) without requiring the VM to be running. It also exports the
+Container Apps environment domain needed by readiness checks.
+
+`deploy/azure/scripts/preflight.sh runtime` runs only after acquisition and
+requires `PowerState/running`; it also verifies that the persisted VM MySQL
+runtime configuration still matches the current Production secret before
+migrations begin.
+
+If wake-up, preflight, deployment or final verification fails after ownership is
+taken, the workflow's `always()` restoration step retries the original snapshot
+three times. The snapshot is uploaded before the first power-state mutation.
 
 ## Configuration
 

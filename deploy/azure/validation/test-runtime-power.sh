@@ -97,6 +97,12 @@ if [[ "${MOCK_VM_RUN_FAIL:-false}" == true ]]; then
   echo "mock VM validation failure" >&2
   exit 19
 fi
+for arg in "$@"; do
+  if [[ -n "${MOCK_VM_RUN_FAIL_MODE:-}" && "$arg" == "RUNTIME_READINESS_MODE=${MOCK_VM_RUN_FAIL_MODE}" ]]; then
+    echo "mock VM validation failure for ${MOCK_VM_RUN_FAIL_MODE}" >&2
+    exit 20
+  fi
+done
 exit 0
 MOCKRUN
 chmod +x "$work/bin/mock-vm-run.sh"
@@ -260,6 +266,24 @@ test_reused_snapshot_refuses_pre_start_drift() {
   assert_vm PowerState/deallocated
 }
 
+
+test_deployment_start_defers_old_app_health() {
+  write_state PowerState/deallocated
+  # Simulate the old application revision failing readiness. Deployment mode
+  # must still acquire infrastructure so a new revision can repair it.
+  MOCK_VM_RUN_FAIL_MODE=apps "$power" start deployment >/dev/null
+  assert_vm PowerState/running
+  [[ "$(jq '[.apps[] | select(.state=="Running")] | length' "$state")" -eq 7 ]]
+}
+
+test_full_start_requires_app_health() {
+  write_state PowerState/deallocated
+  if MOCK_VM_RUN_FAIL_MODE=apps "$power" start full >/dev/null 2>&1; then
+    echo "full runtime start unexpectedly ignored application readiness failure" >&2
+    exit 1
+  fi
+}
+
 test_partial_start_failure_restores_state() {
   write_state PowerState/deallocated
   snap="$work/partial-start.json"
@@ -284,6 +308,8 @@ run_test "capture waits for transitional app state" test_capture_waits_for_trans
 run_test "tampered snapshot rejected" test_tampered_snapshot_is_rejected
 run_test "failed session work still restores" test_failed_session_work_restores_state
 run_test "reused snapshot refuses pre-start drift" test_reused_snapshot_refuses_pre_start_drift
+run_test "deployment start defers old app health" test_deployment_start_defers_old_app_health
+run_test "full start still requires app health" test_full_start_requires_app_health
 run_test "partial start failure still restores" test_partial_start_failure_restores_state
 
 echo "All runtime power/session validations passed."

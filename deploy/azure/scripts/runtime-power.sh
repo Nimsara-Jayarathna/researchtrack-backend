@@ -19,7 +19,7 @@
 # Usage:
 #   runtime-power.sh status
 #   runtime-power.sh capture STATE_FILE
-#   runtime-power.sh start
+#   runtime-power.sh start [full|deployment]
 #   runtime-power.sh stop
 #   runtime-power.sh restore STATE_FILE
 #   runtime-power.sh verify STATE_FILE
@@ -551,15 +551,33 @@ show_status() {
 }
 
 start_runtime() {
+  local mode="${1:-full}"
+  case "$mode" in
+    full|deployment) ;;
+    *) die "Unsupported start mode '$mode' (expected full|deployment)." ;;
+  esac
+
   validate_controlled_resources
   ensure_vm_running
-  # Do not wake application replicas until MySQL/Kafka/Nginx/monitoring on the
-  # VM have proven healthy after the VM boot.
+  # Never wake application replicas until the VM-hosted dependencies they use
+  # (MySQL, Kafka and Nginx) are proven ready after boot.
   wait_for_vm_stack_ready
   start_apps
-  wait_for_application_ready
-  wait_for_public_health_if_configured
-  log "ResearchTrack Azure Production runtime is ready."
+
+  if [[ "$mode" == "full" ]]; then
+    # Temporary runtime sessions/tests require the currently deployed
+    # application to be healthy before work begins.
+    wait_for_application_ready
+    wait_for_public_health_if_configured
+    log "ResearchTrack Azure Production runtime is fully ready."
+  else
+    # A deployment must be able to repair a currently unhealthy application.
+    # Requiring the *old* revision to pass /health/ready here could prevent the
+    # very deployment intended to fix it. Control-plane Running + healthy VM
+    # dependencies are sufficient; the deployment workflow performs full
+    # application verification after rollout.
+    log "ResearchTrack Azure Production runtime is acquired for deployment; application health is deferred until post-deploy verification."
+  fi
 }
 
 stop_runtime() {
@@ -585,7 +603,7 @@ case "${1:-}" in
     capture_state "${2:-}"
     ;;
   start)
-    start_runtime
+    start_runtime "${2:-full}"
     ;;
   stop)
     stop_runtime
@@ -600,7 +618,7 @@ case "${1:-}" in
     validate_snapshot "${2:-}"
     ;;
   *)
-    echo "Usage: $0 <status|capture STATE_FILE|start|stop|restore STATE_FILE|verify STATE_FILE|validate-snapshot STATE_FILE>" >&2
+    echo "Usage: $0 <status|capture STATE_FILE|start [full|deployment]|stop|restore STATE_FILE|verify STATE_FILE|validate-snapshot STATE_FILE>" >&2
     exit 2
     ;;
 esac
