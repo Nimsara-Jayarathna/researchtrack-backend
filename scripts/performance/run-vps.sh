@@ -56,11 +56,14 @@ import base64, hashlib, hmac, json, os, pathlib, secrets, shlex, time
 keys = ('K6_BASE_URL', 'K6_PROJECT_ID', 'K6_PERFORMANCE_TOKEN',
         'K6_SUPERVISOR_EMAIL', 'K6_SUPERVISOR_PASSWORD',
         'K6_STUDENT_EMAIL', 'K6_STUDENT_PASSWORD',
-        'K6_PROFILE', 'K6_INCLUDE_INTEGRATIONS', 'K6_P95_MS', 'K6_WARMUP_PASSES',
-        'K6_ENABLE_WRITES', 'K6_STUDENT_ID', 'K6_ENABLE_WEBHOOK',
+        'K6_PROFILE', 'K6_INCLUDE_INTEGRATIONS', 'K6_P95_MS',
+        'K6_SMOKE_P95_MS', 'K6_LOAD_P95_MS', 'K6_STRESS_P95_MS',
+        'K6_SPIKE_P95_MS', 'K6_WRITE_P95_MS', 'K6_LIFECYCLE_P95_MS',
+        'K6_WEBHOOK_P95_MS', 'K6_ENDPOINT_P95_THRESHOLDS_JSON',
+        'K6_WARMUP_PASSES', 'K6_EXECUTION_MODE', 'K6_ENABLE_WRITES', 'K6_STUDENT_ID', 'K6_ENABLE_WEBHOOK',
         'K6_JIRA_PROJECT_KEY', 'K6_JIRA_ISSUE_KEY', 'K6_JIRA_ISSUE_ID',
         'K6_RATE_LIMIT_BYPASS_ENABLED', 'K6_GITHUB_RUN_ID', 'K6_GITHUB_RUN_ATTEMPT',
-        'K6_GITHUB_SHA')
+        'K6_GITHUB_SHA', 'K6_GITHUB_WORKFLOW')
 values = {k: os.environ.get(k, '') for k in keys}
 if values['K6_RATE_LIMIT_BYPASS_ENABLED'] != 'true':
     values['K6_PERFORMANCE_TOKEN'] = ''  # no need to ship exemption secret when disabled

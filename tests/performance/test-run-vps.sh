@@ -46,6 +46,9 @@ set -euo pipefail
 [[ "${K6_SUPERVISOR_PASSWORD:-}" == synthetic-supervisor-password ]] || exit 4
 [[ "${K6_STUDENT_PASSWORD:-}" == synthetic-student-password ]] || exit 4
 [[ -f "${!#}" ]] || exit 4
+[[ "${K6_SMOKE_P95_MS:-}" == 2100 ]] || exit 4
+[[ "${K6_ENDPOINT_P95_THRESHOLDS_JSON:-}" == '{"jira_issues":3000}' ]] || exit 4
+[[ "${K6_EXECUTION_MODE:-}" == manual ]] || exit 4
 mkdir -p "$K6_REPORT_DIR"
 echo '# Fake k6 report (test stub)' > "$K6_REPORT_DIR/${K6_PROFILE}-report.md"
 echo '{"passed":true}' > "$K6_REPORT_DIR/${K6_PROFILE}-summary.json"
@@ -71,6 +74,9 @@ export K6_PERFORMANCE_TOKEN='this-is-synthetic-only-secret-at-least-32-bytes'
 export K6_SUPERVISOR_EMAIL=supervisor@example.test K6_SUPERVISOR_PASSWORD=synthetic-supervisor-password
 export K6_STUDENT_EMAIL=student@example.test K6_STUDENT_PASSWORD=synthetic-student-password
 export K6_PROFILE=smoke
+export K6_SMOKE_P95_MS=2100
+export K6_ENDPOINT_P95_THRESHOLDS_JSON='{"jira_issues":3000}'
+export K6_EXECUTION_MODE=manual
 export GITHUB_RUN_ID=98653210 GITHUB_RUN_ATTEMPT=1
 export K6_LOCAL_REPORT_DIR="$work/out"
 runner="$repo/scripts/performance/run-vps.sh"

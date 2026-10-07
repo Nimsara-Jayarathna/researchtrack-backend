@@ -1,6 +1,6 @@
-// Canonical operation catalogue used by metrics and detailed reports.
-// Keep operation keys stable: historical k6 artifacts can then be compared
-// across runs even if route implementation details change.
+// Canonical operation catalogue used by metrics, runtime-configured endpoint
+// thresholds and detailed reports. Keep operation keys stable: historical k6
+// artifacts can then be compared across runs even if routes change internally.
 export const OPERATION_CATALOG = Object.freeze({
   projects: { label: 'List projects', category: 'Project', method: 'GET' },
   project_details: { label: 'Project details', category: 'Project', method: 'GET' },

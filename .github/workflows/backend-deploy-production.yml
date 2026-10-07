@@ -41,3 +41,22 @@ jobs:
       packages: write
       id-token: write
     secrets: inherit
+
+  performance_smoke:
+    name: Automatic post-deployment k6 Smoke
+    needs: deploy
+    if: ${{ needs.deploy.result == 'success' && vars.K6_AUTO_SMOKE_ENABLED == 'true' }}
+    uses: ./.github/workflows/azure-performance-k6-reusable.yml
+    with:
+      profile: smoke
+      execution_mode: automatic-post-deploy
+      confirmation: ''
+      # Automatic Smoke intentionally uses normal Gateway rate limiting. Heavy
+      # manual capacity profiles can still opt into the scoped VPS exemption.
+      rate_limit_bypass_enabled: false
+      p95_override_ms: ''
+    permissions:
+      contents: read
+      id-token: write
+    secrets: inherit
+
