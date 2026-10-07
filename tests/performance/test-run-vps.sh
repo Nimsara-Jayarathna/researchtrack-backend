@@ -49,6 +49,8 @@ set -euo pipefail
 mkdir -p "$K6_REPORT_DIR"
 echo '# Fake k6 report (test stub)' > "$K6_REPORT_DIR/${K6_PROFILE}-report.md"
 echo '{"passed":true}' > "$K6_REPORT_DIR/${K6_PROFILE}-summary.json"
+echo '<html><body>Fake report</body></html>' > "$K6_REPORT_DIR/${K6_PROFILE}-report.html"
+echo 'operation,requests,p95_ms' > "$K6_REPORT_DIR/${K6_PROFILE}-endpoints.csv"
 if [[ "${K6_SHOULD_FAIL:-false}" == true ]]; then
   echo 'Simulated threshold failure' >&2
   exit 5
@@ -73,7 +75,10 @@ export GITHUB_RUN_ID=98653210 GITHUB_RUN_ATTEMPT=1
 export K6_LOCAL_REPORT_DIR="$work/out"
 runner="$repo/scripts/performance/run-vps.sh"
 "$runner" >/dev/null
-[[ -f "$work/out/smoke-report.md" ]] || { echo 'Missing retrieved report' >&2; exit 1; }
+[[ -f "$work/out/smoke-report.md" ]] || { echo 'Missing retrieved Markdown report' >&2; exit 1; }
+[[ -f "$work/out/smoke-report.html" ]] || { echo 'Missing retrieved HTML report' >&2; exit 1; }
+[[ -f "$work/out/smoke-endpoints.csv" ]] || { echo 'Missing retrieved endpoint CSV' >&2; exit 1; }
+[[ -f "$work/out/smoke-summary.json" ]] || { echo 'Missing retrieved JSON report' >&2; exit 1; }
 [[ ! -d /tmp/researchtrack-k6-98653210-1 ]] || { echo 'Remote directory was not deleted' >&2; exit 1; }
 if grep -r 'synthetic-supervisor-password' "$work/out"; then
   echo 'Credentials appeared in test artifacts.' >&2; exit 1

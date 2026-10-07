@@ -42,6 +42,10 @@ jobs:
         shell: bash
         run: ./tests/performance/validate.sh
 
+      - name: Test k6 detailed report renderer (synthetic metrics)
+        shell: bash
+        run: ./tests/performance/test-report.sh
+
       - name: Test k6 VPS orchestration (mocked SSH/k6)
         run: ./tests/performance/test-run-vps.sh
 

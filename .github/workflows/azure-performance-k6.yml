@@ -164,6 +164,10 @@ jobs:
           K6_STUDENT_PASSWORD: ${{ secrets.K6_STUDENT_PASSWORD }}
           K6_INCLUDE_INTEGRATIONS: ${{ vars.K6_INCLUDE_INTEGRATIONS || 'false' }}
           K6_P95_MS: ${{ vars.K6_P95_MS || '' }}
+          K6_WARMUP_PASSES: ${{ vars.K6_WARMUP_PASSES || '1' }}
+          K6_GITHUB_RUN_ID: ${{ github.run_id }}
+          K6_GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+          K6_GITHUB_SHA: ${{ github.sha }}
           K6_STUDENT_ID: ${{ vars.K6_STUDENT_ID || '' }}
           K6_ENABLE_WRITES: ${{ (inputs.profile == 'write' || inputs.profile == 'lifecycle') && 'true' || 'false' }}
           K6_ENABLE_WEBHOOK: ${{ inputs.profile == 'webhook' && 'true' || 'false' }}
@@ -253,6 +257,9 @@ jobs:
           report="reports/performance/${K6_PROFILE}-report.md"
           if [[ -f "$report" ]]; then
             cat "$report" >> "$GITHUB_STEP_SUMMARY"
+            echo >> "$GITHUB_STEP_SUMMARY"
+            echo '### Detailed report artifact' >> "$GITHUB_STEP_SUMMARY"
+            echo 'The uploaded k6 artifact also contains a self-contained HTML report, endpoint CSV, raw log and detailed JSON summary.' >> "$GITHUB_STEP_SUMMARY"
           else
             echo 'No k6 metrics report was produced; see the workflow failure logs.' >> "$GITHUB_STEP_SUMMARY"
           fi

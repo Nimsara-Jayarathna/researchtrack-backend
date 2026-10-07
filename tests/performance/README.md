@@ -145,3 +145,33 @@ The profile measures the **currently deployed version**, not code on a not-yet-d
 These tests deliberately use **fake Azure CLI and fake SSH/k6 clients**; they do not consume VPS or Azure infrastructure. Real `.NET` Gateway unit tests continue through `./scripts/test.sh all` in CI. No actual performance metrics can be certified until a real Azure/VPS run succeeds.
 
 **Persistent data:** Runtime state restoration is VM/app power only. Test project/account isolation is useful, but does not roll back MySQL records, Jira synchronization events or S3 objects. `write`, `lifecycle`, and `webhook` use a dedicated project and produce data intentionally; cleanup behavior is documented in their test scripts.
+
+## Detailed diagnostic reports (v2)
+
+Every real run now writes **four complementary report files** plus the raw k6 log. They are generated even when a threshold fails and are uploaded by the existing `if: always()` artifact step:
+
+| File | Purpose |
+|---|---|
+| `<profile>-report.html` | Self-contained, presentation-ready report with executive metrics, endpoint latency table, HTTP outcomes, slowest endpoints and threshold status |
+| `<profile>-report.md` | GitHub Actions job-summary version of the same diagnostic data |
+| `<profile>-summary.json` | Structured v2 result including overview, all endpoint statistics, threshold results and raw k6 metrics |
+| `<profile>-endpoints.csv` | Spreadsheet-friendly per-endpoint latency/failure/status dataset |
+| `<profile>.log` | Full raw k6 console output |
+
+The endpoint report separates each ResearchTrack operation and reports request count, success/failure rate, average, p50, p90, p95, p99, maximum latency, HTTP 4xx/5xx/429 counts and network errors. This makes a global latency gate actionable: a failed p95 can be traced to the slowest Project, Jira, GitHub, Submission or Dashboard operation instead of only reporting one combined number.
+
+### Warm-up before measured traffic
+
+Read-oriented profiles (`smoke`, `load`, `stress`, `spike`) authenticate the dedicated supervisor/student sessions and warm each selected endpoint before the measured scenario begins. Warm-up traffic is **not added to the custom `researchtrack_business_*` metrics**, so it does not distort the business latency quality gate. A broken warm-up route fails early with the exact role/operation name.
+
+Optional production environment variable:
+
+| Variable | Default | Meaning |
+|---|---:|---|
+| `K6_WARMUP_PASSES` | `1` | Number of endpoint warm-up passes before measured traffic; valid range 0–5 |
+
+Use `1` for normal evidence collection. Set `0` only when intentionally measuring cold-start behaviour, and document that choice with the result.
+
+### Threshold calibration workflow
+
+Do not raise a threshold only because one run failed. First use the endpoint-level report to identify the slow route, repeat an unchanged profile several times, and record the stable p50/p90/p95/p99 range. Then set `K6_P95_MS` once with documented headroom for normal deployment/network variance. Keep that threshold fixed for the final assessment runs so the gate remains meaningful.

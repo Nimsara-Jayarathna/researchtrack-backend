@@ -46,5 +46,14 @@ for removed in ('K6_VPS_HOST','K6_VPS_USER','K6_VPS_SSH_KEY','K6_VPS_KNOWN_HOSTS
     assert removed not in workflow and removed not in (root/'scripts/performance/run-vps.sh').read_text(), f'old duplicate VPS setting {removed}'
 assert 'containerapp revision copy' in (root/'scripts/performance/gateway-exemption.sh').read_text()
 assert 'K6_RATE_LIMIT_BYPASS_ENABLED' in (root/'tests/performance/lib/settings.js').read_text()
-print('Performance source and workflow contracts passed.')
+report=(root/'tests/performance/lib/report.js').read_text()
+metrics=(root/'tests/performance/lib/metrics.js').read_text()
+profiles=(root/'tests/performance/lib/profiles.js').read_text()
+assert 'Endpoint performance' in report and '-report.html' in report and '-endpoints.csv' in report
+for stat in ("'p(90)'", "'p(95)'", "'p(99)'"):
+    assert stat in profiles, f'missing detailed trend stat {stat}'
+assert 'researchtrack_op_' in metrics and 'operationMetrics' in metrics
+assert 'K6_WARMUP_PASSES' in (root/'tests/performance/lib/settings.js').read_text()
+assert 'warmUp' in suite
+print('Performance source, detailed reporting and workflow contracts passed.')
 PY
