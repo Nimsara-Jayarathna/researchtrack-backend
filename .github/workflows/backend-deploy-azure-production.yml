@@ -1,8 +1,11 @@
 name: Backend Deploy Azure Production
 
 # Application release to Azure Production, called by backend-deploy-production.yml.
-# Infrastructure (network, VM, VM stack) is reconciled separately by
-# azure-infrastructure.yml; this workflow only verifies it exists (preflight).
+# Production is intentionally allowed to be powered down between uses. This
+# workflow borrows the runtime transactionally: capture its exact stable state,
+# wake it, deploy/verify, then restore the exact original VM + Container App
+# power states even when deployment fails. Long-lived infrastructure itself is
+# reconciled separately by azure-infrastructure.yml.
 # The Test/VPS path (backend-deploy-test.yml -> backend-deploy-reusable.yml)
 # is intentionally untouched.
 
@@ -80,6 +83,8 @@ jobs:
           # runner.temp is not available in job-level env.
           echo "ENV_DIR=$RUNNER_TEMP/researchtrack-env" >> "$GITHUB_ENV"
           echo "WORK_DIR=$RUNNER_TEMP/researchtrack-specs" >> "$GITHUB_ENV"
+          echo "RUNTIME_STATE_FILE=$RUNNER_TEMP/researchtrack-runtime-before-deploy.json" >> "$GITHUB_ENV"
+          echo "RUNTIME_ACTIVE_FILE=$RUNNER_TEMP/researchtrack-runtime-deploy.active" >> "$GITHUB_ENV"
 
       - name: Materialize environment files
         shell: bash
@@ -129,12 +134,63 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Infrastructure preflight
+      - name: Install Container Apps CLI extension
+        shell: bash
+        run: az extension add --name containerapp --upgrade --only-show-errors
+
+      # Static preflight deliberately accepts Running, Stopped and Deallocated
+      # VM states. Production being off is a normal cost-saving state. It also
+      # exports ACA_ENV_DOMAIN for runtime readiness checks in later steps.
+      - name: Static Azure infrastructure preflight
         shell: bash
         run: |
           set -euo pipefail
-          az extension add --name containerapp --upgrade --only-show-errors
-          ./deploy/azure/scripts/preflight.sh
+          ./deploy/azure/scripts/preflight.sh static
+
+      - name: Capture exact pre-deployment runtime state
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./deploy/azure/scripts/runtime-power.sh capture "$RUNTIME_STATE_FILE"
+          ./deploy/azure/scripts/runtime-power.sh validate-snapshot "$RUNTIME_STATE_FILE"
+          echo
+          ./deploy/azure/scripts/runtime-power.sh status
+
+      # The snapshot is intentionally persisted before the first power-state
+      # mutation so an operator has a recovery record even if the runner dies.
+      - name: Preserve pre-deployment runtime snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: azure-production-runtime-before-deploy-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.RUNTIME_STATE_FILE }}
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Acquire Azure Production runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Refuse to take ownership if somebody changed power state after the
+          # snapshot was captured. This prevents us restoring over an
+          # out-of-band operator change made before acquisition.
+          ./deploy/azure/scripts/runtime-power.sh verify "$RUNTIME_STATE_FILE"
+
+          umask 077
+          : > "$RUNTIME_ACTIVE_FILE"
+
+          # If this partially fails, the workflow-level always() restoration
+          # step sees the active marker and rolls back to the snapshot.
+          ./deploy/azure/scripts/runtime-power.sh start deployment
+
+      # Runtime preflight belongs AFTER acquisition. It checks the VM is really
+      # running and that its persisted MySQL runtime config matches the current
+      # Production secret before migrations/deployment begin.
+      - name: Runtime deployment preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./deploy/azure/scripts/preflight.sh runtime
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
@@ -184,7 +240,54 @@ jobs:
           echo "https://$API_HOSTNAME/health/ready did not succeed." >&2
           exit 1
 
+      # Always return Production to exactly the state captured before this
+      # deployment. This is intentionally after all deployment verification.
+      # It also handles partial wake-up/deployment failures.
+      - name: Restore exact pre-deployment runtime state
+        if: always()
+        shell: bash
+        run: |
+          set -u
+
+          if [[ -z "${RUNTIME_STATE_FILE:-}" || ! -f "$RUNTIME_STATE_FILE" ]]; then
+            echo "No runtime snapshot exists; no power-state mutation can be safely inferred."
+            exit 0
+          fi
+
+          # No ownership marker means the workflow failed before it began
+          # changing runtime state. Verify only; never overwrite an external
+          # change in that situation.
+          if [[ ! -f "${RUNTIME_ACTIVE_FILE:-}" ]]; then
+            echo "Deployment never acquired runtime ownership. Verifying captured state only."
+            ./deploy/azure/scripts/runtime-power.sh verify "$RUNTIME_STATE_FILE" || {
+              echo "Runtime drift occurred before deployment ownership; refusing to overwrite it." >&2
+              exit 1
+            }
+            exit 0
+          fi
+
+          restored=false
+          for attempt in 1 2 3; do
+            echo "Restoring pre-deployment Azure runtime state (attempt $attempt/3) ..."
+            if ./deploy/azure/scripts/runtime-power.sh restore "$RUNTIME_STATE_FILE" && \
+               ./deploy/azure/scripts/runtime-power.sh verify "$RUNTIME_STATE_FILE"; then
+              restored=true
+              rm -f "$RUNTIME_ACTIVE_FILE"
+              break
+            fi
+            (( attempt < 3 )) && sleep 15
+          done
+
+          $restored || {
+            echo "CRITICAL: Production runtime could not be restored automatically." >&2
+            echo "Recovery artifact: azure-production-runtime-before-deploy-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >&2
+            exit 1
+          }
+
+          echo
+          ./deploy/azure/scripts/runtime-power.sh status
+
       - name: Remove local environment files
         if: always()
         shell: bash
-        run: rm -rf "$ENV_DIR" "$WORK_DIR"
+        run: rm -rf "$ENV_DIR" "$WORK_DIR" "$RUNTIME_ACTIVE_FILE"

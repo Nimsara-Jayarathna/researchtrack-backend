@@ -77,6 +77,10 @@ for service in "${services[@]}"; do
     [[ "$(jq -r '.parameters.env.value[] | select(.name == "Jwt__SigningKey") | .secretRef // "plain"' "$spec")" != plain ]] \
       || fail "$service: Jwt__SigningKey is a plain env value, expected a secret reference"
   fi
+  if [[ "$service" == gateway ]]; then
+    [[ "$(jq -r '.parameters.env.value[] | select(.name == "RateLimiting__PerformanceTest__Token") | .secretRef // "plain"' "$spec")" != plain ]] \
+      || fail "gateway: performance exemption token must use a Container App secretRef"
+  fi
   # Service-specific configuration is still present alongside the shared keys.
   own_key="$(sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' "$work/env/$service.env" | tail -n1)"
   grep -qx "$own_key" <<<"$names" || fail "$service: service-specific key $own_key missing"

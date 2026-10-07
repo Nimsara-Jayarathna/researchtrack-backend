@@ -38,6 +38,7 @@ on:
 concurrency:
   group: researchtrack-azure-production
   cancel-in-progress: false
+  queue: max
 
 permissions:
   contents: read

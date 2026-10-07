@@ -27,15 +27,15 @@ ResearchTrack uses `develop` for integrated sprint work and Test deployment cand
 - Pull requests to `develop` and `main` run deterministic restore, build, test, infrastructure-validation, and configuration checks.
 - Pushes to `develop` represent the backend Test deployment candidate.
 - Pushes to `main` represent the backend Production deployment candidate.
-- A successful Production deployment can trigger the separate `Performance Smoke` workflow (k6, 5 VUs / 15 seconds).
-- Deeper k6 load/stress profiles live in the separate `Performance Full` workflow; it is manual by default, with an optional scheduled mode.
-- Production performance workflows capture the Azure runtime state, start the infrastructure VM and seven Container Apps only when required, wait for readiness, and restore the captured state after testing to avoid unnecessary compute use.
-- The manual `Azure Runtime Power - Production` workflow provides `status`, `start`, and confirmed `stop` controls directly from GitHub Actions, so team members do not need to keep local shell functions for routine power management.
+- Production runtime power is cost-aware: the infrastructure VM and seven Container Apps may be intentionally stopped when the system is not in use.
+- `Azure Runtime Session - Production` proves the safe temporary-use lifecycle: capture the exact stable state, wake dependencies, validate readiness, perform a short placeholder operation, then restore and verify the original state. No k6/load testing is attached yet.
+- The manual `Azure Runtime Power - Production` workflow provides `status`, readiness-checked `start`, and confirmed `stop` controls directly from GitHub Actions, so team members do not need local shell functions for routine power management.
+- All workflows that can mutate the Production runtime share one concurrency lock so infrastructure, deployment, manual power operations, and temporary runtime sessions cannot race each other.
 - Deployment jobs use GitHub Environments named `test` and `production`; real runtime values are injected from GitHub Environments and are never committed as real `.env` files.
 
 For branching rules, merge gates, and release approval requirements, see `CONTRIBUTING.md` and `docs/devops/branching-strategy.md`.
 
-Performance-test design, thresholds, Azure lifecycle behaviour, and viva rationale are documented in `docs/devops/performance-testing/README.md`; runnable k6 profiles are under `tests/Performance/`.
+The Production power-state lifecycle, recovery model, and runtime-session workflow are documented in `docs/devops/azure-runtime/README.md`.
 
 NuGet versions are centralized in `Directory.Packages.props`.
 
@@ -1450,3 +1450,7 @@ Test (`develop`) deploys to a VPS with Docker Compose; Production (`main`) deplo
 ## Documentation
 
 See the [Documentation index](docs/README.md) for guides, plans, and the document location conventions.
+
+## SE3112 — Load & Performance Testing (Nimsara)
+
+The backend includes an authenticated k6 suite, a fixed-IP **and secret** VPS gateway rate-limit exemption, and a manual GitHub Actions workflow that borrows and restores the existing Azure runtime. The normal backend and frontend test suites remain first-class CI checks. See [`tests/performance/README.md`](tests/performance/README.md) for complete setup, GitHub secrets/variables, available profiles, rate limiting, reporting, account preparation, and workflow operation.

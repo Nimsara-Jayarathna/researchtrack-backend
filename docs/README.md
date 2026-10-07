@@ -41,6 +41,7 @@ Put other Markdown documents under `docs/`, grouped by subject. Use `submission/
 - [ResearchTrack Azure Production Deployment — Master Implementation Plan](devops/azure-production/MASTER_PLAN.md)
 - [Azure Production Documentation Index](devops/azure-production/README.md)
 - [Azure Production Runbook](devops/azure-production/RUNBOOK.md)
+- [Production Runtime State-Preservation](devops/azure-runtime/README.md)
 - [External Integrations and DNS](devops/configuration/EXTERNAL_INTEGRATIONS.md)
 - [First Production Deployment Checklist](devops/configuration/FIRST_DEPLOYMENT_CHECKLIST.md)
 - [GitHub Environments, Secrets and Variables](devops/configuration/GITHUB_ENVIRONMENTS.md)
@@ -77,5 +78,6 @@ Put other Markdown documents under `docs/`, grouped by subject. Use `submission/
 
 ## Testing
 
+- [SE3112 k6 performance implementation](testing/SE3112_K6_IMPLEMENTATION.md)
 - [Sprint 3 Jira automated testing](testing/sprint-3-jira-automated-testing.md)
 - [Test strategy](testing/test-strategy.md)

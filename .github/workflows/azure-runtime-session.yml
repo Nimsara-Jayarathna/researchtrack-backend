@@ -1,0 +1,160 @@
+name: Azure Runtime Session - Production
+
+# Proves the state-preserving Production runtime lifecycle before any load test
+# is attached to it. The temporary work is intentionally only a short sleep:
+# future workflows can replace that command with k6 or another bounded task
+# without changing the lifecycle controller.
+on:
+  workflow_dispatch:
+    inputs:
+      hold_seconds:
+        description: Seconds to keep the fully-ready runtime acquired before restoring its original state.
+        required: true
+        type: string
+        default: '5'
+      confirmation:
+        description: Type RUN_RUNTIME_SESSION to confirm this temporary Production wake-up.
+        required: true
+        type: string
+
+# One lock protects every workflow that can mutate the Production runtime.
+# queue:max preserves waiting runs instead of silently replacing an older
+# pending Production operation with a newer one.
+concurrency:
+  group: researchtrack-azure-production
+  cancel-in-progress: false
+  queue: max
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  session:
+    name: Capture → Ready → Hold → Restore
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: production
+
+    env:
+      RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP || 'rg-researchtrack-prod' }}
+      INFRA_VM: ${{ vars.AZURE_INFRA_VM || 'vm-researchtrack-infra-prod' }}
+      RUNTIME_PUBLIC_HEALTH_URL: ${{ vars.PRODUCTION_VERIFY_PUBLIC_ENDPOINT == 'true' && format('https://{0}/health/ready', vars.PRODUCTION_API_HOSTNAME || 'api.researchtrack.blipzo.xyz') || '' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate request and OIDC configuration
+        shell: bash
+        env:
+          HOLD_SECONDS: ${{ inputs.hold_seconds }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          set -euo pipefail
+          [[ "$CONFIRMATION" == "RUN_RUNTIME_SESSION" ]] || {
+            echo "Confirmation must be RUN_RUNTIME_SESSION." >&2
+            exit 1
+          }
+          [[ "$HOLD_SECONDS" =~ ^[0-9]+$ ]] || {
+            echo "hold_seconds must be a whole number." >&2
+            exit 1
+          }
+          (( HOLD_SECONDS >= 0 && HOLD_SECONDS <= 300 )) || {
+            echo "hold_seconds must be between 0 and 300." >&2
+            exit 1
+          }
+          for key in AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID; do
+            [[ -n "${!key:-}" ]] || {
+              echo "$key is not configured in the production GitHub Environment." >&2
+              exit 1
+            }
+          done
+          echo "HOLD_SECONDS=$HOLD_SECONDS" >> "$GITHUB_ENV"
+          echo "STATE_FILE=$RUNNER_TEMP/researchtrack-runtime-before-session.json" >> "$GITHUB_ENV"
+          echo "ACTIVE_FILE=$RUNNER_TEMP/researchtrack-runtime-session.active" >> "$GITHUB_ENV"
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Install Container Apps CLI extension
+        shell: bash
+        run: az extension add --name containerapp --upgrade --only-show-errors
+
+      - name: Capture exact stable Production runtime state
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./deploy/azure/scripts/runtime-power.sh capture "$STATE_FILE"
+          ./deploy/azure/scripts/runtime-power.sh validate-snapshot "$STATE_FILE"
+          echo
+          ./deploy/azure/scripts/runtime-power.sh status
+
+      - name: Preserve recovery snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: azure-runtime-state-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.STATE_FILE }}
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Acquire runtime, perform placeholder work, and restore
+        shell: bash
+        env:
+          RUNTIME_SESSION_REUSE_SNAPSHOT: 'true'
+          RUNTIME_SESSION_ACTIVE_FILE: ${{ env.ACTIVE_FILE }}
+        run: |
+          set -euo pipefail
+          ./deploy/azure/scripts/runtime-session.sh "$STATE_FILE" -- sleep "$HOLD_SECONDS"
+
+      # Second line of defence. runtime-session.sh already traps EXIT/INT/TERM,
+      # but a workflow-level always() cleanup handles ordinary step failures and
+      # cancellations that reach the runner. If the runner disappears entirely,
+      # the uploaded snapshot remains available for manual recovery.
+      - name: Final restoration safeguard
+        if: always()
+        shell: bash
+        run: |
+          set -u
+          if [[ -z "${STATE_FILE:-}" || ! -f "$STATE_FILE" ]]; then
+            echo "No captured state file exists. Refusing to make an unconditional power-state decision."
+            exit 0
+          fi
+
+          if [[ ! -f "${ACTIVE_FILE:-}" ]]; then
+            echo "The session does not own an unfinished runtime mutation. Verifying only; no forced restore will be attempted."
+            ./deploy/azure/scripts/runtime-power.sh verify "$STATE_FILE" || {
+              echo "Runtime drift was detected after session ownership ended. Refusing to overwrite an out-of-band change." >&2
+              exit 1
+            }
+            ./deploy/azure/scripts/runtime-power.sh status
+            exit 0
+          fi
+
+          restored=false
+          for attempt in 1 2 3; do
+            echo "Final restore safeguard attempt $attempt/3 ..."
+            if ./deploy/azure/scripts/runtime-power.sh restore "$STATE_FILE" && \
+               ./deploy/azure/scripts/runtime-power.sh verify "$STATE_FILE"; then
+              restored=true
+              rm -f "$ACTIVE_FILE"
+              break
+            fi
+            (( attempt < 3 )) && sleep 15
+          done
+
+          $restored || {
+            echo "CRITICAL: Production runtime could not be restored automatically." >&2
+            echo "Use artifact azure-runtime-state-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT} for recovery." >&2
+            exit 1
+          }
+
+          echo
+          ./deploy/azure/scripts/runtime-power.sh status
