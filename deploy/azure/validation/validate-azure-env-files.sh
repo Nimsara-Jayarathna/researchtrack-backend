@@ -147,6 +147,32 @@ if [[ "$VALIDATE_SCOPE" == all ]]; then
   done
 
   # ---------------------------------------------------------------------------
+  # Optional approved VPS performance exemption (fail before deployment).
+  # Keep the default disabled; never print its secret to build logs.
+  # ---------------------------------------------------------------------------
+  performance_enabled="$(require_value gateway.env RateLimiting__PerformanceTest__Enabled)"
+  case "$performance_enabled" in
+    true|false) ;;
+    *) error "gateway.env: RateLimiting__PerformanceTest__Enabled must be true or false." ;;
+  esac
+  if [[ "$performance_enabled" == true ]]; then
+    performance_ip="$(require_value gateway.env RateLimiting__PerformanceTest__AllowedIp)"
+    performance_token="$(require_value gateway.env RateLimiting__PerformanceTest__Token)"
+    if ! python3 - "$performance_ip" <<'PYCHECK' >/dev/null 2>&1
+import ipaddress, sys
+try:
+    address = ipaddress.ip_address(sys.argv[1])
+    assert not address.is_unspecified and not address.is_loopback
+except (ValueError, AssertionError):
+    sys.exit(1)
+PYCHECK
+    then
+      error "gateway.env: enabled performance exemption requires an explicit non-loopback VPS IP."
+    fi
+    (( ${#performance_token} >= 32 )) || error "gateway.env: enabled performance exemption requires a token of 32+ characters."
+  fi
+
+  # ---------------------------------------------------------------------------
   # JWT
   # ---------------------------------------------------------------------------
   require_value shared-auth.env Jwt__Issuer >/dev/null

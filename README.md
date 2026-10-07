@@ -1450,3 +1450,7 @@ Test (`develop`) deploys to a VPS with Docker Compose; Production (`main`) deplo
 ## Documentation
 
 See the [Documentation index](docs/README.md) for guides, plans, and the document location conventions.
+
+## SE3112 — Load & Performance Testing (Nimsara)
+
+The backend includes an authenticated k6 suite, a fixed-IP **and secret** VPS gateway rate-limit exemption, and a manual GitHub Actions workflow that borrows and restores the existing Azure runtime. The normal backend and frontend test suites remain first-class CI checks. See [`tests/performance/README.md`](tests/performance/README.md) for complete setup, GitHub secrets/variables, available profiles, rate limiting, reporting, account preparation, and workflow operation.

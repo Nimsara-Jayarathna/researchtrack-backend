@@ -78,5 +78,6 @@ Put other Markdown documents under `docs/`, grouped by subject. Use `submission/
 
 ## Testing
 
+- [SE3112 k6 performance implementation](testing/SE3112_K6_IMPLEMENTATION.md)
 - [Sprint 3 Jira automated testing](testing/sprint-3-jira-automated-testing.md)
 - [Test strategy](testing/test-strategy.md)

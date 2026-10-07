@@ -33,6 +33,26 @@ jobs:
           python -m json.tool deploy/monitoring/grafana/provisioning/dashboards/json/researchtrack-overview.json >/dev/null
           python -m json.tool deploy/monitoring/grafana/provisioning/dashboards/json/github-sync.json >/dev/null
 
+      - name: Setup Node for k6 source validation
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Validate k6 scripts and VPS performance automation
+        shell: bash
+        run: ./tests/performance/validate.sh
+
+      - name: Test k6 VPS orchestration (mocked SSH/k6)
+        run: ./tests/performance/test-run-vps.sh
+
+      - name: Test dynamic VPS IP discovery (mocked SSH)
+        shell: bash
+        run: ./tests/performance/test-discover-vps-ip.sh
+
+      - name: Test Gateway exemption revision and failure recovery (mocked Azure)
+        shell: bash
+        run: ./tests/performance/test-gateway-exemption.sh
+
       - name: Test Azure runtime state-preservation logic (mocked Azure)
         shell: bash
         run: ./deploy/azure/validation/test-runtime-power.sh

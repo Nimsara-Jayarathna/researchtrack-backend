@@ -1,5 +1,4 @@
 using Prometheus;
-using System.Threading.RateLimiting;
 using ResearchTrack.BuildingBlocks.Api.Constants;
 using ResearchTrack.BuildingBlocks.Api.Extensions;
 using ResearchTrack.BuildingBlocks.Api.Infrastructure;
@@ -65,35 +64,14 @@ builder.Services.AddCors(options =>
     });
 });
 
+// Fail at startup if an explicitly enabled performance exemption is misconfigured.
+// Source-IP validation uses only trusted forwarded headers configured below.
+var performanceRateLimit = new PerformanceRateLimitPolicy(builder.Configuration);
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
-    {
-        var remoteIp = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-        var path = context.Request.Path.Value ?? string.Empty;
-
-        var (bucket, permitLimit) = path switch
-        {
-            "/api/v1/auth/login" => ("auth-login", 10),
-            "/api/v1/auth/refresh" => ("auth-refresh", 30),
-            "/api/v1/auth/forgot-password" => ("auth-forgot-password", 5),
-            "/api/v1/auth/reset-password" => ("auth-reset-password", 10),
-            "/api/github/webhooks" => ("github-webhooks", 600),
-            "/api/v1/github/webhooks" => ("github-webhooks", 600),
-            _ => ("general", 120)
-        };
-
-        return RateLimitPartition.GetFixedWindowLimiter(
-            $"{bucket}:{remoteIp}",
-            _ => new FixedWindowRateLimiterOptions
-            {
-                PermitLimit = permitLimit,
-                Window = TimeSpan.FromMinutes(1),
-                QueueLimit = 0,
-                AutoReplenishment = true
-            });
-    });
+    options.GlobalLimiter = System.Threading.RateLimiting.PartitionedRateLimiter
+        .Create<HttpContext, string>(performanceRateLimit.Partition);
     options.OnRejected = async (context, _) =>
     {
         if (!context.HttpContext.Response.HasStarted)
@@ -114,6 +92,13 @@ app.UseHttpMetrics();
 app.UseResearchTrackApi();
 app.UseCors("frontend");
 app.UseRateLimiter();
+// The gateway is the only component that needs this secret. Never forward it
+// to downstream services, and do not echo it to request/response logs.
+app.Use(async (context, next) =>
+{
+    context.Request.Headers.Remove(PerformanceRateLimitPolicy.AuthorizationHeader);
+    await next(context);
+});
 app.MapReverseProxy();
 app.MapMetrics().RequireHost("*:9100"); // only answers on 9100, not the public 8080
 app.Run();

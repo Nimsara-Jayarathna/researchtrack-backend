@@ -57,6 +57,8 @@ for contract, name in files.items():
             value = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
         elif key == "Cookie__Secure":
             value = "true"
+        elif key == "RateLimiting__PerformanceTest__Enabled":
+            value = "false"
         elif key in public:
             value = public[key]
         elif key == "Storage__Endpoint":
@@ -135,6 +137,24 @@ if run env; then
 else
   echo "FAIL shared-auth report case"; cat "$work/out"; failures=$((failures + 1))
 fi
+
+new_case gateway-performance-enabled
+set_key gateway.env RateLimiting__PerformanceTest__Enabled true
+set_key gateway.env RateLimiting__PerformanceTest__AllowedIp 198.51.100.25
+set_key gateway.env RateLimiting__PerformanceTest__Token 'synthetic-long-secret-012345678901234567890'
+expect pass "valid enabled VPS performance allowance"
+
+new_case gateway-performance-invalid-ip
+set_key gateway.env RateLimiting__PerformanceTest__Enabled true
+set_key gateway.env RateLimiting__PerformanceTest__AllowedIp 0.0.0.0
+set_key gateway.env RateLimiting__PerformanceTest__Token 'synthetic-long-secret-012345678901234567890'
+expect fail "invalid VPS performance IP rejected" "enabled performance exemption requires an explicit non-loopback VPS IP"
+
+new_case gateway-performance-short-secret
+set_key gateway.env RateLimiting__PerformanceTest__Enabled true
+set_key gateway.env RateLimiting__PerformanceTest__AllowedIp 198.51.100.25
+set_key gateway.env RateLimiting__PerformanceTest__Token short
+expect fail "short VPS performance secret rejected" "performance exemption requires a token of 32+ characters"
 
 new_case jira-owns-jwt
 printf 'Jwt__SigningKey=%s\n' "$(printf 'j%.0s' {1..48})" >> "$case_dir/jira.env"

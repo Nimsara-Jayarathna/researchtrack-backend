@@ -1,0 +1,258 @@
+name: Azure Production - k6 Performance (VPS)
+
+# This is intentionally NOT a pull_request trigger. It borrows the Azure
+# Production runtime and measures the currently deployed release, not the
+# source revision of an un-deployed PR.
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: 'Performance profile (write/webhook use dedicated test data)'
+        type: choice
+        required: true
+        default: smoke
+        options: [smoke, load, stress, spike, write, lifecycle, webhook]
+      confirmation:
+        description: 'Enter RUN_K6_PERFORMANCE to permit runtime start, testing and restore'
+        type: string
+        required: true
+
+concurrency:
+  group: researchtrack-azure-production
+  cancel-in-progress: false
+  queue: max
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  performance:
+    name: Acquire runtime → VPS k6 → Restore
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    environment: production
+    env:
+      RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP || 'rg-researchtrack-prod' }}
+      INFRA_VM: ${{ vars.AZURE_INFRA_VM || 'vm-researchtrack-infra-prod' }}
+      RUNTIME_PUBLIC_HEALTH_URL: ${{ vars.PRODUCTION_VERIFY_PUBLIC_ENDPOINT == 'true' && format('https://{0}/health/ready', vars.PRODUCTION_API_HOSTNAME || 'api.researchtrack.blipzo.xyz') || '' }}
+      K6_RATE_LIMIT_BYPASS_ENABLED: ${{ vars.K6_RATE_LIMIT_BYPASS_ENABLED || 'false' }}
+      K6_PROFILE: ${{ inputs.profile }}
+      K6_LOCAL_REPORT_DIR: ${{ github.workspace }}/reports/performance
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate explicit request and production configuration
+        shell: bash
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          K6_PERFORMANCE_TOKEN: ${{ secrets.K6_PERFORMANCE_TOKEN }}
+          K6_SUPERVISOR_EMAIL: ${{ secrets.K6_SUPERVISOR_EMAIL }}
+          K6_SUPERVISOR_PASSWORD: ${{ secrets.K6_SUPERVISOR_PASSWORD }}
+          K6_STUDENT_EMAIL: ${{ secrets.K6_STUDENT_EMAIL }}
+          K6_STUDENT_PASSWORD: ${{ secrets.K6_STUDENT_PASSWORD }}
+          K6_PROJECT_ID: ${{ vars.K6_PROJECT_ID }}
+          K6_BASE_URL: ${{ vars.K6_BASE_URL }}
+        run: |
+          set -euo pipefail
+          [[ "$CONFIRMATION" == RUN_K6_PERFORMANCE ]] || {
+            echo 'Confirmation must be RUN_K6_PERFORMANCE.' >&2; exit 1;
+          }
+          for key in AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID \
+            SSH_HOST SSH_PORT SSH_USER SSH_PRIVATE_KEY \
+            K6_SUPERVISOR_EMAIL K6_SUPERVISOR_PASSWORD \
+            K6_STUDENT_EMAIL K6_STUDENT_PASSWORD K6_PROJECT_ID K6_BASE_URL; do
+            [[ -n "${!key:-}" ]] || { echo "Missing configuration $key" >&2; exit 1; }
+          done
+          [[ "$K6_BASE_URL" == https://* ]] || { echo 'HTTPS is required.' >&2; exit 1; }
+          [[ "$K6_RATE_LIMIT_BYPASS_ENABLED" =~ ^(true|false)$ ]] || {
+            echo 'K6_RATE_LIMIT_BYPASS_ENABLED must be true or false.' >&2; exit 1;
+          }
+          if [[ "$K6_RATE_LIMIT_BYPASS_ENABLED" == true ]]; then
+            [[ ${#K6_PERFORMANCE_TOKEN} -ge 32 ]] || {
+              echo 'K6_PERFORMANCE_TOKEN is required (32+ characters) for an enabled exemption.' >&2; exit 1;
+            }
+          fi
+          echo "STATE_FILE=$RUNNER_TEMP/researchtrack-k6-runtime-state.json" >> "$GITHUB_ENV"
+          echo "ACTIVE_FILE=$RUNNER_TEMP/researchtrack-k6-runtime.active" >> "$GITHUB_ENV"
+          echo "K6_GATEWAY_STATE_FILE=$RUNNER_TEMP/researchtrack-k6-gateway-state.json" >> "$GITHUB_ENV"
+          echo "K6_GATEWAY_ACTIVE_FILE=$RUNNER_TEMP/researchtrack-k6-gateway.active" >> "$GITHUB_ENV"
+
+      - name: Validate performance scripts
+        shell: bash
+        run: ./tests/performance/validate.sh
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Install Container Apps CLI extension
+        shell: bash
+        run: az extension add --name containerapp --upgrade --only-show-errors
+
+      - name: Discover VPS egress IPv4 using existing Test CI SSH secrets
+        if: env.K6_RATE_LIMIT_BYPASS_ENABLED == 'true'
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          ip="$(./scripts/performance/discover-vps-ip.sh)"
+          echo "K6_VPS_EGRESS_IP=$ip" >> "$GITHUB_ENV"
+          echo "Validated current VPS outgoing IPv4: $ip"
+
+      - name: Capture exact original runtime state
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./deploy/azure/scripts/runtime-power.sh capture "$STATE_FILE"
+          ./deploy/azure/scripts/runtime-power.sh validate-snapshot "$STATE_FILE"
+          ./deploy/azure/scripts/runtime-power.sh status
+
+      - name: Preserve power-state recovery artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: azure-k6-runtime-state-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.STATE_FILE }}
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Capture original Gateway revision and routing state
+        if: env.K6_RATE_LIMIT_BYPASS_ENABLED == 'true'
+        shell: bash
+        run: ./scripts/performance/gateway-exemption.sh capture "$K6_GATEWAY_STATE_FILE"
+
+      - name: Preserve Gateway recovery artifact
+        if: env.K6_RATE_LIMIT_BYPASS_ENABLED == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: azure-k6-gateway-state-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.K6_GATEWAY_STATE_FILE }}
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Start Azure → temporary Gateway allowance → VPS k6 → restore Gateway and Azure
+        shell: bash
+        env:
+          RUNTIME_SESSION_REUSE_SNAPSHOT: 'true'
+          RUNTIME_SESSION_ACTIVE_FILE: ${{ env.ACTIVE_FILE }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          K6_BASE_URL: ${{ vars.K6_BASE_URL }}
+          K6_PROJECT_ID: ${{ vars.K6_PROJECT_ID }}
+          K6_PERFORMANCE_TOKEN: ${{ secrets.K6_PERFORMANCE_TOKEN }}
+          K6_SUPERVISOR_EMAIL: ${{ secrets.K6_SUPERVISOR_EMAIL }}
+          K6_SUPERVISOR_PASSWORD: ${{ secrets.K6_SUPERVISOR_PASSWORD }}
+          K6_STUDENT_EMAIL: ${{ secrets.K6_STUDENT_EMAIL }}
+          K6_STUDENT_PASSWORD: ${{ secrets.K6_STUDENT_PASSWORD }}
+          K6_INCLUDE_INTEGRATIONS: ${{ vars.K6_INCLUDE_INTEGRATIONS || 'false' }}
+          K6_P95_MS: ${{ vars.K6_P95_MS || '' }}
+          K6_STUDENT_ID: ${{ vars.K6_STUDENT_ID || '' }}
+          K6_ENABLE_WRITES: ${{ (inputs.profile == 'write' || inputs.profile == 'lifecycle') && 'true' || 'false' }}
+          K6_ENABLE_WEBHOOK: ${{ inputs.profile == 'webhook' && 'true' || 'false' }}
+          K6_JIRA_PROJECT_KEY: ${{ vars.K6_JIRA_PROJECT_KEY || '' }}
+          K6_JIRA_ISSUE_KEY: ${{ vars.K6_JIRA_ISSUE_KEY || '' }}
+          K6_JIRA_ISSUE_ID: ${{ vars.K6_JIRA_ISSUE_ID || '' }}
+          K6_JIRA_WEBHOOK_CLIENT_SECRET: ${{ secrets.K6_JIRA_WEBHOOK_CLIENT_SECRET }}
+        run: |
+          set -euo pipefail
+          ./deploy/azure/scripts/runtime-session.sh "$STATE_FILE" -- \
+            ./scripts/performance/run-gateway-session.sh
+
+      - name: Final Gateway configuration restoration safeguard
+        if: always()
+        shell: bash
+        run: |
+          set -u
+          if [[ "${K6_RATE_LIMIT_BYPASS_ENABLED:-false}" != true ||
+                -z "${K6_GATEWAY_STATE_FILE:-}" || ! -f "$K6_GATEWAY_STATE_FILE" ]]; then
+            echo 'No captured/owned Gateway allowance to restore.'
+            exit 0
+          fi
+          if [[ ! -f "${K6_GATEWAY_ACTIVE_FILE:-}" ]]; then
+            # Ownership was not acquired, or in-session restoration succeeded.
+            ./scripts/performance/gateway-exemption.sh verify "$K6_GATEWAY_STATE_FILE"
+            exit $?
+          fi
+          for attempt in 1 2 3; do
+            echo "Final Gateway restore attempt $attempt/3 ..."
+            if ./scripts/performance/gateway-exemption.sh restore "$K6_GATEWAY_STATE_FILE"; then
+              rm -f "$K6_GATEWAY_ACTIVE_FILE"
+              exit 0
+            fi
+            if ((attempt < 3)); then sleep 10; fi
+          done
+          echo 'CRITICAL: Gateway configuration restoration failed. Use Gateway recovery artifact.' >&2
+          exit 1
+
+      - name: Final restoration safeguard
+        if: always()
+        shell: bash
+        run: |
+          set -u
+          if [[ -z "${STATE_FILE:-}" || ! -f "$STATE_FILE" ]]; then
+            echo 'No snapshot; no owned runtime mutation to restore.'
+            exit 0
+          fi
+          if [[ ! -f "${ACTIVE_FILE:-}" ]]; then
+            echo 'No unfinished session ownership; verify only.'
+            ./deploy/azure/scripts/runtime-power.sh verify "$STATE_FILE"
+            exit $?
+          fi
+          restored=false
+          for attempt in 1 2 3; do
+            echo "Final restore attempt $attempt/3 ..."
+            if ./deploy/azure/scripts/runtime-power.sh restore "$STATE_FILE" && \
+               ./deploy/azure/scripts/runtime-power.sh verify "$STATE_FILE"; then
+              restored=true
+              rm -f "$ACTIVE_FILE"
+              break
+            fi
+            ((attempt < 3)) && sleep 15
+          done
+          $restored || {
+            echo 'CRITICAL: Restore failed. Use the captured Azure state artifact.' >&2
+            exit 1
+          }
+
+      - name: Upload k6 evidence even on failed thresholds
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: k6-${{ inputs.profile }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: reports/performance/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Add performance summary to GitHub Actions
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '## ResearchTrack Production — k6 Performance' >> "$GITHUB_STEP_SUMMARY"
+          echo >> "$GITHUB_STEP_SUMMARY"
+          echo "Profile: **${K6_PROFILE}** | Gateway exemption: **${K6_RATE_LIMIT_BYPASS_ENABLED}**" >> "$GITHUB_STEP_SUMMARY"
+          echo 'The gateway revision (when modified) and Azure power state are restored independently.' >> "$GITHUB_STEP_SUMMARY"
+          report="reports/performance/${K6_PROFILE}-report.md"
+          if [[ -f "$report" ]]; then
+            cat "$report" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'No k6 metrics report was produced; see the workflow failure logs.' >> "$GITHUB_STEP_SUMMARY"
+          fi

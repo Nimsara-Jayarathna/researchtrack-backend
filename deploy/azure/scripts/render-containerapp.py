@@ -20,7 +20,7 @@ import re
 import sys
 
 SECRET_KEY_PATTERN = re.compile(
-    r"(^ConnectionStrings__|Password$|Secret$|SecretKey$|SigningKey$|ApiKey$|AccessKey$|PrivateKey(Base64)?$)"
+    r"(^ConnectionStrings__|Password$|Secret$|SecretKey$|SigningKey$|ApiKey$|AccessKey$|Token$|PrivateKey(Base64)?$)"
 )
 REVISION_ENV = "RESEARCHTRACK_DEPLOYMENT_REVISION"
 REGISTRY_SECRET = "registry-password"
