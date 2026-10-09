@@ -231,6 +231,8 @@ Reconciliation renews the broker certificate if expiry is within 30 days or the 
 
 If client identity becomes an acceptance requirement: confirm event/topic ownership, choose SASL_SSL or mTLS, define secret delivery/rotation and ACLs, prepare .NET and probe-client changes, and test on a parallel private migration listener with a separately approved private binding/NSG restriction. Distribute dual trust/credentials first, move and verify clients, then retire unauthenticated access. Do not activate that proposal in this deployment or assume TLS implies client authentication.
 
+Exact certificate identity checks use `openssl verify -verify_ip`: see [OpenSSL verification options](https://docs.openssl.org/3.0/man1/openssl-verification-options/).
+
 Reference: [Kafka 3.9 admin client configuration](https://kafka.apache.org/39/configuration/admin-configs/) and [KRaft operations](https://kafka.apache.org/39/operations/kraft/).
 
 ## L. Verification evidence

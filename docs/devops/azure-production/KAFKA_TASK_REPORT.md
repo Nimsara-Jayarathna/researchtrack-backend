@@ -86,10 +86,12 @@ All commands below ran locally. Every Kafka/Azure runtime dependency in regressi
 | `actionlint .github/workflows/backend-ci.yml` | PASS |
 | `actionlint .github/workflows/azure-infrastructure.yml` | Tool limitation: 1.7.12 rejects existing `concurrency.queue`; same on pristine main. All other checks pass in a temporary copy omitting only that unsupported field |
 | `git diff --check` and scoped diff/security review | PASS; no secrets added; Compose/storage/listener/NSG definitions unchanged |
-| Bicep build/lint | NOT RUN: no Bicep changes; local Azure/Bicep CLI unavailable |
+| Bicep build/lint | Local NOT RUN (CLI unavailable); Bicep builds PASS in Backend CI, no Bicep changes |
 | Live TLS, ACA communication, persistence/restart | NOT VERIFIED: no Azure operation or broker restart authorized/executed |
 
 The first extended smoke-test attempt exposed macOS's missing GNU `timeout`; the offline fixture now stubs the production deadline contract and tests timeout failure. An initial ad-hoc Compose assertion expected a numeric memory field; Compose v5 serializes it as a string, and converting it before comparison resolved that harness error. Production timeouts and resource settings were not weakened.
+
+The first GitHub Ubuntu run failed the real certificate-prefix regression: its OpenSSL `x509 -checkip` printed a mismatch but returned success, whereas local OpenSSL 3.6.5 returned failure. Replaced that command in reconciliation and the verifier with `openssl verify -verify_ip`, enforcing chain trust and exact SAN verification with an authoritative failure status. Kept the regression test unchanged. Full [Backend CI run 37919376428](https://github.com/Nimsara-Jayarathna/researchtrack-backend/actions/runs/37919376428) passed on implementation commit `b664ef3`, including all Kafka/related Azure checks, Bicep builds, performance/deployment regressions and .NET restore/build/tests. This report update changes documentation only.
 
 GitHub supports `queue: max`; the current linter does not. The unchanged production setting is preserved: [GitHub Actions concurrency documentation](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency).
 
@@ -110,6 +112,10 @@ Live Azure tests performed: **none**. Restart performed: **none**. Screenshots: 
 | Basic producer/consumer test passes | Shared `vm/scripts/kafka-common.sh`, validator/verifier, ACA probe | VM `--smoke`: exact unique token via private TLS PASS | 9 mocked smoke cases and operational/probe suites PASS | IMPLEMENTED, NOT LIVE-VERIFIED | Approve smoke writes and retain live output |
 | Broker restart succeeds | `vm/scripts/verify-kafka.sh --restart` | Old token survives, fresh token passes, identity unchanged, unrelated containers unchanged | Mocked successful and unsuccessful restart cases PASS | IMPLEMENTED, NOT LIVE-VERIFIED | Explicit maintenance-window approval, run and retain evidence |
 | Unnecessary public exposure avoided | Existing Compose + `modules/nsg.bicep`, new host/Docker checks | VM `--check` and effective NIC/subnet NSG review: only private 9092, ACA-only allow, no public internal/controller | Static Compose/NSG review and negative mocks PASS | IMPLEMENTED, NOT LIVE-VERIFIED | Inspect actual effective NSG rules and live bindings |
+
+## GitHub delivery
+
+Draft [PR #77](https://github.com/Nimsara-Jayarathna/researchtrack-backend/pull/77) targets main from `devops/sprint4-kafka-infrastructure-verification`. Code, documentation and the OpenSSL compatibility correction are committed and pushed. PR is unmerged; no deployment workflow was dispatched. Implementation Backend CI passed as linked above; any subsequent documentation-only run is independently visible on the PR.
 
 ## Remaining blockers and operator actions
 
