@@ -98,6 +98,11 @@ Use for:
 - external integrations (GitHub App, Jira, DNS),
 - the first-deployment checklist.
 
+### `KAFKA_OPERATIONS.md` and `KAFKA_TASK_REPORT.md`
+
+Use for Kafka-only checks, topic operations, approved independent restart verification,
+private TLS/network validation, and Sprint 4 acceptance evidence.
+
 ### `IMPLEMENTATION_STATUS.md`
 
 Update after every meaningful implementation session.

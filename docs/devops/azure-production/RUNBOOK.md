@@ -139,3 +139,13 @@ Nginx (`proxy_ssl_verify`) and Prometheus (`insecure_skip_verify`) verify the ce
 If the first infrastructure/application run fails with certificate-verification errors on VM → app HTTPS:
 1. Set `ACA_TLS_VERIFY=off`. Traffic stays encrypted and VNet-private, but the server certificate is not verified.
 2. Record the change in `IMPLEMENTATION_STATUS.md` as a deviation.
+
+## Kafka-only operations
+
+Use [KAFKA_OPERATIONS.md](KAFKA_OPERATIONS.md) for read-only `verify-kafka.sh --check`,
+explicit smoke writes, topic management and approved independent restart verification.
+Do not run the infrastructure workflow merely to check Kafka: it reconciles the whole
+stack. Its existing OIDC, production environment, concurrency and What-If gate are preserved.
+`KAFKA_RETENTION_HOURS` is an optional production variable (default 72), applied during
+the next approved infrastructure reconciliation. See [KAFKA_TASK_REPORT.md](KAFKA_TASK_REPORT.md)
+for offline results and outstanding live evidence.

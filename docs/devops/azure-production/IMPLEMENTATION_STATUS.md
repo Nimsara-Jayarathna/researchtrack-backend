@@ -4,7 +4,22 @@ Update this file after each meaningful implementation session.
 
 This is intentionally short so the next agent does not re-audit everything.
 
-Last updated: 2026-09-24. **Code complete, not yet executed against Azure.**
+Last updated: 2026-10-09. **Kafka operations implemented and offline-tested; fresh live Kafka verification pending.**
+
+## Sprint 4 Kafka verification (2026-10-09)
+
+- Owner reports Kafka already deployed. Historical Azure results below are retained;
+  the older “never executed” notes describe the initial implementation session.
+- Added Kafka-only read-only/smoke checks, opt-in independent restart verification,
+  non-destructive topic operations and missing/mismatched identity/TLS guards.
+- Reused the VM smoke implementation; preserved Kafka version, listeners, storage,
+  authentication mode, NSG, OIDC, deployment approvals and workflow concurrency.
+- New operations regression suite runs in backend CI. No Azure command, production
+  deployment, broker restart, data deletion or infrastructure recreation was executed.
+- Current live Kafka deployment, effective NSG, ACA messaging and restart persistence
+  require approved Azure evidence. See `KAFKA_OPERATIONS.md` and `KAFKA_TASK_REPORT.md`.
+
+## Historical implementation notes (2026-09-24)
 
 ## Current phase
 
