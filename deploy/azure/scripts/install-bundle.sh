@@ -26,6 +26,7 @@ unset RT_RUNTIME_B64
 
 for path in compose.yml scripts/reconcile-stack.sh scripts/compose.sh \
     scripts/validate-vm-stack.sh scripts/validate-infrastructure.sh \
+    scripts/kafka-common.sh scripts/kafka-identity.sh scripts/kafka-topics.sh scripts/verify-kafka.sh \
     mysql/reconcile-databases.sh kafka/server.properties.template \
     prometheus/prometheus.yml.template prometheus/rules grafana/provisioning \
     runtime/infra.env runtime/mysql.env runtime/grafana.env; do

@@ -71,6 +71,7 @@ jobs:
       API_HOSTNAME: ${{ vars.PRODUCTION_API_HOSTNAME || 'api.researchtrack.blipzo.xyz' }}
       GRAFANA_HOSTNAME: ${{ vars.PRODUCTION_GRAFANA_HOSTNAME || 'grafana.researchtrack.blipzo.xyz' }}
       LETSENCRYPT_EMAIL: ${{ vars.LETSENCRYPT_EMAIL }}
+      KAFKA_RETENTION_HOURS: ${{ vars.KAFKA_RETENTION_HOURS || '72' }}
       ACA_TLS_VERIFY: ${{ vars.ACA_TLS_VERIFY || 'on' }}
       FORBIDDEN_HOSTS: ${{ vars.TEST_HOSTNAMES }}
       ALLOW_DESTRUCTIVE: ${{ inputs.allow_destructive || false }}

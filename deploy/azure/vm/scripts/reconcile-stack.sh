@@ -105,6 +105,9 @@ ensure_owner "$data/grafana" 472:0
 
 # ---------------------------------------------------------------------------
 log "[2/9] Kafka identity and TLS material"
+# shellcheck source=kafka-identity.sh
+. "$opt/scripts/kafka-identity.sh"
+kafka_identity_safe "$data/kafka" || exit 1
 if [[ ! -s "$data/kafka/cluster-id" ]]; then
   # KRaft metadata is bound to this ID; it is generated once and never replaced.
   docker run --rm "$kafka_image" /opt/kafka/bin/kafka-storage.sh random-uuid > "$data/kafka/cluster-id.tmp"
@@ -113,7 +116,8 @@ fi
 chmod 644 "$data/kafka/cluster-id"
 
 tls="$data/kafka/tls"
-if [[ ! -s "$tls/ca.key" || ! -s "$tls/ca.crt" ]]; then
+kafka_tls_identity_safe "$data/kafka" || exit 1
+if [[ ! -s "$tls/ca.key" && ! -s "$tls/ca.crt" ]]; then
   log "      creating Kafka CA"
   openssl req -x509 -newkey rsa:3072 -sha256 -nodes -days 3650 \
     -subj "/CN=ResearchTrack Kafka CA (production)" \
@@ -128,7 +132,7 @@ broker_cert_valid() {
   [[ -s "$tls/broker.crt" && -s "$tls/broker.p12" ]] || return 1
   # Renew 30 days before expiry, or if the private IP changed.
   openssl x509 -in "$tls/broker.crt" -noout -checkend $((30 * 86400)) >/dev/null || return 1
-  openssl x509 -in "$tls/broker.crt" -noout -ext subjectAltName 2>/dev/null | grep -q "IP Address:$INFRA_PRIVATE_IP" || return 1
+  openssl x509 -in "$tls/broker.crt" -noout -checkip "$INFRA_PRIVATE_IP" >/dev/null 2>&1 || return 1
   openssl verify -CAfile "$tls/ca.crt" "$tls/broker.crt" >/dev/null 2>&1
 }
 if ! broker_cert_valid; then
@@ -142,7 +146,7 @@ if ! broker_cert_valid; then
     -out "$tls/broker.crt" 2>/dev/null
   openssl pkcs12 -export -name kafka \
     -inkey "$tls/broker.key" -in "$tls/broker.crt" -certfile "$tls/ca.crt" \
-    -passout "pass:$keystore_password" -out "$tls/broker.p12"
+    -passout "file:$tls/keystore.pass" -out "$tls/broker.p12"
   rm -f "$tls/broker.csr"
 fi
 chmod 600 "$tls/broker.key"
