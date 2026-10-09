@@ -232,6 +232,12 @@ with tarfile.open(fileobj=io.BytesIO(base64.b64decode(encoded)),mode='r:gz') as 
     for name in ('kafka-common.sh','kafka-identity.sh','kafka-topics.sh','verify-kafka.sh'):
         assert t.getmember('./scripts/'+name).mode==0o755
     assert t.getmember('./kafka/client-ssl.properties').mode==0o644
+    assert t.getmember('./scripts/kafka-topic-manifest.jq').mode==0o644
+    assert t.getmember('./kafka/topics.json').mode==0o644
+    import json
+    registry=json.load(t.extractfile('./kafka/topics.json'))
+    assert [entry['name'] for entry in registry['topics'] if entry['approved']]==['researchtrack.deployment-smoke']
+    assert 'reconcile --apply' not in t.extractfile('./scripts/reconcile-stack.sh').read().decode()
     assert not any(m.name.endswith('.env') for m in t.getmembers())
 with tarfile.open(fileobj=io.BytesIO(base64.b64decode((p/'runtime.b64').read_text())),mode='r:gz') as t:
     assert b'KAFKA_RETENTION_HOURS=96' in t.extractfile('./infra.env').read()

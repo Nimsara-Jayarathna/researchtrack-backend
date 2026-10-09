@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "topics": [
+    {
+      "name": "researchtrack.deployment-smoke",
+      "domain": "deployment",
+      "description": "Existing operator-only unique-token TLS connectivity and persistence probe; no application events.",
+      "producerOwner": "DevOps: verify-kafka.sh / network-probe.sh",
+      "consumerOwner": "DevOps: bounded CLI probe",
+      "consumerGroupId": null,
+      "partitions": 1,
+      "replicationFactor": 1,
+      "retentionHours": 24,
+      "contractVersion": "1",
+      "contractReference": "docs/devops/azure-production/KAFKA_OPERATIONS.md",
+      "approved": true
+    },
+    {
+      "name": "researchtrack.github.events.v1",
+      "domain": "github",
+      "description": "PROPOSED only: event selection, payload, key, consumer and processing semantics await approved contracts.",
+      "producerOwner": "GitHub development team (proposed)",
+      "consumerOwner": null,
+      "consumerGroupId": null,
+      "partitions": 1,
+      "replicationFactor": 1,
+      "retentionHours": 72,
+      "contractVersion": null,
+      "contractReference": null,
+      "approved": false
+    },
+    {
+      "name": "researchtrack.jira.events.v1",
+      "domain": "jira",
+      "description": "PROPOSED only: event selection, payload, key, consumer and processing semantics await approved contracts.",
+      "producerOwner": "Jira development team (proposed)",
+      "consumerOwner": null,
+      "consumerGroupId": null,
+      "partitions": 1,
+      "replicationFactor": 1,
+      "retentionHours": 72,
+      "contractVersion": null,
+      "contractReference": null,
+      "approved": false
+    }
+  ]
+}

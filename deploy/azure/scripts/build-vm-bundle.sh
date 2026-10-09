@@ -20,6 +20,7 @@ for key in INFRA_PRIVATE_IP API_HOSTNAME GRAFANA_HOSTNAME ACA_ENV_DOMAIN; do
 done
 
 umask 077
+"$azure_dir/vm/scripts/kafka-topics.sh" validate-manifest
 stage="$(mktemp -d)"
 trap 'rm -rf "$stage"' EXIT
 mkdir -p "$stage/config" "$stage/runtime" "$out_dir"
@@ -31,6 +32,7 @@ cp "$azure_dir/vm/compose.yml" "$cfg/"
 cp -R "$azure_dir/vm/nginx" "$azure_dir/vm/kafka" "$cfg/"
 mkdir -p "$cfg/scripts" "$cfg/prometheus" "$cfg/grafana" "$cfg/mysql"
 cp "$azure_dir/vm/scripts/"*.sh "$cfg/scripts/"
+cp "$azure_dir/vm/scripts/kafka-topic-manifest.jq" "$cfg/scripts/"
 cp "$azure_dir/scripts/validate-vm-stack.sh" "$azure_dir/scripts/validate-infrastructure.sh" "$cfg/scripts/"
 cp "$azure_dir/vm/prometheus/prometheus.yml.template" "$cfg/prometheus/"
 cp -R "$repo_root/deploy/monitoring/rules" "$cfg/prometheus/rules"

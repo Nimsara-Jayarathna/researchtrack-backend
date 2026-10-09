@@ -98,3 +98,14 @@ Some service examples contain currently optional keys reserved for the later Git
 - Use a unique DB user/password per service.
 - Use a unique JWT signing key per deployed environment.
 - GitHub Actions materializes deployment files with restrictive permissions: for Test it uploads them to the VPS over SSH; for Production it turns them into Azure Container App secrets/variables and, for MySQL/Grafana, a protected Azure Run Command parameter.
+
+## Optional Kafka transport readiness
+
+GitHub and Jira examples now include disabled-by-default `Kafka__*` settings. Older
+runtime bundles may omit these keys. When enabled, validators require a reviewed
+topic/contract in the central registry, an external TLS endpoint and real CA delivery.
+Production uses the VM RFC1918 private IPv4 listener on 9092. The public CA Base64 is
+delivered through the existing Container App secret system and written to the validated
+runtime CA path before startup. No producer or consumer is implemented by these settings.
+Do not enable candidates before contract/client review. See
+[Kafka topics and event flows](../../docs/devops/azure-production/KAFKA_TOPICS_EVENT_FLOWS.md).

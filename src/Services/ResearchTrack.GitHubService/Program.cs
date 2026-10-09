@@ -3,9 +3,11 @@ using ResearchTrack.BuildingBlocks.Api.Extensions;
 using ResearchTrack.BuildingBlocks.Api.Security;
 using ResearchTrack.GitHubService.Extensions;
 using ResearchTrack.GitHubService.Persistence;
+using ResearchTrack.BuildingBlocks.Kafka;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.ConfigureKestrel(options => options.AddServerHeader = false);
+builder.Services.AddResearchTrackKafkaConfiguration(builder.Configuration, builder.Environment.IsProduction());
 
 builder.Services.AddResearchTrackApi("ResearchTrack GitHub Service");
 builder.Services.AddResearchTrackJwtAuthentication(builder.Configuration);

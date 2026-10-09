@@ -99,6 +99,8 @@ for file in "${!contracts[@]}"; do
 
   declare -A seen=()
   line_number=0
+  # get_value only reads runtime; error() appends to a different temporary file.
+  # shellcheck disable=SC2094
   while IFS= read -r line || [[ -n "$line" ]]; do
     line_number=$((line_number + 1))
     line="${line%$'\r'}"
@@ -113,7 +115,7 @@ for file in "${!contracts[@]}"; do
     seen[$key]=1
 
     value="$(get_value "$runtime" "$key" || true)"
-    if is_placeholder "$value"; then
+    if [[ "$key" != Kafka__* ]] && is_placeholder "$value"; then
       error "$file: '$key' still contains a placeholder."
     fi
   done < "$runtime"
@@ -122,12 +124,17 @@ for file in "${!contracts[@]}"; do
     line="${line%$'\r'}"
     [[ -z "$line" || "$line" =~ ^[[:space:]]*# || "$line" != *=* ]] && continue
     key="${line%%=*}"
+    [[ "$key" == Kafka__* ]] && continue # Optional until approved application integration is enabled.
     [[ -n "${seen[$key]:-}" ]] || error "$file is missing '$key' from canonical contract $contract."
   done < "$contract"
   unset seen
 done
 
 # Later checks assume every file parses and matches its contract.
+if [[ "$VALIDATE_SCOPE" != infra ]]; then
+  python3 "$(dirname "${BASH_SOURCE[0]}")/../scripts/kafka_config.py" "$ENV_DIR" --environment production \
+    || error 'optional Kafka environment validation failed.'
+fi
 if (( $(error_count) > 0 )); then
   echo "Azure Production env validation failed with $(error_count) error(s)." >&2
   exit 1

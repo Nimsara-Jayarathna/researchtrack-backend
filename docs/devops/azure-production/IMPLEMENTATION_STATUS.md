@@ -6,6 +6,19 @@ This is intentionally short so the next agent does not re-audit everything.
 
 Last updated: 2026-10-09. **Kafka operations implemented and offline-tested; fresh live Kafka verification pending.**
 
+## Sprint 4 topic/event configuration (2026-10-09, local review only)
+
+- Added central topic registry, validated dry-run/check/explicit-apply reconciliation,
+  bundle validation, optional GitHub/Jira runtime binding and actual public CA delivery.
+- Added enabled/disabled env checks and renderer protection through existing configuration
+  and secret composition. Other service configuration, listeners, NSG and frontend unchanged.
+- GitHub/Jira have no Kafka producers/consumers or supplied approved event contracts.
+  Application candidates remain unapproved; services remain disabled by default.
+- ResearchTrack indexes/HEADs unchanged; no push, PR, workflow trigger, Azure mutation,
+  topic write or restart. Existing image-impact tests used temporary fixture commits;
+  see the report's Git-safety exception.
+- Evidence and outstanding requirements: [KAFKA_TOPICS_TASK_REPORT.md](KAFKA_TOPICS_TASK_REPORT.md).
+
 ## Sprint 4 Kafka verification (2026-10-09)
 
 - Owner reports Kafka already deployed. Historical Azure results below are retained;

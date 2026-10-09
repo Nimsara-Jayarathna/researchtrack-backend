@@ -27,11 +27,15 @@ unset RT_RUNTIME_B64
 for path in compose.yml scripts/reconcile-stack.sh scripts/compose.sh \
     scripts/validate-vm-stack.sh scripts/validate-infrastructure.sh \
     scripts/kafka-common.sh scripts/kafka-identity.sh scripts/kafka-topics.sh scripts/verify-kafka.sh \
+    scripts/kafka-topic-manifest.jq kafka/topics.json \
     mysql/reconcile-databases.sh kafka/server.properties.template \
     prometheus/prometheus.yml.template prometheus/rules grafana/provisioning \
     runtime/infra.env runtime/mysql.env runtime/grafana.env; do
   [[ -e "$work/$path" ]] || { echo "Deployment bundle is missing $path" >&2; exit 1; }
 done
+
+# Validate the bundled registry without connecting to or mutating Kafka.
+bash "$work/scripts/kafka-topics.sh" validate-manifest "$work/kafka/topics.json"
 
 [[ -d "$opt" ]] || { echo "$opt missing; run configure-vm.sh first." >&2; exit 1; }
 

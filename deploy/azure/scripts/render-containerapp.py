@@ -18,9 +18,10 @@ import json
 import os
 import re
 import sys
+from kafka_config import validate as validate_kafka
 
 SECRET_KEY_PATTERN = re.compile(
-    r"(^ConnectionStrings__|Password$|Secret$|SecretKey$|SigningKey$|ApiKey$|AccessKey$|Token$|PrivateKey(Base64)?$)"
+    r"(^ConnectionStrings__|Password$|Secret$|SecretKey$|SigningKey$|ApiKey$|AccessKey$|Token$|PrivateKey(Base64)?$|^Kafka__SslCaCertificateBase64$)"
 )
 REVISION_ENV = "RESEARCHTRACK_DEPLOYMENT_REVISION"
 REGISTRY_SECRET = "registry-password"
@@ -103,6 +104,11 @@ def main() -> None:
     parser.add_argument("--require", action="append", default=[])
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
+
+    try:
+        validate_kafka(args.service, dict(entry for path in args.env_file for entry in parse_env_file(path)), True)
+    except (ValueError, OSError) as error:
+        sys.exit(str(error))
 
     env, secrets = build_env(args.env_file, [])
     require_keys(args.name, args.env_file, args.require)

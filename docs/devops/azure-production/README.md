@@ -109,6 +109,10 @@ Update after every meaningful implementation session.
 
 This prevents future agents from re-investigating already completed work.
 
+Kafka event/topic integration: [KAFKA_TOPICS_EVENT_FLOWS.md](KAFKA_TOPICS_EVENT_FLOWS.md)
+and [KAFKA_TOPICS_TASK_REPORT.md](KAFKA_TOPICS_TASK_REPORT.md) document the local
+implementation, unapproved application topics and developer/live verification dependencies.
+
 ## Critical repository rule
 
 Never inspect real `.env` files.

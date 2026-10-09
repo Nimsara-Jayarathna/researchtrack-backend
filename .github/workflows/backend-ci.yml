@@ -20,7 +20,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          bash -n \
+          for script in \
             deploy/scripts/deploy-stack.sh \
             deploy/scripts/verify-health.sh \
             deploy/validate-env-files.sh \
@@ -28,8 +28,10 @@ jobs:
             deploy/mysql/reconcile-databases.sh \
             deploy/azure/scripts/*.sh \
             deploy/azure/vm/scripts/*.sh \
-            deploy/azure/validation/*.sh
-          python -m py_compile deploy/azure/scripts/render-containerapp.py deploy/build/service-impact.py
+            deploy/azure/validation/*.sh; do
+            bash -n "$script"
+          done
+          python -m py_compile deploy/azure/scripts/render-containerapp.py deploy/azure/scripts/kafka_config.py deploy/build/service-impact.py
           python -m json.tool deploy/monitoring/grafana/provisioning/dashboards/json/researchtrack-overview.json >/dev/null
           python -m json.tool deploy/monitoring/grafana/provisioning/dashboards/json/github-sync.json >/dev/null
 
@@ -82,6 +84,9 @@ jobs:
 
       - name: Test Kafka operational safety (offline)
         run: ./deploy/azure/validation/test-kafka-operations.sh
+
+      - name: Test Kafka topic registry, reconciliation and service configuration (offline)
+        run: python3 deploy/azure/validation/test_kafka_topics_config.py
 
       - name: Test VM private-IP safety check (stubbed ip)
         run: ./deploy/azure/validation/test-private-ip-check.sh

@@ -120,6 +120,25 @@ new_case valid
 expect pass "valid synthetic production configuration"
 expect pass "infra scope (mysql.env + grafana.env only)" "" VALIDATE_SCOPE=infra
 
+new_case kafka-legacy
+for service in github jira; do
+  sed -i.tmp '/^Kafka__/d' "$case_dir/$service.env"
+  rm -f "$case_dir/$service.env.tmp"
+done
+expect pass "older service env files without Kafka keys remain valid"
+
+new_case kafka-disabled
+set_key github.env Kafka__SslCaCertificateBase64 CHANGE_ME
+expect pass "disabled Kafka does not require unused trust material"
+
+new_case kafka-enabled-missing
+set_key github.env Kafka__Enabled true
+expect fail "enabled Kafka requires bootstrap and approved contract" "invalid or missing Kafka__"
+
+new_case kafka-unrelated
+printf 'Kafka__Enabled=false\n' >> "$case_dir/project.env"
+expect fail "unrelated services cannot receive Kafka settings" "service has no agreed Kafka role"
+
 # Shared JWT composition is reported by name for every consumer, never by value.
 new_case shared-auth-report
 if run env; then

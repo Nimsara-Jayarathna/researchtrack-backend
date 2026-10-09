@@ -27,7 +27,9 @@ for contract in shared gateway auth project github jira meeting submission; do
   [[ "$contract" == shared ]] && file="$work/env/shared-auth.env"
   sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' "$repo_root/config/env/$contract/.env.example" |
     while read -r key; do
-      if [[ "$key" == Jwt__SigningKey ]]; then echo "$key=$signing_key"; else echo "$key=synthetic-$contract-$key"; fi
+      if [[ "$key" == Jwt__SigningKey ]]; then echo "$key=$signing_key"
+      elif [[ "$key" == Kafka__Enabled ]]; then echo "$key=false"
+      else echo "$key=synthetic-$contract-$key"; fi
     done > "$file"
 done
 
