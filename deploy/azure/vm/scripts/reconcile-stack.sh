@@ -132,8 +132,7 @@ broker_cert_valid() {
   [[ -s "$tls/broker.crt" && -s "$tls/broker.p12" ]] || return 1
   # Renew 30 days before expiry, or if the private IP changed.
   openssl x509 -in "$tls/broker.crt" -noout -checkend $((30 * 86400)) >/dev/null || return 1
-  openssl x509 -in "$tls/broker.crt" -noout -checkip "$INFRA_PRIVATE_IP" >/dev/null 2>&1 || return 1
-  openssl verify -CAfile "$tls/ca.crt" "$tls/broker.crt" >/dev/null 2>&1
+  openssl verify -CAfile "$tls/ca.crt" -verify_ip "$INFRA_PRIVATE_IP" "$tls/broker.crt" >/dev/null 2>&1
 }
 if ! broker_cert_valid; then
   log "      issuing Kafka broker certificate for $INFRA_PRIVATE_IP"

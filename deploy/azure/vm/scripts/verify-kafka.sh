@@ -89,7 +89,7 @@ for expected in 'security.protocol=SSL' 'ssl.truststore.type=PEM' \
   check "TLS client setting ${expected%%=*}" grep -Fxq -- "$expected" "$opt/kafka/client-ssl.properties"
 done
 if openssl verify -CAfile "$data/kafka/tls/ca.crt" "$data/kafka/tls/broker.crt" >/dev/null 2>&1; then pass 'broker certificate chain'; else fail 'broker certificate chain'; fi
-if openssl x509 -in "$data/kafka/tls/broker.crt" -noout -checkip "$INFRA_PRIVATE_IP" >/dev/null 2>&1; then pass 'broker certificate private-IP identity'; else fail 'broker certificate private-IP identity'; fi
+if openssl verify -CAfile "$data/kafka/tls/ca.crt" -verify_ip "$INFRA_PRIVATE_IP" "$data/kafka/tls/broker.crt" >/dev/null 2>&1; then pass 'broker certificate private-IP identity'; else fail 'broker certificate private-IP identity'; fi
 if openssl x509 -in "$data/kafka/tls/broker.crt" -noout -checkend 2592000 >/dev/null 2>&1; then pass 'broker certificate valid for next 30 days'; else fail 'broker certificate expires within 30 days'; fi
 if timeout 10 openssl s_client -connect "$INFRA_PRIVATE_IP:9092" -CAfile "$data/kafka/tls/ca.crt" \
     -verify_return_error -verify_ip "$INFRA_PRIVATE_IP" </dev/null >/dev/null 2>&1; then
