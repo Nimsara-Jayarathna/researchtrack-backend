@@ -182,7 +182,7 @@ From the repository root:
 ```bash
 dotnet restore ResearchTrack.sln
 dotnet build ResearchTrack.sln -c Release --no-restore
-dotnet test ResearchTrack.sln -c Release --no-build
+dotnet test ResearchTrack.sln -c Release --no-build --filter "Category!=DatabaseIntegration"
 ```
 
 Coverage collection can be performed per test project or solution-wide:
@@ -190,6 +190,7 @@ Coverage collection can be performed per test project or solution-wide:
 ```bash
 dotnet test ResearchTrack.sln \
   -c Release \
+  --filter "Category!=DatabaseIntegration" \
   --collect:"XPlat Code Coverage"
 ```
 

@@ -57,13 +57,13 @@ This workspace does not provide the .NET SDK/runtime, so `dotnet build` and `dot
 ```bash
 dotnet restore ResearchTrack.sln
 dotnet build ResearchTrack.sln -c Release --no-restore
-dotnet test ResearchTrack.sln -c Release --no-build
+dotnet test ResearchTrack.sln -c Release --no-build --filter "Category!=DatabaseIntegration"
 ```
 
 Then collect measured coverage:
 
 ```bash
-dotnet test ResearchTrack.sln -c Release --collect:"XPlat Code Coverage"
+dotnet test ResearchTrack.sln -c Release --filter "Category!=DatabaseIntegration" --collect:"XPlat Code Coverage"
 ```
 
 Do not claim a final coverage percentage until this runtime report exists.

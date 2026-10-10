@@ -17,73 +17,130 @@ public sealed class JiraWebhookServiceMockInteractionTests
     [Fact]
     public async Task ReceiveAsync_ValidMatchingWebhook_QueuesExactlyOnceWithIssueId()
     {
-        var setup = await SetupAsync();
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var setup = await SetupAsync(cancellationToken);
         var payload = """{"webhookEvent":"jira:issue_updated","matchedWebhookIds":[9001],"issue":{"id":"123","key":"RT-42","fields":{"project":{"id":"10000","key":"RT"}}}}""";
 
-        var accepted = await setup.Service.ReceiveAsync(Bearer(setup.Options.ClientSecret), "delivery-1", payload, TestContext.Current.CancellationToken);
+        var accepted = await setup.Service.ReceiveAsync(
+            Bearer(setup.Options.ClientSecret),
+            "delivery-1",
+            payload,
+            cancellationToken);
 
         Assert.True(accepted);
         await setup.Scheduler.Received(1).RequestAsync(
-            setup.ProjectId, "WEBHOOK", Arg.Any<DateTimeOffset>(), "123", Arg.Any<CancellationToken>());
+            setup.ProjectId,
+            "WEBHOOK",
+            Arg.Any<DateTimeOffset>(),
+            "123",
+            cancellationToken);
     }
 
     [Fact]
     public async Task ReceiveAsync_InvalidBearer_DoesNotQueue()
     {
-        var setup = await SetupAsync();
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var setup = await SetupAsync(cancellationToken);
 
-        var accepted = await setup.Service.ReceiveAsync("Bearer bad.token.value", "delivery-1", "{}", TestContext.Current.CancellationToken);
+        var accepted = await setup.Service.ReceiveAsync(
+            "Bearer bad.token.value",
+            "delivery-1",
+            "{}",
+            cancellationToken);
 
         Assert.False(accepted);
-        await setup.Scheduler.DidNotReceiveWithAnyArgs().RequestAsync(default, default!, default, default, default);
+        await setup.Scheduler.DidNotReceive().RequestAsync(
+            Arg.Any<Guid>(),
+            Arg.Any<string>(),
+            Arg.Any<DateTimeOffset>(),
+            Arg.Any<string?>(),
+            cancellationToken);
     }
 
     [Fact]
     public async Task ReceiveAsync_DuplicateProcessedDelivery_DoesNotQueueAgain()
     {
-        var setup = await SetupAsync();
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var setup = await SetupAsync(cancellationToken);
         await using (var db = setup.Factory.CreateDbContext())
         {
             db.JiraWebhookEvents.Add(new JiraWebhookEvent
             {
-                Id = Guid.NewGuid(), DeliveryId = "delivery-1", CloudId = "cloud", ResearchProjectId = setup.ProjectId,
-                EventType = "jira:issue_updated", PayloadJson = "{}", ReceivedAt = DateTimeOffset.UtcNow,
-                ProcessedAt = DateTimeOffset.UtcNow, Status = "PROCESSED"
+                Id = Guid.NewGuid(),
+                DeliveryId = "delivery-1",
+                CloudId = "cloud",
+                ResearchProjectId = setup.ProjectId,
+                EventType = "jira:issue_updated",
+                PayloadJson = "{}",
+                ReceivedAt = DateTimeOffset.UtcNow,
+                ProcessedAt = DateTimeOffset.UtcNow,
+                Status = "PROCESSED"
             });
-            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+            await db.SaveChangesAsync(cancellationToken);
         }
+
         var payload = """{"webhookEvent":"jira:issue_updated","matchedWebhookIds":[9001],"issue":{"id":"123","key":"RT-42","fields":{"project":{"id":"10000","key":"RT"}}}}""";
 
-        var accepted = await setup.Service.ReceiveAsync(Bearer(setup.Options.ClientSecret), "delivery-1", payload, TestContext.Current.CancellationToken);
+        var accepted = await setup.Service.ReceiveAsync(
+            Bearer(setup.Options.ClientSecret),
+            "delivery-1",
+            payload,
+            cancellationToken);
 
         Assert.True(accepted);
-        await setup.Scheduler.DidNotReceiveWithAnyArgs().RequestAsync(default, default!, default, default, default);
+        await setup.Scheduler.DidNotReceive().RequestAsync(
+            Arg.Any<Guid>(),
+            Arg.Any<string>(),
+            Arg.Any<DateTimeOffset>(),
+            Arg.Any<string?>(),
+            cancellationToken);
     }
 
-    private static async Task<Setup> SetupAsync()
+    private static async Task<Setup> SetupAsync(CancellationToken cancellationToken)
     {
         var factory = new TestJiraDbContextFactory();
         var scheduler = Substitute.For<IJiraSyncScheduler>();
         var options = new JiraOptions
         {
-            ClientSecret = "webhook-secret", WebhookCoalesceSeconds = 3,
-            TokenUrl = "https://example.test/token", ApiBaseUrl = "https://example.test",
+            ClientSecret = "webhook-secret",
+            WebhookCoalesceSeconds = 3,
+            TokenUrl = "https://example.test/token",
+            ApiBaseUrl = "https://example.test",
             AccessibleResourcesUrl = "https://example.test/resources"
         };
         var projectId = Guid.NewGuid();
+
         await using (var db = factory.CreateDbContext())
         {
             db.JiraConnections.Add(new JiraConnection
             {
-                Id = Guid.NewGuid(), ResearchProjectId = projectId, CloudId = "cloud", WorkspaceName = "Workspace",
-                JiraProjectId = "10000", JiraProjectKey = "RT", JiraProjectName = "ResearchTrack",
-                AccessTokenProtected = "protected:access", ConnectedByUserId = Guid.NewGuid(), ConnectedAt = DateTimeOffset.UtcNow,
-                UpdatedAt = DateTimeOffset.UtcNow, SyncStatus = "SYNCED", WebhookId = 9001, WebhookStatus = "ACTIVE"
+                Id = Guid.NewGuid(),
+                ResearchProjectId = projectId,
+                CloudId = "cloud",
+                WorkspaceName = "Workspace",
+                JiraProjectId = "10000",
+                JiraProjectKey = "RT",
+                JiraProjectName = "ResearchTrack",
+                AccessTokenProtected = "protected:access",
+                ConnectedByUserId = Guid.NewGuid(),
+                ConnectedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow,
+                SyncStatus = "SYNCED",
+                WebhookId = 9001,
+                WebhookStatus = "ACTIVE"
             });
-            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+            await db.SaveChangesAsync(cancellationToken);
         }
+
         var client = new AtlassianClient(new HttpClient(new NoopHandler()), options);
-        var service = new JiraWebhookService(factory, client, new StubTokenProtector(), options, scheduler, NullLogger<JiraWebhookService>.Instance);
+        var service = new JiraWebhookService(
+            factory,
+            client,
+            new StubTokenProtector(),
+            options,
+            scheduler,
+            NullLogger<JiraWebhookService>.Instance);
+
         return new Setup(service, factory, scheduler, options, projectId);
     }
 
@@ -91,16 +148,28 @@ public sealed class JiraWebhookServiceMockInteractionTests
     {
         static string Encode(string json) => WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(json));
         var header = Encode("""{"alg":"HS256","typ":"JWT"}""");
-        var payload = Encode(JsonSerializer.Serialize(new { exp = DateTimeOffset.UtcNow.AddMinutes(10).ToUnixTimeSeconds() }));
+        var payload = Encode(JsonSerializer.Serialize(new
+        {
+            exp = DateTimeOffset.UtcNow.AddMinutes(10).ToUnixTimeSeconds()
+        }));
         var input = header + "." + payload;
         using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(secret));
-        return "Bearer " + input + "." + WebEncoders.Base64UrlEncode(hmac.ComputeHash(Encoding.ASCII.GetBytes(input)));
+        return "Bearer " + input + "." + WebEncoders.Base64UrlEncode(
+            hmac.ComputeHash(Encoding.ASCII.GetBytes(input)));
     }
 
-    private sealed record Setup(JiraWebhookService Service, TestJiraDbContextFactory Factory, IJiraSyncScheduler Scheduler, JiraOptions Options, Guid ProjectId);
+    private sealed record Setup(
+        JiraWebhookService Service,
+        TestJiraDbContextFactory Factory,
+        IJiraSyncScheduler Scheduler,
+        JiraOptions Options,
+        Guid ProjectId);
+
     private sealed class NoopHandler : HttpMessageHandler
     {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken) =>
             throw new InvalidOperationException("HTTP should not be called in webhook receive tests.");
     }
 }

@@ -32,8 +32,33 @@ The suite now targets branch and interaction mutants such as:
 ```bash
 dotnet restore ResearchTrack.sln
 dotnet build ResearchTrack.sln -c Release --no-restore
-dotnet test ResearchTrack.sln -c Release --no-build
-dotnet test ResearchTrack.sln -c Release --collect:"XPlat Code Coverage"
+dotnet test ResearchTrack.sln -c Release --no-build --filter "Category!=DatabaseIntegration"
+dotnet test ResearchTrack.sln -c Release --no-build --filter "Category!=DatabaseIntegration" --collect:"XPlat Code Coverage"
 ```
 
 The generation environment used for this package does not contain the .NET SDK, so pass/fail counts are intentionally not fabricated. Run the commands above locally or in GitHub Actions before merge.
+
+## Verification note: unit vs database integration tests
+
+The solution intentionally contains database integration tests tagged with `Category=DatabaseIntegration`.
+Those tests require the `RESEARCHTRACK_TEST_*_CONNECTION` variables and initialized test databases.
+They are not part of the isolated Unit Testing & Mocking evidence run.
+
+Use either of these for the unit/mock suite:
+
+```bash
+./scripts/test.sh all
+```
+
+or:
+
+```bash
+dotnet test ResearchTrack.sln -c Release --filter "Category!=DatabaseIntegration" --collect:"XPlat Code Coverage"
+```
+
+Run database integration tests separately after database initialization:
+
+```bash
+./scripts/db-init.sh
+./scripts/test.sh integration
+```
