@@ -420,6 +420,252 @@ public sealed class AuthMutationSurvivorHardeningTests
     }
 
     [Fact]
+    public async Task InitRegistrationAsync_InvalidStudentIdentifier_IsRejectedBeforeDatabaseAndEmail()
+    {
+        var factory = Substitute.For<IDbContextFactory<AuthDbContext>>();
+        var email = Substitute.For<IRegistrationEmailService>();
+        var sut = CreateRegistrationSut(factory, email: email);
+
+        var exception = await Assert.ThrowsAsync<ApiValidationException>(() =>
+            sut.InitRegistrationAsync("student-name@student.example.edu", Ct));
+
+        Assert.Contains(exception.FieldErrors, error => error.Field == "email");
+        await factory.DidNotReceive().CreateDbContextAsync(Ct);
+        await email.DidNotReceive().SendOtpEmailAsync(Arg.Any<string>(), Arg.Any<string>(), Ct);
+    }
+
+    [Fact]
+    public async Task VerifyOtpAsync_WrongHash_DoesNotConsumeOtpOrCreateSession()
+    {
+        await using var factory = await SqliteAuthFactory.CreateAsync(Ct);
+        const string email = "wrong-hash@staff.example.edu";
+        await using (var db = factory.CreateDbContext())
+        {
+            db.EmailOtps.Add(Otp(email, "123456", DateTime.UtcNow.AddMinutes(10), null));
+            await db.SaveChangesAsync(Ct);
+        }
+        var sut = CreateRegistrationSut(factory);
+
+        await Assert.ThrowsAsync<ApiValidationException>(() => sut.VerifyOtpAsync(email, "654321", Ct));
+
+        await using var verify = factory.CreateDbContext();
+        Assert.Null((await verify.EmailOtps.SingleAsync(Ct)).UsedAt);
+        Assert.Empty(await verify.RegistrationSessions.ToListAsync(Ct));
+    }
+
+    [Fact]
+    public async Task VerifyOtpAsync_UnknownDomain_CreatesSessionThatRequiresRoleSelection()
+    {
+        await using var factory = await SqliteAuthFactory.CreateAsync(Ct);
+        const string email = "person@external.example.org";
+        await using (var db = factory.CreateDbContext())
+        {
+            db.EmailOtps.Add(Otp(email, "123456", DateTime.UtcNow.AddMinutes(10), null));
+            await db.SaveChangesAsync(Ct);
+        }
+        var sut = CreateRegistrationSut(factory);
+
+        var result = await sut.VerifyOtpAsync(email, "123456", Ct);
+
+        Assert.True(result.RequiresRoleSelection);
+        Assert.Null(result.Role);
+        Assert.StartsWith("token_", result.RegistrationToken, StringComparison.Ordinal);
+        await using var verify = factory.CreateDbContext();
+        var session = await verify.RegistrationSessions.SingleAsync(Ct);
+        Assert.Null(session.Role);
+        Assert.Equal(email, session.Email);
+        Assert.True(session.ExpiresAt > session.CreatedAt);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("researcher")]
+    public async Task CompleteRegistrationAsync_UnresolvedSessionRole_RejectsMissingOrInvalidRequestedRole(string? requestedRole)
+    {
+        await using var factory = await SqliteAuthFactory.CreateAsync(Ct);
+        await SeedRegistrationSessionAsync(factory, "unresolved-role", "person@external.example.org", null,
+            DateTime.UtcNow.AddMinutes(10), null, Ct);
+        var sut = CreateRegistrationSut(factory);
+        var request = new RegisterCompleteRequest
+        {
+            RegistrationToken = "token_unresolved-role",
+            Fname = "Valid",
+            Lname = "User",
+            Password = "StrongPassword!1",
+            Role = requestedRole
+        };
+
+        var exception = await Assert.ThrowsAsync<ApiValidationException>(() => sut.CompleteRegistrationAsync(request, Ct));
+
+        Assert.Contains(exception.FieldErrors, error => error.Field == "role");
+        await using var db = factory.CreateDbContext();
+        Assert.Empty(await db.Users.ToListAsync(Ct));
+    }
+
+    [Fact]
+    public async Task CompleteRegistrationAsync_ServerResolvedRole_OverridesContradictingRequestedRole()
+    {
+        await using var factory = await SqliteAuthFactory.CreateAsync(Ct);
+        await SeedRegistrationSessionAsync(factory, "fixed-role", "fixed@staff.example.edu", UserRole.Supervisor,
+            DateTime.UtcNow.AddMinutes(10), null, Ct);
+        var accessTokens = Substitute.For<IAccessTokenService>();
+        accessTokens.Generate(Arg.Any<User>()).Returns("access-token");
+        var sut = CreateRegistrationSut(factory, accessTokenService: accessTokens);
+        var request = new RegisterCompleteRequest
+        {
+            RegistrationToken = "token_fixed-role",
+            Fname = "Fixed",
+            Lname = "Role",
+            Password = "StrongPassword!1",
+            Role = "STUDENT",
+            Name = "IT20260001"
+        };
+
+        var result = await sut.CompleteRegistrationAsync(request, Ct);
+
+        Assert.Equal("SUPERVISOR", result.Response.User.Role);
+        await using var db = factory.CreateDbContext();
+        var user = await db.Users.SingleAsync(Ct);
+        Assert.Equal(UserRole.Supervisor, user.Role);
+        Assert.Null(user.RegistrationNumber);
+        accessTokens.Received(1).Generate(Arg.Is<User>(candidate => candidate.Id == user.Id && candidate.Role == UserRole.Supervisor));
+    }
+
+    [Fact]
+    public async Task CompleteRegistrationAsync_ValidStudent_PersistsRegistrationRefreshTokenAndConsumesSession()
+    {
+        await using var factory = await SqliteAuthFactory.CreateAsync(Ct);
+        const string registrationNumber = "IT20260001";
+        await SeedRegistrationSessionAsync(factory, "student-success", registrationNumber + "@student.example.edu", UserRole.Student,
+            DateTime.UtcNow.AddMinutes(10), null, Ct);
+        var hasher = Substitute.For<IPasswordHasher>();
+        hasher.Hash("StrongPassword!1").Returns("student-hash");
+        var accessTokens = Substitute.For<IAccessTokenService>();
+        accessTokens.Generate(Arg.Any<User>()).Returns("access-token");
+        var sut = CreateRegistrationSut(factory, hasher: hasher, accessTokenService: accessTokens);
+
+        var result = await sut.CompleteRegistrationAsync(Completion("student-success", registrationNumber), Ct);
+
+        Assert.Equal("access-token", result.AccessToken);
+        Assert.False(string.IsNullOrWhiteSpace(result.RefreshToken));
+        Assert.Equal("STUDENT", result.Response.User.Role);
+        await using var db = factory.CreateDbContext();
+        var user = await db.Users.SingleAsync(Ct);
+        Assert.Equal(registrationNumber, user.RegistrationNumber);
+        Assert.Equal("student-hash", user.PasswordHash);
+        Assert.NotNull((await db.RegistrationSessions.SingleAsync(Ct)).UsedAt);
+        var refresh = await db.RefreshTokens.SingleAsync(Ct);
+        Assert.Equal(user.Id, refresh.UserId);
+        Assert.True(refresh.ExpiresAt > refresh.CreatedAt);
+        hasher.Received(1).Hash("StrongPassword!1");
+        accessTokens.Received(1).Generate(Arg.Is<User>(candidate => candidate.Id == user.Id && candidate.Role == UserRole.Student));
+    }
+
+    [Fact]
+    public async Task CompleteRegistrationAsync_RawTokenWithoutPrefix_IsAccepted()
+    {
+        await using var factory = await SqliteAuthFactory.CreateAsync(Ct);
+        await SeedRegistrationSessionAsync(factory, "raw-token", "raw@staff.example.edu", UserRole.Supervisor,
+            DateTime.UtcNow.AddMinutes(10), null, Ct);
+        var accessTokens = Substitute.For<IAccessTokenService>();
+        accessTokens.Generate(Arg.Any<User>()).Returns("access-token");
+        var sut = CreateRegistrationSut(factory, accessTokenService: accessTokens);
+        var request = new RegisterCompleteRequest
+        {
+            RegistrationToken = "raw-token",
+            Fname = "Raw",
+            Lname = "Token",
+            Password = "StrongPassword!1"
+        };
+
+        var result = await sut.CompleteRegistrationAsync(request, Ct);
+
+        Assert.Equal("SUPERVISOR", result.Response.User.Role);
+        await using var db = factory.CreateDbContext();
+        Assert.Single(await db.Users.ToListAsync(Ct));
+    }
+
+    [Fact]
+    public async Task CompleteRegistrationAsync_OverlongRegistrationNumber_FailsBeforeDatabase()
+    {
+        var factory = Substitute.For<IDbContextFactory<AuthDbContext>>();
+        var sut = CreateRegistrationSut(factory);
+        var request = new RegisterCompleteRequest
+        {
+            RegistrationToken = "token_never-used",
+            Fname = "Valid",
+            Lname = "User",
+            Password = "StrongPassword!1",
+            Name = new string('I', 21)
+        };
+
+        var exception = await Assert.ThrowsAsync<ApiValidationException>(() => sut.CompleteRegistrationAsync(request, Ct));
+
+        Assert.Contains(exception.FieldErrors, error => error.Field == "name");
+        await factory.DidNotReceive().CreateDbContextAsync(Ct);
+    }
+
+    [Fact]
+    public async Task RegisterAsync_StudentRegistrationNumberMismatch_IsRejectedBeforeDatabase()
+    {
+        var factory = Substitute.For<IDbContextFactory<AuthDbContext>>();
+        var sut = CreateRegistrationSut(factory);
+        var request = new RegisterRequest
+        {
+            FirstName = "Student",
+            LastName = "Mismatch",
+            Email = "IT20260001@student.example.edu",
+            Password = "StrongPassword!1",
+            RegistrationNumber = "IT20260002"
+        };
+
+        var exception = await Assert.ThrowsAsync<ApiValidationException>(() => sut.RegisterAsync(request, Ct));
+
+        Assert.Contains(exception.FieldErrors, error => error.Field == "registrationNumber");
+        await factory.DidNotReceive().CreateDbContextAsync(Ct);
+    }
+
+    [Fact]
+    public async Task RegisterAsync_SupervisorRegistrationNumber_IsNormalizedAwayAndNeverPersisted()
+    {
+        await using var factory = await SqliteAuthFactory.CreateAsync(Ct);
+        var hasher = Substitute.For<IPasswordHasher>();
+        hasher.Hash(Arg.Any<string>()).Returns("hash");
+        var sut = CreateRegistrationSut(factory, hasher: hasher);
+        var request = new RegisterRequest
+        {
+            FirstName = "Supervisor",
+            LastName = "User",
+            Email = "supervisor@staff.example.edu",
+            Password = "StrongPassword!1",
+            RegistrationNumber = "  IT20260001  "
+        };
+
+        var response = await sut.RegisterAsync(request, Ct);
+
+        Assert.Equal("SUPERVISOR", response.Role);
+        Assert.Null(response.RegistrationNumber);
+        await using var db = factory.CreateDbContext();
+        Assert.Null((await db.Users.SingleAsync(Ct)).RegistrationNumber);
+    }
+
+    [Fact]
+    public async Task RegisterAsync_MissingRequiredFields_ReturnsAllFieldErrorsWithoutDatabaseAccess()
+    {
+        var factory = Substitute.For<IDbContextFactory<AuthDbContext>>();
+        var sut = CreateRegistrationSut(factory);
+
+        var exception = await Assert.ThrowsAsync<ApiValidationException>(() => sut.RegisterAsync(new RegisterRequest(), Ct));
+
+        Assert.Contains(exception.FieldErrors, error => error.Field == "firstName");
+        Assert.Contains(exception.FieldErrors, error => error.Field == "lastName");
+        Assert.Contains(exception.FieldErrors, error => error.Field == "email");
+        Assert.Contains(exception.FieldErrors, error => error.Field == "password");
+        await factory.DidNotReceive().CreateDbContextAsync(Ct);
+    }
+
+    [Fact]
     public async Task ChangePasswordAsync_RevokesOnlyCurrentUsersActiveRefreshTokens()
     {
         await using var factory = await SqliteAuthFactory.CreateAsync(Ct);
@@ -503,19 +749,24 @@ public sealed class AuthMutationSurvivorHardeningTests
 
     private static RegistrationService CreateRegistrationSut(
         IDbContextFactory<AuthDbContext> factory,
-        IRegistrationEmailService? email = null)
+        IRegistrationEmailService? email = null,
+        IPasswordHasher? hasher = null,
+        IAccessTokenService? accessTokenService = null)
     {
         var policy = Substitute.For<IPasswordPolicyValidator>();
         policy.Validate(Arg.Any<string>(), Arg.Any<string>()).Returns(Array.Empty<ApiFieldError>());
-        var hasher = Substitute.For<IPasswordHasher>();
-        hasher.Hash(Arg.Any<string>()).Returns("hash");
+        if (hasher is null)
+        {
+            hasher = Substitute.For<IPasswordHasher>();
+            hasher.Hash(Arg.Any<string>()).Returns("hash");
+        }
         return new RegistrationService(
             factory,
             RegistrationOptions(),
             policy,
             new JwtOptions("issuer", "audience", new string('x', 64), 15, 30),
             hasher,
-            Substitute.For<IAccessTokenService>(),
+            accessTokenService ?? Substitute.For<IAccessTokenService>(),
             email ?? Substitute.For<IRegistrationEmailService>(),
             NullLogger<RegistrationService>.Instance);
     }

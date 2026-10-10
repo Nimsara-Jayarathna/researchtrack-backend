@@ -16,3 +16,4 @@ For Auth details and commands, see:
 The baseline stage intentionally uses `break = 0`. Final regression thresholds are set only after survivor analysis and a verified hardened score.
 
 - [Auth survivor hardening](auth/AUTH_SURVIVOR_HARDENING.md)
+- [Auth Registration final hardening](auth/AUTH_REGISTRATION_FINAL_HARDENING.md)
