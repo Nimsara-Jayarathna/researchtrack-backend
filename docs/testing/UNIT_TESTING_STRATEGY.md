@@ -12,7 +12,7 @@ The implementation follows these engineering rules:
 4. **Make assertions mutation-resistant** by checking exact outputs, exact fields, exact status codes, and important state preservation.
 5. **Do not call live infrastructure** from unit tests. No live Jira, GitHub, S3, MySQL, Azure, or HTTP dependency is required by the pure unit layer.
 6. **Keep integration tests separate** and preserve the existing integration test suite.
-7. **Use NSubstitute only where dependency interaction is part of the contract.** Pure business rules stay mock-free; orchestration tests verify positive and negative collaborator interactions.
+7. **Do not introduce a mocking framework prematurely.** Service orchestration tests that require interaction verification are intentionally the next phase.
 8. **Do not optimize for artificial 100% line coverage.** The priority is business-critical branch and rule coverage.
 
 ## Current architecture
@@ -140,9 +140,11 @@ ResearchTrack.JiraService.Features
 
 Avoid using generated EF migrations, startup wiring, DTO-only records, and trivial property containers as mutation-score targets.
 
-## Phase 2: mocking and interaction verification — implemented
+## Phase 2: mocking and interaction verification
 
-NSubstitute is centrally managed and used only where a dependency interaction is part of the contract.
+Do this after the pure unit suite is green.
+
+Introduce exactly one mocking library centrally (Moq or NSubstitute) and use it only where a dependency interaction is part of the contract.
 
 Priority services:
 
@@ -161,14 +163,17 @@ Priority services:
 
 Mock tests should verify both positive and negative interaction paths, especially `Once` and `Never` behaviour, dependency failures, idempotency, and preservation of previously valid state.
 
-## Phase 3: coverage and CI — implemented
+## Phase 3: coverage and CI
 
-- the fast unit/mock suite is filtered with `Category!=DatabaseIntegration`
-- Coverlet emits Cobertura coverage from all service test projects
-- the repository-pinned ReportGenerator tool merges coverage into HTML, Cobertura, Markdown, JSON, text and CSV evidence
-- GitHub Actions publishes the coverage summary and uploads the complete evidence artifact
-- optional line/branch gates are supported through `COVERAGE_MIN_LINE` and `COVERAGE_MIN_BRANCH`, but remain unset until a real baseline is reviewed
-- database integration tests remain distinct from the fast unit/mock gate
+After mocking coverage is complete:
+
+- run all test projects in CI
+- collect coverlet output
+- merge/report backend coverage
+- publish coverage artifacts
+- surface test counts and coverage in the GitHub Actions summary
+- optionally introduce a quality threshold for business logic only
+- keep integration and external-system tests distinct from fast unit tests
 
 ## Local verification commands
 
@@ -180,10 +185,13 @@ dotnet build ResearchTrack.sln -c Release --no-restore
 dotnet test ResearchTrack.sln -c Release --no-build --filter "Category!=DatabaseIntegration"
 ```
 
-Generate the merged evidence report with:
+Coverage collection can be performed per test project or solution-wide:
 
 ```bash
-./scripts/coverage.sh
+dotnet test ResearchTrack.sln \
+  -c Release \
+  --filter "Category!=DatabaseIntegration" \
+  --collect:"XPlat Code Coverage"
 ```
 
-Do not declare a final coverage percentage until `artifacts/coverage/coverage-summary.md` and the HTML report have been inspected. Structural test presence is not the same thing as measured runtime coverage.
+Do not declare a final coverage percentage until the generated coverage report has been inspected. Structural test presence is not the same thing as measured runtime coverage.

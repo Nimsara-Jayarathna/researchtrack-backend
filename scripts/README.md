@@ -14,7 +14,6 @@ All local runtime configuration is service-owned under `config/env/<service>/.en
 | `migration-list.sh` | selected service `.env.local` | List migrations |
 | `migration-script.sh` | selected service `.env.local` | Generate migration SQL |
 | `test.sh integration` | every business service `.env.local` | Build test DB connection strings and run DB integration tests |
-| `coverage.sh [--no-build]` | none | Run fast unit/mock tests, merge Cobertura coverage and generate CI-ready evidence |
 | `health.sh <profile>` | none | Probe liveness/readiness endpoints |
 
 ## Setup

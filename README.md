@@ -1003,16 +1003,6 @@ Run one service test project:
 
 These commands exclude tests categorized as `DatabaseIntegration`.
 
-## Unit/mock coverage evidence
-
-Generate the merged unit/mock coverage report after a successful Release build:
-
-```bash
-./scripts/coverage.sh --no-build
-```
-
-The script runs the same non-database unit/mock scope, merges the seven Cobertura files, and writes HTML, Markdown, JSON, CSV, text and merged Cobertura evidence under `artifacts/coverage/`. The CI workflow publishes the summary and uploads the complete evidence artifact. See `docs/testing/COVERAGE_AND_CI.md`.
-
 ## Database integration tests
 
 Run explicitly:
@@ -1464,3 +1454,7 @@ See the [Documentation index](docs/README.md) for guides, plans, and the documen
 ## SE3112 — Load & Performance Testing (Nimsara)
 
 The backend includes an authenticated k6 suite, a fixed-IP **and secret** VPS gateway rate-limit exemption, and a manual GitHub Actions workflow that borrows and restores the existing Azure runtime. The normal backend and frontend test suites remain first-class CI checks. See [`tests/performance/README.md`](tests/performance/README.md) for complete setup, GitHub secrets/variables, available profiles, rate limiting, reporting, account preparation, and workflow operation.
+
+## SE3112 unit testing, mocking and coverage evidence
+
+The assessment-focused unit/mock suite excludes database integration tests and publishes two merged coverage views: full production source and a business-logic quality-gate scope. Run `./scripts/coverage.sh --no-build` after a Release build. See `docs/testing/PHASE4_BUSINESS_COVERAGE_HARDENING.md` and `docs/testing/COVERAGE_GAP_REGISTER.md` for the risk-based coverage strategy.
