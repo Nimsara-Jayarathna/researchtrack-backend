@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   mutation:
-    name: Stryker business-rule mutation (${{ inputs.scope }})
+    name: Stryker business-logic mutation (${{ inputs.scope }})
     runs-on: ubuntu-latest
     timeout-minutes: 90
 
