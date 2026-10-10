@@ -72,6 +72,6 @@ Do not claim a final coverage percentage until this runtime report exists.
 
 After this suite is green, add one mocking framework centrally and cover service orchestration/dependency interactions. See:
 
-- `docs/testing/UNIT_TESTING_STRATEGY.md`
-- `docs/testing/UNIT_TEST_COVERAGE_MATRIX.md`
+- `docs/testing/unit/UNIT_TESTING_STRATEGY.md`
+- `docs/testing/coverage/UNIT_TEST_COVERAGE_MATRIX.md`
 - `tests/UNIT_TESTING_README.md`

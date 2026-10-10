@@ -1,4 +1,4 @@
-# SE3112 Mutation Testing — Pamudi — Phases 1–4
+# SE3112 Mutation Testing — Phases 1–4
 
 ## Branch
 
@@ -8,13 +8,13 @@ Use:
 feature/SE3112-mutation-testing
 ```
 
-Create it from the branch/revision that already contains Sachith's final unit + mocking suite and the 65% line / 50% branch business coverage gate.
+Create it from the branch/revision that already contains the final unit + mocking suite and the 65% line / 50% branch business coverage gate.
 
 ## Why mutation testing comes after unit testing
 
 The normal unit/mock suite answers whether the implementation behaves as expected for the authored examples. Mutation testing measures the strength of those tests by deliberately changing production business logic and checking whether the same tests fail.
 
-Mutation testing therefore **reuses the existing unit-test projects**. We do not create a parallel `MutationTests` test project containing duplicate tests. If a meaningful mutant survives, Pamudi strengthens or adds an ordinary unit test in the existing service test project. That strengthened test then benefits normal CI as well as future mutation runs.
+Mutation testing therefore **reuses the existing unit-test projects**. We do not create a parallel `MutationTests` test project containing duplicate tests. If a meaningful mutant survives, the developer strengthens or adds an ordinary unit test in the existing service test project. That strengthened test then benefits normal CI as well as future mutation runs.
 
 ## Phase 1 — repository-local Stryker.NET
 
@@ -109,7 +109,7 @@ Existing xUnit unit/mock tests
 Killed / Survived / No coverage / Timeout
 ```
 
-Pamudi's new tests, when required, remain in the normal service test projects. They should describe the missing business boundary or behavior, not mention a particular mutant ID.
+New tests, when required, remain in the normal service test projects. They should describe the missing business boundary or behavior, not mention a particular mutant ID.
 
 ## What comes after these phases
 
@@ -120,4 +120,4 @@ After the baseline is reviewed:
 - expand mutation scope selectively to critical orchestration (Auth, Project, Submission, GitHub, Jira and Gateway);
 - choose a defensible regression threshold from the verified score;
 - make the separate manual mutation workflow enforce that threshold;
-- package the HTML/JSON/Markdown reports as Pamudi's final assessment evidence.
+- package the HTML/JSON/Markdown reports as the final assessment evidence.

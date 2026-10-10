@@ -1,4 +1,4 @@
-# Pamudi Mutation Testing — Phase 1–4 Implementation Summary
+# Mutation Testing — Phase 1–4 Implementation Summary
 
 Implemented on top of the existing ResearchTrack unit/mock suite.
 
@@ -15,7 +15,7 @@ Implemented on top of the existing ResearchTrack unit/mock suite.
 
 ## Important design decision
 
-Mutation testing reuses the existing xUnit projects. There is no duplicated `MutationTests` project. A surviving meaningful mutant is fixed by strengthening the corresponding normal unit test, so Sachith's suite and Pamudi's mutation quality work reinforce one another.
+Mutation testing reuses the existing xUnit projects. There is no duplicated `MutationTests` project. A surviving meaningful mutant is fixed by strengthening the corresponding normal unit test, so the unit-test suite and mutation quality work reinforce one another.
 
 ## Baseline policy
 
@@ -35,5 +35,5 @@ The mutation configs now exclude `Category=DatabaseIntegration` tests and set `c
 
 The original xUnit v3 Stryker entry points are superseded by the dedicated
 xUnit v2 mutation harness documented in
-`PAMUDI_MUTATION_PHASE1_DEDICATED_HARNESS_SUMMARY.md`. Do not record the prior
+`MUTATION_TESTING_PHASE1_DEDICATED_HARNESS_SUMMARY.md`. Do not record the prior
 `K 0` xUnit v3 runs as the mutation baseline.

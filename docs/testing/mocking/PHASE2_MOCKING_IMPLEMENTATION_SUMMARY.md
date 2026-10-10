@@ -12,7 +12,7 @@ This branch extends the Phase 1 deterministic unit suite with NSubstitute-based 
 - External dependency failure tests.
 - Duplicate/replay suppression tests.
 - Persistence-side-effect checks.
-- `docs/testing/MOCKING_STRATEGY.md`.
+- `docs/testing/mocking/MOCKING_STRATEGY.md`.
 
 ## Mutation-testing readiness
 

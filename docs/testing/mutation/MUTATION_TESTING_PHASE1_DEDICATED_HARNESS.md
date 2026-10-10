@@ -26,7 +26,7 @@ projects. Stryker runs only through those harnesses.
   - workflow/review decision rules
 
 These projects are deliberately not added to `ResearchTrack.sln`, so normal
-unit/mock CI and Sachith's coverage evidence remain based only on the official
+unit/mock CI and the unit-test coverage evidence remain based only on the official
 xUnit v3 projects. Mutation testing is isolated through its own scripts and
 manual GitHub Actions workflow.
 

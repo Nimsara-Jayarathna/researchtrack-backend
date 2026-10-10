@@ -1,4 +1,4 @@
-# Pamudi — Mutation Testing Phase 1
+# Mutation Testing Phase 1 — Dedicated Harness Summary
 
 Implemented a dedicated Stryker-compatible xUnit v2 mutation harness while
 preserving the existing xUnit v3 unit/mock suite.
@@ -18,7 +18,7 @@ preserving the existing xUnit v3 unit/mock suite.
 ## Isolation
 
 The dedicated mutation projects are intentionally excluded from the main
-`ResearchTrack.sln`; therefore they do not duplicate Sachith's tests or alter
+`ResearchTrack.sln`; therefore they do not duplicate the existing unit tests or alter
 normal unit/mock coverage metrics.
 
 ## Required first command

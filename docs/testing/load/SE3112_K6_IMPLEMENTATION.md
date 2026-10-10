@@ -1,4 +1,4 @@
-# ResearchTrack SE3112 — k6 performance implementation (Nimsara)
+# ResearchTrack SE3112 — k6 performance implementation
 
 The complete performance suite builds on the existing Azure runtime acquisition/restoration automation, existing Gateway and ResearchTrack service routes, existing cookie-based login, and the **same SSH repository secrets / VPS user used for Test deployment**. No duplicate VPS secrets or static performance-runner IP configuration is required.
 
@@ -14,7 +14,7 @@ The complete performance suite builds on the existing Azure runtime acquisition/
 
 ## Prerequisites & setup
 
-See **[`tests/performance/README.md`](../../tests/performance/README.md)** for exact GitHub repository secrets, the one new variable, GitHub production Environment values, pre-existing Gateway code deployment requirement, and execution steps. Never commit credentials or paste them into scripts.
+See **[`tests/performance/README.md`](../../../tests/performance/README.md)** for exact GitHub repository secrets, the one new variable, GitHub production Environment values, pre-existing Gateway code deployment requirement, and execution steps. Never commit credentials or paste them into scripts.
 
 ## Verification boundary
 
