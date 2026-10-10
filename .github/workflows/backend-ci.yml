@@ -114,6 +114,12 @@ jobs:
         run: dotnet build ResearchTrack.sln -c Release --no-restore
 
       - name: Unit and mocking tests with coverage
+        env:
+          # Regression floor derived from the verified Phase 5 business baseline
+          # (48.4% line / 39.3% branch). Keep modest headroom for tooling variance;
+          # raise these only after reviewing a newer verified baseline.
+          COVERAGE_MIN_BUSINESS_LINE: '45'
+          COVERAGE_MIN_BUSINESS_BRANCH: '35'
         run: ./scripts/coverage.sh --no-build
 
       - name: Publish coverage summary

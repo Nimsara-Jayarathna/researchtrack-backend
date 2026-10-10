@@ -42,7 +42,7 @@ public sealed class SubmissionRequirementServiceCoverageTests
         await profile.Received(1).GetCurrentUserDisplayNameAsync(TestContext.Current.CancellationToken);
         await using var db = factory.CreateDbContext();
         var persisted = Assert.Single(db.SubmissionRequirements);
-        Assert.Equal("pdf,docx", persisted.AllowedFileTypes);
+        Assert.Equal("docx,pdf", persisted.AllowedFileTypes);
         Assert.Equal("Ada Supervisor", persisted.CreatedByName);
     }
 
