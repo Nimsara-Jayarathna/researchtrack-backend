@@ -1,0 +1,80 @@
+name: Backend Mutation Testing
+
+on:
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: Mutation scope to run
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - auth
+          - auth-registration
+          - project
+          - submission
+          - github
+          - jira
+          - gateway
+          - meeting
+
+permissions:
+  contents: read
+
+jobs:
+  mutation:
+    name: Stryker business-logic mutation (${{ inputs.scope }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: |
+            **/*.csproj
+            Directory.Packages.props
+            .config/dotnet-tools.json
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Restore repository tools
+        run: dotnet tool restore
+
+      - name: Restore solution
+        run: dotnet restore ResearchTrack.sln
+
+      - name: Build production and normal tests
+        run: dotnet build ResearchTrack.sln -c Release --no-restore
+
+      - name: Verify normal unit/mock suite
+        run: dotnet test ResearchTrack.sln -c Release --no-build --filter "Category!=DatabaseIntegration"
+
+      - name: Run selected mutation scope
+        run: bash ./scripts/mutation-baseline.sh "${{ inputs.scope }}"
+
+      - name: Publish mutation summary
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f artifacts/mutation/mutation-summary.md ]]; then
+            cat artifacts/mutation/mutation-summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload mutation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-evidence-${{ inputs.scope }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/mutation/
+          if-no-files-found: warn
+          retention-days: 21

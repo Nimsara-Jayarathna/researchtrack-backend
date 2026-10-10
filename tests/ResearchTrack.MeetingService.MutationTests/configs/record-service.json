@@ -1,0 +1,23 @@
+{
+  "stryker-config": {
+    "configuration": "Release",
+    "mutation-level": "Standard",
+    "coverage-analysis": "off",
+    "reporters": [
+      "progress",
+      "html",
+      "json",
+      "markdown"
+    ],
+    "report-file-name": "meeting-record-service-mutation-report",
+    "break-on-initial-test-failure": true,
+    "thresholds": {
+      "high": 80,
+      "low": 60,
+      "break": 0
+    },
+    "mutate": [
+      "**/MeetingRecordService.cs"
+    ]
+  }
+}

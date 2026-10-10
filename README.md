@@ -1457,4 +1457,4 @@ The backend includes an authenticated k6 suite, a fixed-IP **and secret** VPS ga
 
 ## SE3112 unit testing, mocking and coverage evidence
 
-The assessment-focused unit/mock suite excludes database integration tests and publishes two merged coverage views: full production source and a business-logic quality-gate scope. Run `./scripts/coverage.sh --no-build` after a Release build. See `docs/testing/PHASE4_BUSINESS_COVERAGE_HARDENING.md` and `docs/testing/COVERAGE_GAP_REGISTER.md` for the risk-based coverage strategy.
+The assessment-focused unit/mock suite excludes database integration tests and publishes two merged coverage views: full production source and a business-logic quality-gate scope. Run `./scripts/coverage.sh --no-build` after a Release build. See `docs/testing/coverage/PHASE4_BUSINESS_COVERAGE_HARDENING.md` and `docs/testing/coverage/COVERAGE_GAP_REGISTER.md` for the risk-based coverage strategy.
