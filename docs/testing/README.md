@@ -15,12 +15,11 @@ Guides and implementation evidence are grouped by testing topic.
 
 ## Mutation
 
-- [SE3112 Mutation Testing — Phases 1–4](mutation/MUTATION_TESTING_PHASE1_4.md)
-- [Mutation Testing — Phase 1–4 Implementation Summary](mutation/MUTATION_TESTING_PHASE1_4_IMPLEMENTATION_SUMMARY.md)
-- [SE3112 Mutation Testing — Phase 1 Dedicated Harness](mutation/MUTATION_TESTING_PHASE1_DEDICATED_HARNESS.md)
-- [Mutation Testing Phase 1 — Dedicated Harness Summary](mutation/MUTATION_TESTING_PHASE1_DEDICATED_HARNESS_SUMMARY.md)
-- [Stryker.NET xUnit v3 mutation-run fix](mutation/MUTATION_TESTING_XUNIT3_STRYKER_FIX.md)
-- [Mutation tool manifest resolution fix](mutation/MUTATION_TOOL_MANIFEST_FIX.md)
+- [Mutation-testing documentation](mutation/README.md)
+- [Mutation-testing runbook](mutation/runbook.md)
+- [Mutation-testing strategy](mutation/strategy.md)
+- [Mutation baselines and regression policy](mutation/baseline.md)
+- [Mutation-testing implementation history](mutation/history/implementation.md)
 
 ## Load
 

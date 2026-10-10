@@ -1,6 +1,12 @@
-# ProjectService survivor hardening
+# ProjectService mutation hardening
 
-## Baseline that triggered this pass
+[Documentation index](../../README.md) · [Runbook](../../runbook.md) · [Baseline and regression policy](../../baseline.md)
+
+These records preserve successive hardening passes. Scores below are historical measurements that motivated each pass, not newly verified results. Use the shared runbook for current service commands and the baseline document for scoring and gate status.
+
+## Orchestration and dashboard hardening
+
+### Baseline that triggered this pass
 
 The project-wide mutation baseline measured ProjectService at **57.89% weighted** (275 killed / 200 survived):
 
@@ -10,7 +16,7 @@ The project-wide mutation baseline measured ProjectService at **57.89% weighted*
 
 The weak point was therefore orchestration assertions, not basic rule execution.
 
-## Hardening strategy
+### Hardening strategy
 
 This pass keeps production behavior unchanged and strengthens tests around independently observable business decisions. It deliberately avoids exclusions or production refactors whose only purpose would be to increase the score.
 
@@ -31,12 +37,4 @@ The same mutation-oriented behavior suite exists in both the official xUnit v3 P
 
 ## Verification
 
-Run the complete ProjectService pass once:
-
-```bash
-bash ./scripts/mutation-baseline.sh project
-```
-
-The runner first verifies the normal ProjectService unit/mock suite and then the dedicated mutation harness before executing the three Project subscopes. The resulting service score must be taken from generated killed/survived counts rather than by averaging the three percentages.
-
-Do not set or raise the Stryker `break` threshold until the hardened result has been measured and reviewed. Remaining survivors should be classified as business-significant, observable but low-risk, or equivalent/non-business-value before any further test work.
+Run `bash ./scripts/mutation-baseline.sh project` from the repository root. This verifies both test suites and executes every finalized ProjectService subscope. Follow the [runbook](../../runbook.md) for reporting and survivor review.

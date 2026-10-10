@@ -1,32 +1,28 @@
-# ResearchTrack mutation testing
+# Mutation testing
 
-ResearchTrack uses Stryker.NET through repository-local tooling and dedicated xUnit v2 mutation harnesses. Normal production-facing test projects remain on the repository's xUnit v3 stack.
+ResearchTrack uses repository-local Stryker.NET tooling and dedicated xUnit v2 mutation harnesses to assess selected backend business logic. The normal unit/mock suites use xUnit v3 and remain authoritative for regular CI and coverage reporting.
 
-The selected mutation portfolio now spans every backend business area:
+## Start here
 
-- AuthService — authentication, reset, registration, account/session, directory and password policy
-- ProjectService — request/milestone rules, project orchestration and dashboard aggregation
-- SubmissionService — file/responsibility/review rules, requirement lifecycle and submission workflow
-- GitHubService — repository parsing, security tokens/signatures, installation state, repository linking, webhook processing and reconciliation
-- JiraService — issue mapping, synchronization state, issue/health queries, sprint progress and webhook routing
-- Gateway — performance bypass/rate-limit policy and trusted-proxy forwarding
-- MeetingService — channel and meeting-record lifecycle/authorization
+- [Runbook](runbook.md): prerequisites, service commands, reports, and troubleshooting.
+- [Strategy](strategy.md): scope boundaries, harness design, and survivor review.
+- [Baseline and regression policy](baseline.md): recorded results, score calculation, and gate status.
+- [Implementation history](history/implementation.md): initial setup, xUnit compatibility investigation, and tool-manifest correction.
 
-The detailed rationale, commands, scope boundaries, threshold policy and survivor-priority model are in `docs/testing/mutation/project-wide/PROJECT_WIDE_MUTATION_STRATEGY.md`.
+## Service documentation
 
-## Commands
+| Service | Documentation |
+|---|---|
+| AuthService | [Scope](services/auth/scope.md), [hardening history](services/auth/hardening.md) |
+| ProjectService | [Hardening history](services/project/hardening.md) |
+| SubmissionService | [Hardening history](services/submission/hardening.md) |
+| GitHubService | [Hardening history and reconciliation refinement](services/github/hardening.md) |
+| JiraService | [Hardening history and webhook corrections](services/jira/hardening.md) |
+| Gateway | [Scope](services/gateway/scope.md) |
+| MeetingService | [Hardening history](services/meeting/hardening.md) |
 
-```bash
-bash ./scripts/mutation-baseline.sh auth
-bash ./scripts/mutation-baseline.sh project
-bash ./scripts/mutation-baseline.sh submission
-bash ./scripts/mutation-baseline.sh github
-bash ./scripts/mutation-baseline.sh jira
-bash ./scripts/mutation-baseline.sh gateway
-bash ./scripts/mutation-baseline.sh meeting
-bash ./scripts/mutation-baseline.sh all
-```
+## Documentation conventions
 
-Each command verifies the corresponding normal unit/mock suite with database integration tests excluded, verifies the dedicated mutation harness, runs the selected Stryker subscopes and regenerates `artifacts/mutation/mutation-summary.md` when Python 3 is available.
+Use lowercase, hyphen-separated names for Markdown files and folders; reserve `README.md` for the entry point. Keep shared operating instructions at this level, service-specific material under `services/<service>/`, and superseded setup decisions under `history/`.
 
-Survivor hardening is now complete. Evidence-based per-subscope `break` floors are version-controlled in the Stryker configs, and weighted service/project floors are defined in `config/testing/mutation-policy.json`. The complete `all` run enforces those final gates. See `docs/testing/mutation/project-wide/FINAL_MUTATION_BASELINE.md`.
+Maintain one hardening record per service. Add subsequent passes as clearly labeled sections, preserve the baseline that motivated each pass, and distinguish historical measurements from current regression settings. Keep commands in the runbook and shared scoring/policy rules in the baseline document. Use relative Markdown links for navigation. Run commands from the repository root.

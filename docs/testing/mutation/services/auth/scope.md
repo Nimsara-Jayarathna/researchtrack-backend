@@ -1,6 +1,8 @@
-# AuthService Mutation Scope
+# AuthService mutation scope
 
-Pamudi's Auth mutation scope deliberately targets the complete Auth **feature/business-service layer** rather than controllers, DTOs, EF Core mappings, migrations, startup code, configuration binders, or external email/token transport implementations.
+[Documentation index](../../README.md) · [Runbook](../../runbook.md) · [Hardening history](hardening.md)
+
+The Auth mutation scope deliberately targets the complete Auth **feature/business-service layer** rather than controllers, DTOs, EF Core mappings, migrations, startup code, configuration binders, or external email/token transport implementations.
 
 ## Included production targets
 
@@ -30,4 +32,4 @@ Each feature is mutated independently so reports stay understandable and a weak 
 5. user account
 6. user directory
 
-No mutation break threshold is enforced during this baseline phase. After survivor analysis and hardening, establish an evidence-based regression threshold.
+The runner uses per-feature `break` thresholds from the harness configs. See [baseline and regression policy](../../baseline.md) for recorded aggregate results and the current weighted-policy limitation.

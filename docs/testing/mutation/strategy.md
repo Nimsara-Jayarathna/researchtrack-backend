@@ -1,4 +1,6 @@
-# ResearchTrack project-wide mutation strategy
+# Mutation-testing strategy
+
+[Documentation index](README.md) · [Runbook](runbook.md) · [Baseline and regression policy](baseline.md)
 
 ## Objective
 
@@ -9,7 +11,7 @@ The following are deliberately not used to inflate the mutation denominator: con
 ## Service scopes
 
 ### AuthService
-Password policy, authentication/session rotation, password reset, registration, user account/session revocation, and user directory behavior. Auth has already completed survivor hardening and is kept as the established reference scope.
+Password policy, authentication/session rotation, password reset, registration, user account/session revocation, and user directory behavior. The Auth hardening record is maintained under [services/auth](services/auth/hardening.md).
 
 ### ProjectService
 - `ProjectMilestonePolicy`
@@ -67,30 +69,9 @@ Every mutation run first verifies:
 
 Only then does Stryker mutate production code.
 
-## Execution
+## Execution and regression policy
 
-Run one service while hardening survivors:
-
-```bash
-bash ./scripts/mutation-baseline.sh project
-bash ./scripts/mutation-baseline.sh submission
-bash ./scripts/mutation-baseline.sh github
-bash ./scripts/mutation-baseline.sh jira
-bash ./scripts/mutation-baseline.sh gateway
-bash ./scripts/mutation-baseline.sh meeting
-```
-
-Run the complete selected business-logic portfolio only when individual harnesses are stable:
-
-```bash
-bash ./scripts/mutation-baseline.sh all
-```
-
-The manual GitHub Actions workflow exposes the same scopes and uploads HTML, JSON, Markdown, and the weighted project summary.
-
-## Threshold policy
-
-The baseline and survivor-hardening phases are complete. Per-subscope Stryker `break` floors are now set below the stable hardened scores, and weighted service/project floors are version-controlled in `config/testing/mutation-policy.json`. The complete `all` run enforces the weighted policy after regenerating all reports. These are regression guards, not aspirational score targets. See `docs/testing/mutation/project-wide/FINAL_MUTATION_BASELINE.md` for the locked service baselines and rationale.
+Use the [runbook](runbook.md) for service commands and report locations. The runner executes all subscopes within a selected service. Per-subscope Stryker thresholds are stored with the harness configs; recorded aggregate baselines and the weighted-policy limitation are documented in [baseline and regression policy](baseline.md).
 
 ## Survivor-review priority
 
