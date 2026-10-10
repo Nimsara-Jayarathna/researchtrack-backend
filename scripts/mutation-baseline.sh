@@ -142,6 +142,10 @@ run_github_final() {
   run_config github installation-state installation-state.json
   run_config github repository-link repository-link.json
   run_config github webhook-event webhook-event.json
+  # Reconciliation orchestration previously produced 55 compile-error mutants and
+  # only 8 testable mutants. The final scope mutates the extracted pure decision
+  # policy instead, while the orchestration tests still execute the real service.
+  run_config github reconciliation reconciliation.json
 }
 
 run_jira() {

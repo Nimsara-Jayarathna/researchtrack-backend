@@ -9,7 +9,7 @@
       "json",
       "markdown"
     ],
-    "report-file-name": "github-reconciliation-mutation-report",
+    "report-file-name": "github-reconciliation-policy-mutation-report",
     "break-on-initial-test-failure": true,
     "thresholds": {
       "high": 80,
@@ -17,7 +17,7 @@
       "break": 0
     },
     "mutate": [
-      "**/GitHubReconciliationService.cs"
+      "**/GitHubReconciliationPolicy.cs"
     ]
   }
 }
