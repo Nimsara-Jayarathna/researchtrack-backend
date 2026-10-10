@@ -2,7 +2,7 @@ name: Backend Deploy - Production
 
 on:
   push:
-    branches: ["main"]
+    branches: ["devops/sprint4-kafka-infrastructure-verification"]
   workflow_dispatch:
     inputs:
       force_full_build:

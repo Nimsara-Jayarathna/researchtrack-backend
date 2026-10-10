@@ -25,7 +25,9 @@ Infrastructure VM
 ## Frozen rules
 
 - Test/develop deployment stays unchanged.
-- Production/main deploys to Azure.
+- Production deploys to Azure from `devops/sprint4-kafka-infrastructure-verification`;
+  `main` remains the repository default branch. See `RUNBOOK.md` for branch-policy
+  setup and the repository-wide cutover requirement.
 - Only the OIDC/RBAC bootstrap is manual.
 - Azure infrastructure is Bicep-managed.
 - The VM is infrastructure only; no ResearchTrack microservice runs directly on it.
