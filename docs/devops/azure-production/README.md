@@ -111,7 +111,10 @@ This prevents future agents from re-investigating already completed work.
 
 Kafka event/topic integration: [KAFKA_TOPICS_EVENT_FLOWS.md](KAFKA_TOPICS_EVENT_FLOWS.md)
 and [KAFKA_TOPICS_TASK_REPORT.md](KAFKA_TOPICS_TASK_REPORT.md) document the local
-implementation, unapproved application topics and developer/live verification dependencies.
+implementation, approved application contracts and pending live verification.
+See [KAFKA_CONTRACT_PROPOSAL.md](KAFKA_CONTRACT_PROPOSAL.md) for the owner approval and
+[KAFKA_INTEGRATION_TESTING.md](KAFKA_INTEGRATION_TESTING.md) for isolated tests,
+Actions-based production evidence and application restart checks.
 
 ## Critical repository rule
 

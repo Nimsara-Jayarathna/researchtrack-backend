@@ -18,18 +18,20 @@ public sealed class KafkaOffsetCommitException(ErrorCode code) : Exception("Kafk
     public ErrorCode Code { get; } = code;
 }
 
-public sealed class KafkaMessagingHealth : IHealthCheck
+public sealed class KafkaMessagingHealth(IKafkaOutboxStore? store = null) : IHealthCheck
 {
     private int _consumerHeld;
     private int _publisherFailed;
     public void HoldConsumer() => Interlocked.Exchange(ref _consumerHeld, 1);
     public void PublisherResult(bool success) => Interlocked.Exchange(ref _publisherFailed, success ? 0 : 1);
-    public Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default) =>
-        Task.FromResult(Volatile.Read(ref _consumerHeld) != 0
-            ? HealthCheckResult.Unhealthy("Kafka consumer held; review uncommitted record before restart.")
-            : Volatile.Read(ref _publisherFailed) != 0
-                ? HealthCheckResult.Degraded("Kafka publication pending or failed; durable outbox retains work.")
-                : HealthCheckResult.Healthy("Kafka workers have no recorded processing failures; not a live broker connectivity probe."));
+    public async Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default)
+    {
+        if (Volatile.Read(ref _consumerHeld) != 0)
+            return HealthCheckResult.Unhealthy("Kafka consumer held; review uncommitted record before restart.");
+        if (Volatile.Read(ref _publisherFailed) != 0 || store is not null && await store.HasHeldMessagesAsync(cancellationToken))
+            return HealthCheckResult.Degraded("Kafka publication pending or failed; durable outbox retains work.");
+        return HealthCheckResult.Healthy("Kafka workers have no recorded processing failures; not a live broker connectivity probe.");
+    }
 }
 
 public sealed class KafkaOutboxWorker(IKafkaOutboxStore store, IKafkaEventPublisher publisher,
@@ -78,7 +80,7 @@ public sealed class KafkaOutboxWorker(IKafkaOutboxStore store, IKafkaEventPublis
 
 public sealed class KafkaRecordProcessor(KafkaRuntimeOptions options)
 {
-    public async Task ProcessAsync(ConsumeResult<string, string> record, IKafkaEventHandler handler, CancellationToken ct)
+    public async Task<Guid> ProcessAsync(ConsumeResult<string, string> record, IKafkaEventHandler handler, CancellationToken ct)
     {
         if (record.Topic != options.Topic) throw new KafkaContractException();
         var value = KafkaWebhookContract.Parse(record.Message?.Value, record.Message?.Key, options.Service, options.ContractVersion);
@@ -86,7 +88,7 @@ public sealed class KafkaRecordProcessor(KafkaRuntimeOptions options)
         {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
             timeout.CancelAfter(TimeSpan.FromSeconds(15));
-            try { await handler.HandleAsync(value, timeout.Token); return; }
+            try { await handler.HandleAsync(value, timeout.Token); return value.CorrelationId; }
             catch (KafkaContractException) { throw; }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
             catch (Exception) when (attempt < 3) { await Task.Delay(TimeSpan.FromSeconds(attempt), ct); }
@@ -102,10 +104,10 @@ public sealed class KafkaConsumerWorker(IKafkaClientFactory factory, KafkaRuntim
     public async Task HandleAndCommitAsync(IConsumer<string, string> consumer, ConsumeResult<string, string> record, CancellationToken ct)
     {
         using var scope = scopes.CreateScope();
-        await processor.ProcessAsync(record, scope.ServiceProvider.GetRequiredService<IKafkaEventHandler>(), ct);
+        var correlationId = await processor.ProcessAsync(record, scope.ServiceProvider.GetRequiredService<IKafkaEventHandler>(), ct);
         try { consumer.Commit(record); } // Never consume a later record after a failed commit.
         catch (KafkaException exception) { throw new KafkaOffsetCommitException(exception.Error.Code); }
-        logger.LogInformation("Kafka durable handoff and offset commit completed. Partition={Partition} Offset={Offset}", record.Partition.Value, record.Offset.Value);
+        logger.LogInformation("Kafka durable handoff and offset commit completed. CorrelationId={CorrelationId} Partition={Partition} Offset={Offset}", correlationId, record.Partition.Value, record.Offset.Value);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)

@@ -45,7 +45,14 @@ ssl.truststore.location=/run/researchtrack/kafka/ca.crt
 ssl.endpoint.identification.algorithm=https
 ```
 
-There are no Confluent/Kafka packages or producer/consumer code in the current .NET services. Do not add arbitrary application env keys and assume they work. When an event contract and client library are approved, the implementation must bind external configuration for bootstrap servers, SSL protocol, a mounted public CA path, and hostname verification (for example the Confluent .NET options `BootstrapServers`, `SecurityProtocol=Ssl`, `SslCaLocation`, `SslEndpointIdentificationAlgorithm=Https`). Never ship CA or broker private keys in an application image. Confirm those options against the selected library version when application integration starts.
+GitHub/Jira now use Confluent.Kafka 2.16.0 for the owner-approved webhook-reference
+contracts. Real transactional-outbox publishers and durable-handoff consumers are registered
+only when enabled; defaults remain disabled. Clients bind external endpoints/topics/groups,
+require SSL and a validated public CA file, and preserve certificate/HTTPS endpoint verification.
+Application startup never provisions topics. See [event flows](KAFKA_TOPICS_EVENT_FLOWS.md),
+[local tests and live evidence](KAFKA_INTEGRATION_TESTING.md), and the current
+[task report](KAFKA_TOPICS_TASK_REPORT.md). No fresh broker/application Azure verification
+or production enablement was performed in the application integration session.
 
 ## C. Starting Kafka
 

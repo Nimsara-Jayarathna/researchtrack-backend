@@ -1,287 +1,280 @@
-# Kafka topics and ResearchTrack event flows — local task report
+# Sprint 4 Kafka topics and GitHub/Jira end-to-end integration — task report
 
-Date: 2026-10-09. Objective: finish DevOps topic/configuration/trust/deployment support
-without inventing application event behavior or changing production.
+2026-10-10. **Approved application implementation is complete locally. Actual broker,
+Azure application flow and application restart acceptance remain unverified.**
+Real producers/consumers replace the previous configuration-only readiness implementation.
+The owner explicitly approved the complete same-service routing contracts in this session;
+[approval record](KAFKA_CONTRACT_PROPOSAL.md) and [actual architecture](KAFKA_TOPICS_EVENT_FLOWS.md)
+are synchronized with source. Kafka remains disabled by default.
 
-Backend baseline/current branch: `devops/sprint4-kafka-infrastructure-verification`.
-Baseline/current HEAD: `acd1445fb31fc7e445fdf1ea1f5734769bd069f3`.
-Frontend reference/current branch: `Deploy-and-Configure-Kafka-Infrastructure`.
-Frontend HEAD: `20e6bfc0f916365c0b486ce0f5edbba36acb8240`.
-Both trees were clean before editing. Backend changes remain unstaged/uncommitted;
-frontend remains unchanged. No remote write, staging/commit in either ResearchTrack repository, push/merge/rebase, PR,
-workflow trigger, Azure deployment/resource mutation, live topic write or restart occurred.
-Real `.env` files and production credentials were not inspected.
+## A. Initial architecture analysis
 
-Git-safety exception in testing: the existing `test_service_impact.py` suite creates,
-stages and commits disposable temporary fixture repositories. This was identified after
-execution; those fixtures were cleaned up and neither ResearchTrack index/HEAD changed.
-The suite was not rerun after identifying that behavior. This crossed the literal ban
-on staging/commit commands even though implementation changes remain fully unstaged.
+Initial backend HEAD was `ab2996cd733fbde598254d9a80b495d0b5725aa8` on
+`devops/sprint4-kafka-infrastructure-verification`. Only the GitHub/Jira example env files
+had previous local edits. Frontend was not modified. Read-only origin/main comparison
+showed 11 main-only and 6 branch-only commits; the main-only additions were unit/mock/
+SQLite/coverage work, not Kafka contracts or clients. No merge/rebase was performed.
 
-## Repository analysis before implementation
+Inspected requested broker Compose/listener/storage/identity/TLS scripts, registry/CLI,
+network probes, environment validators/renderers, Azure deployment/workflows and both
+services' controllers, ingress, authentication, persistence, schedulers/workers, migrations,
+DI and tests before implementation. Accessible read-only Jira search found infrastructure
+[SCRUM-198](https://researchtrack.atlassian.net/browse/SCRUM-198), without an application
+contract. Rovo reported partial-source warnings; the search was not exhaustive proof that
+no agreement existed elsewhere. The owner's explicit approval resolved this decision.
 
-| Area | Existing implementation | Gap | Implemented DevOps change |
-|---|---|---|---|
-| Kafka topics | Existing `kafka-topics.sh`, isolated deployment smoke | No central registry/reconciliation | Registry + validate/dry-run/check/explicit apply |
-| GitHub producers | Signed webhook ingress and durable delivery processing | No Kafka package/client/producer/contract | Optional transport settings; exact developer handoff |
-| GitHub consumers | Existing inbox delivery and repo sync workers | These are not Kafka consumers; intended consumer unknown | Preserve workers; do not invent group/processing |
-| Jira producers | Authenticated webhook records and persistent sync jobs | No Kafka package/client/producer/contract | Optional transport settings; exact developer handoff |
-| Jira consumers | `JiraSyncWorker` handles DB jobs | No Kafka subscription or agreed processing contract | Preserve worker; document missing consumer |
-| Service config | Existing ASP.NET Core binding; no Kafka section | Endpoint/topic/trust delivery absent | Disabled defaults, bound singleton, actual public CA file |
-| Azure deploy | Env secrets → validator → composed env → renderer → secure Bicep parameters | Kafka settings/approval/trust checks absent | Extend validator/renderer, reuse secret delivery/hash |
-| Testing | Broker safety/network/env/application tests | No manifest/reconciliation/runtime trust coverage | Offline broker, config/render/Test validator and .NET trust tests |
-| Docs | Existing Kafka broker operations/report | No event-flow/ownership guide | Dedicated guide/report and index/status links |
+Original production broker: single Apache Kafka 3.9.1 KRaft VM process, private verified TLS
+9092, internal Docker plaintext 29092, unexposed controller 9093, persistent data/cluster ID,
+RF1. Existing smoke checks used only the deployment-smoke topic. Existing configuration
+could validate/deliver public trust but contained no real Kafka messaging clients.
+GitHub already had signed ingress → durable delivery inbox → lease/retry delivery worker →
+event processor → repository synchronization. Jira already had bearer authentication →
+durable webhook records → coalesced persistent sync jobs → worker → transactional snapshot.
+Existing HTTP APIs, frontend and polling/reconciliation remain the business access path.
 
-Inspected the requested VM Compose/Kafka/listener/storage scripts, NSG, infrastructure and
-backend workflows, probes, bundle builder/installer, deployer/renderer/Bicep, canonical
-env contracts/validators and regression tests. Inspected GitHub/Jira controllers, inbox
-entities, sync workers/queues/schedulers, persistence, DI/options and test projects. Searched
-source/tests/architecture/backlog/config for Kafka clients and agreed contracts. Frontend
-GitHub/Jira integrations call existing HTTP APIs; direct Kafka browser access is unnecessary.
+## B. Gaps resolved and remaining
 
-Exact current application paths and retries are documented in
-[KAFKA_TOPICS_EVENT_FLOWS.md](KAFKA_TOPICS_EVENT_FLOWS.md). Provider webhook DTOs and
-inbox entities do not constitute approved Kafka events. The user replied that they will
-provide approved contracts, but topic/schema/key/consumer contents have not yet arrived.
+Resolved: agreed contracts/receiving behavior, real SDK/producer/subscriber, atomic outbox,
+durable deduplication/handoff, manual offsets, bounded retry/lease recovery, safe readiness,
+additive migrations, real-service tests, approved topic registry/groups and synchronized docs.
 
-## Functionality reused and implementation
+Remaining verification: Docker daemon unavailable; all three real-client/broker integration
+cases are implemented but NOT EXECUTED. No production endpoint/CA, topic state, delivered
+runtime config, application correlation chain or restart was inspected. CA remains blank
+in examples because only the existing broker public certificate can supply real trust.
+The prior unrelated k6 Jira warm-up failure was not changed or hidden.
 
-- Preserve DEVOPS-4.1 broker image/listeners/private TLS, KRaft identity, persistent storage,
-  CA/SAN validation, dedicated smoke implementation and explicit restart/network checks.
-- Preserve OIDC, deployment approvals/concurrency, image provenance, shared-auth composition,
-  revision hashing, ingress and existing business logic.
-- Add `topics.json` and a jq schema validator to the existing CLI. Duplicate/invalid names,
-  missing fields, invalid ownership/approval fields, fractional/zero/out-of-range partitions,
-  RF other than 1 and nonpositive/indefinite retention fail before broker access.
-- Add default dry run, read-only check and explicit apply. Only approved missing topics are
-  created with existing idempotent creation; all existing approved topics are inspected first.
-  Partition/RF/effective retention drift fails without creation/alteration. Broker failures
-  return nonzero. There is no delete or destructive reconciliation path.
-- Validate/package the registry and jq helper in the existing VM bundle; validate on install.
-  No apply is wired into VM reconciliation, service startup, migrations or application deploy.
-- Add common source `KafkaRuntimeOptions.cs`, linked only into GitHub/Jira. Bind normal .NET
-  configuration, validate enabled TLS/bootstrap/topic/version, read actual mounted trust or
-  atomically deliver a validated public CA with mode 0600, and register only a settings
-  singleton. No Kafka SDK, producer, consumer, automatic topic creation or business handler.
-- Add optional canonical keys and disabled appsettings. Production validation requires
-  private RFC1918 IPv4:9092, approved service-domain topic/version, SSL, CA delivery and
-  verification. Supplied groups must match the registry. Unknown keys and unrelated-service
-  Kafka settings fail. Disabled and older bundles need no unused credentials or CA.
-- Render public CA Base64 using existing Container App secret references/secure parameters.
-  Its value participates in the existing revision digest. No Dockerfile/Bicep change is
-  required because .NET startup creates the real file before client registration.
-- Existing build-impact logic recognizes the linked source: only GitHub/Jira image scopes
-  include it. The common API library and solution remain unchanged.
-- Backend CI includes the new offline suite/Python syntax check and validates each shell
-  file individually (passing several paths to a single `bash -n` checks only the first).
+## C. Features implemented
 
-Reconciliation is idempotent, not transactional: partial successful creates remain if a
-later broker command fails. Repeat after diagnosis. It reports concurrent administrative
-drift without destructive rollback. RF1 provides no multi-broker resilience.
+- Confluent.Kafka 2.16.0 centrally managed and linked shared source only in GitHub/Jira.
+  Disabled mode creates no Kafka clients or new outbox events and retains existing behavior.
+- Strict version-1 reference JSON, stable eventId/correlation, service-owned identities and
+  keys; no raw webhook bodies, tokens, signing secrets or authorization headers in Kafka.
+- Atomic accepted inbox + immutable outbox. Lease/CAS claim, per-key pending ordering,
+  30-second publish timeout, idempotence/acks-all, ten bounded durable attempts, retained
+  FAILED rows and recoverable crash window. No automatic data deletion or DLQ.
+- GitHub receipt/owned durable inbox + existing worker pulse; Jira receipt and coalesced job
+  in one transaction under the existing project scheduling lock. Durable payload-hash dedup.
+- Consumer commits only after durable handoff, retries handoff three times, holds invalid/
+  exhausted work without committing, closes/rejoins on commit failure and closes at shutdown.
+- Two-table additive migration per service. Stale prior snapshots were corrected to the
+  current model; no old migration, existing table or datetime precision was changed by Up.
+- Disabled examples now contain approved topic/version/group; enabled validation requires
+  the exact group. Existing secretRef/public-CA pipeline reused, with TLS verification intact.
+- Disposable loopback TLS Kafka/MySQL test runner and manually invoked isolated Actions
+  workflow. No production workflow trigger or security approval bypass was introduced.
+- Relational tests cover real entry-point authentication, atomic rollback, duplicate IDs,
+  strict contracts, outbox leases/order/exhaustion, post-handoff offsets, durable readiness
+  and actual GitHub business mirror processing with synthetic provider clients.
+- Database outbox/receipt retention and pending-row replay require an owner policy before
+  enablement; tables are durable and currently have no automatic pruning/backfill.
 
-## Topic definitions and application status
+## D. Changed files
 
-| Definition | Approval | Partitions/RF/retention | Contract and application evidence |
-|---|---|---|---|
-| `researchtrack.deployment-smoke` | Existing operational definition approved | 1 / 1 / 24h | Unique UTF-8 token, DevOps CLI owner/consumer, no app group; current live state not checked |
-| `researchtrack.github.events.v1` | PROPOSED, false | 1 / 1 / 72h proposed | Schema/version/key/event/consumer unknown; excluded from all provisioning |
-| `researchtrack.jira.events.v1` | PROPOSED, false | 1 / 1 / 72h proposed | Schema/version/key/event/consumer unknown; excluded from all provisioning |
+The full file inventory relative to task-start HEAD appears at the end of this report.
+HEAD advanced externally during work to `e37b154475e8405e1de9dcf42288c91d83874d5f`;
+that existing commit includes the initial implementation. The agent did not create it or
+reset it. Current follow-up edits remain unstaged. Two generated Python bytecode files
+included in that external commit are removed locally, and bytecode is now ignored.
 
-The naming convention is `researchtrack.<domain>.<event-category>.v<major-version>` with
-the existing operational name retained. One broker requires RF1. One partition and 72h
-are conservative assignment proposals, not agreed application processing decisions.
+## E. Actual event-flow architecture
 
-GitHub Kafka flow: **BLOCKED BY APPLICATION DEVELOPMENT**. Existing webhook processing
-remains intact; there is no real Kafka publisher/subscriber or contract-valid Kafka
-application test. Settings and CA readiness do not publish anything.
+GitHub signed ingress → atomic inbox/outbox → real Kafka producer → GitHub topic → actual
+GitHub consumer → owned durable receipt/inbox → existing delivery worker/event processor →
+repository mirror/head SHA. Jira authenticated matched ingress → atomic inbox/outbox →
+real producer → Jira topic → Jira consumer → atomic receipt/coalesced sync job → existing
+JiraSyncWorker/JiraSyncService → issue snapshot/revision. Existing polling/scheduling remains
+recovery. Transport acknowledgement is separate from business completion.
+See the diagram, precise event selection and transactional boundaries in the flow guide.
 
-Jira Kafka flow: **BLOCKED BY APPLICATION DEVELOPMENT** for the same reasons. Existing
-durable synchronization and tests remain intact. CLI/token checks are transport evidence only.
+## F. Topic definitions
 
-Developers must provide selected events/sources, payload schema/reference/version, key and
-ordering, producer transaction/outbox boundary, consumer service/group, processing result,
-retry/idempotency/failure/offset semantics, owners and executable synthetic integration tests.
-If another service is an agreed consumer, its actual client/configuration must be inspected
-before adding its own enabled env contract; no unrelated service is preconfigured speculatively.
+| Topic | Owner / consumer | Group | Version | Partitions / RF / retention |
+|---|---|---|---|---|
+| `researchtrack.deployment-smoke` | DevOps CLI | None; direct partition/offset | 1 | 1 / 1 / 24h |
+| `researchtrack.github.events.v1` | GitHub team / GitHubService | `researchtrack-github-webhook-v1` | 1 | 1 / 1 / 72h |
+| `researchtrack.jira.events.v1` | Jira team / JiraService | `researchtrack-jira-webhook-v1` | 1 | 1 / 1 / 72h |
 
-## Deployment and security
+All are approved in source. No live creation/check ran. CLI reconciliation remains explicit,
+non-destructive and drift-rejecting; application startup does not provision topics.
 
-The existing GitHub Environment multiline service secret is materialized as `github.env`
-or `jira.env`, validated, composed with `shared-auth.env`, rendered as env/secretRef, then
-delivered through the existing secure Bicep secret parameter. Startup verifies and writes
-the public CA to `/tmp/researchtrack-kafka/ca.crt`. It rejects private/non-CA/invalid/expired/
-future certificates. Base64 is not encryption; secret delivery avoids unnecessary disclosure
-and the generated spec remains mode 0600. No production CA/key/password is committed.
-CA delivery does not disable certificate or endpoint verification or affect global HTTPS trust.
+## G. Environment variables and deployment delivery
 
-Environment endpoints/topic/version/group are externalized. Examples are blank while disabled.
-Local/Test can supply their own external TLS endpoint/CA; production rejects public/localhost/
-internal 29092 listeners. Exact live endpoint/SAN/routing and chosen client mappings still need
-verification. The helper has no network client, so even an enabled startup is not connectivity proof.
+Canonical ten keys remain: `Kafka__Enabled`, `Kafka__BootstrapServers`,
+`Kafka__SecurityProtocol`, `Kafka__SslCaLocation`, `Kafka__SslCaCertificateBase64`,
+`Kafka__EnableSslCertificateVerification`, `Kafka__SslEndpointIdentificationAlgorithm`,
+`Kafka__Topic`, `Kafka__ContractVersion`, `Kafka__ConsumerGroupId`.
+Defaults: false, example default private endpoint (verify actual deployment), SSL,
+`/tmp/researchtrack-kafka/ca.crt`, blank existing public CA, true, https, approved service
+topic, version 1, approved nonempty service group. Application source has no production IP
+or topic name. Endpoints and trust stay environment-specific.
 
-## Local automated verification
+Existing `RT_GITHUB_SERVICE_ENV` / `JIRA_ENV_FILE` → validation/shared-auth composition →
+renderer secretRef → secure deployment parameters → .NET atomic verified mode-0600 CA file.
+The renderer test verifies all ten keys for app and job render paths and secret protection.
+No new Azure permission/secret name, Dockerfile, OIDC or network change is needed. Actual
+Container Apps delivery was not observed. Keep disabled until the operator has broker
+trust, actual topics, test results, capacity policy and separate enablement authorization.
 
-Executed on macOS with GNU Bash 5.3.15 and OpenSSL 3.6.5 on PATH. Early attempts under
-macOS system Bash/LibreSSL failed their platform assumptions; reruns under the intended
-GNU Bash/OpenSSL toolchain passed. Offline timeout is bounded by subprocess where GNU
-timeout is unavailable. VM runtime uses the existing Ubuntu GNU timeout.
+## H. Exact checks and observed results
 
-`global.json` requests SDK 10.0.300 with `latestFeature`; installed SDK 10.0.400 is compatible.
-Database integration categories were excluded because no disposable DB environment was supplied.
+Commands run from repository root. `EF` below is the temporary tool executable
+`/tmp/researchtrack-kafka-ef.OLfEGr/dotnet-ef`, installed with `dotnet tool install dotnet-ef
+--version 10.0.9 --tool-path /tmp/researchtrack-kafka-ef.OLfEGr`. No global or repo tool config
+was modified. Artifacts are local/ignored, not production evidence.
 
-| Executed command (repository root) | Actual result |
+| Command | Actual outcome |
 |---|---|
-| `dotnet restore ResearchTrack.sln` | PASS |
-| `dotnet build ResearchTrack.sln -c Release --no-restore` | PASS, 0 warnings / 0 errors |
-| `dotnet test ResearchTrack.sln -c Release --no-build --filter 'Category!=DatabaseIntegration'` | PASS, 334 tests: GitHub 180, Jira 51, Gateway 24, Auth 15, Project 9, Meeting 27, Submission 28 |
-| `python3 deploy/azure/validation/test_kafka_topics_config.py` | PASS, 15 test methods with parameterized/subtest invalid cases |
-| `deploy/azure/validation/test-kafka-smoke.sh` | PASS, 9 cases |
-| `deploy/azure/validation/test-kafka-operations.sh` | PASS, 43 cases; bundle registry/helper permissions and approval included |
-| `deploy/azure/validation/test-network-probe.sh` | PASS, 12 cases |
-| `deploy/azure/validation/test-private-ip-check.sh` | PASS, 10 cases |
-| `deploy/azure/validation/test-validate-azure-env-files.sh` | PASS, 22 cases including legacy/disabled/enabled/unrelated Kafka checks |
-| `deploy/azure/validation/test-service-env-composition.sh` | PASS, 10 composition cases |
-| `deploy/azure/validation/test-deploy-image-selection.sh` | PASS, 11 cases |
-| `python3 deploy/build/test_service_impact.py` | PASS, 32 tests; new Kafka suite separately checks current linked-source impact |
-| `deploy/azure/validation/test-preflight.sh` | PASS, 5 cases |
-| `deploy/azure/validation/test-runtime-readiness.sh` | PASS, 4 cases |
-| `deploy/azure/validation/test-runtime-power.sh` | PASS, 11 cases |
-| `deploy/validate-shared-auth-wiring.sh` | PASS |
-| `kafka-topics.sh validate-manifest` | PASS, no broker access |
-| Bash syntax and ShellCheck on all modified shell files | PASS |
-| Python AST syntax / `actionlint .github/workflows/backend-ci.yml` / `git diff --check` | PASS |
+| `dotnet restore ResearchTrack.sln --verbosity minimal` | PASS; final restore all up-to-date. Initial NU1903 SQLite native vulnerability was resolved using audited package pins; transient native-client download retried successfully |
+| `dotnet build ResearchTrack.sln --configuration Release --no-restore -v minimal` | PASS, 0 warnings/errors |
+| `dotnet test ResearchTrack.sln --configuration Release --no-build --filter 'Category!=DatabaseIntegration' --logger 'trx;LogFilePrefix=kafka-task-final' --results-directory artifacts/kafka-task` | PASS: 360 passed, 3 Docker-conditional skipped, 0 failures. GitHub 196+2 skip; Jira 61+1 skip; Auth 15, Gateway 24, Project 9, Meeting 27, Submission 28 |
+| `dotnet test tests/ResearchTrack.GitHubService.Tests --configuration Release --no-build --filter FullyQualifiedName~KafkaMessagingTests` | PASS: 15 new messaging cases; full final suite also includes the real GitHub business-worker outcome test |
+| `dotnet test tests/ResearchTrack.JiraService.Tests --configuration Release --no-build --filter FullyQualifiedName~KafkaMessagingTests` | PASS: 10 new messaging cases; final suite verifies updated fixtures |
+| `python3 deploy/azure/validation/test_kafka_topics_config.py` | PASS: 16 methods, including synthetic approval gate, exact consumer group, all env keys/CA secret delivery and shared-source image impact |
+| `bash deploy/azure/validation/test-kafka-operations.sh` | PASS: 43 offline checks; updated final bundle assertion for owner-approved app contracts, with no automatic apply preserved |
+| `bash deploy/azure/validation/test-kafka-smoke.sh` | PASS: 9 mocked cases; not live transport |
+| `bash deploy/azure/validation/test-network-probe.sh` | PASS: 12 offline checks; not ACA connectivity evidence |
+| `bash deploy/azure/validation/test-validate-azure-env-files.sh` | PASS: 22 synthetic configuration checks |
+| `bash deploy/azure/validation/test-service-env-composition.sh` | PASS: 10 checks; seven services + Jira migration + missing/duplicate JWT protections |
+| `bash deploy/azure/validation/test-deploy-image-selection.sh` | PASS: 11 synthetic PLAN_ONLY checks, no real deploy |
+| `bash scripts/test-kafka-integration.sh` | NOT EXECUTED, exit 2: Docker daemon unavailable; no fixture/prod container started |
+| `RT_KAFKA_TEST_UID=1000 RT_KAFKA_TEST_GID=1000 RT_KAFKA_TEST_CLUSTER_ID=synthetic RT_KAFKA_TEST_PASSWORD=synthetic RT_KAFKA_TEST_WORK=/tmp/researchtrack-synthetic docker compose --env-file /dev/null --project-name rt-kafka-static-validation -f tests/Kafka/compose.yml config --quiet` | PASS, syntax/config only; synthetic values |
+| `shellcheck scripts/test-kafka-integration.sh deploy/azure/vm/scripts/kafka-topics.sh` | PASS |
+| `shellcheck deploy/azure/vm/scripts/verify-kafka.sh` | Existing SC1091/SC2016/SC2015 informational findings in unchanged file, exit 1 |
+| `shellcheck -e SC1091,SC2016,SC2015 deploy/azure/vm/scripts/verify-kafka.sh` | PASS with those documented baseline exclusions |
+| `actionlint .github/workflows/kafka-integration-tests.yml` | PASS |
+| `actionlint` | Existing queue syntax/tool compatibility and SC2129 findings in unchanged production/performance/runtime workflows, exit 1 |
+| `actionlint -ignore 'unexpected key "queue" for "concurrency" section' -ignore 'SC2129'` | PASS with those documented baseline exclusions; workflow files unchanged |
+| `bash -n` individually for test runner, all VM `*kafka*.sh` and validation `*kafka*.sh` | PASS, 7 files; loop executed via Python subprocess, not a multi-path bash command |
+| Python `compile(Path(file).read_text(), file, 'exec')` for Kafka config/test modules | PASS, 2 files without generated bytecode |
+| `EF migrations has-pending-model-changes --project src/Services/ResearchTrack.GitHubService --configuration Release --no-build` | PASS, model current |
+| Same command for `ResearchTrack.JiraService` | PASS, model current |
+| `EF migrations script 20260923043000_AddGitHubSyncRevision 20261010151156_AddKafkaWebhookMessaging --project src/Services/ResearchTrack.GitHubService --configuration Release --no-build --output artifacts/kafka-task/GitHub-kafka-migration.sql` | PASS; inspected bounded upgrade SQL only new tables/indexes, no existing ALTER/DROP |
+| Same script command for Jira from `20260923043100_AddJiraSyncRevision`, Jira project and Jira output | PASS; same additive-only result; no SQL executed against any DB |
+| `git diff --check` / `git diff --cached --name-only` / frontend `git status --short` | PASS whitespace; index empty; frontend clean |
 
-The 17 new .NET cases cover default/disabled behavior, unsafe production settings, actual
-env binding, public CA file delivery, repeated initialization, mounted CA, missing trust,
-invalid/private material, non-CA/expired/future certificates. The new Python suite covers
-manifest failures, unapproved exclusion, default dry run, safe apply/check/no-op/drift/query
-failure, secret-reference rendering for both services and migrations, rejected unapproved
-rendering, local/Test TLS endpoints, private-material rejection, current image scope and
-the real Test VPS validator using synthetic files.
+Earlier failures corrected before final results: conditional xUnit skips initially lacked
+skip messages; shared in-memory SQLite connection caused a concurrent worker lock error;
+fixture now uses separate connections and a private WAL database; old operations bundle
+asserted that topics were unapproved; assertion now verifies the owner-approved contracts.
+Initial migration generation picked up stale snapshot business-table/precision drift; final
+Up excludes those operations and both model checks pass. An initial EF invocation used `-c`
+(context alias) instead of `--configuration`; corrected Release command succeeded. Idempotent
+SQL was also generated for static inspection, then replaced by the bounded normal upgrade
+script above; production uses existing EF migration execution, not manual script application.
+The current task did not run `test_service_impact.py` because it stages/commits temporary
+fixture repositories; new Kafka tests verify linked-source image impact read-only instead.
+External SQL DatabaseIntegration cases requiring existing database services were excluded.
 
-Docker CLI exists, but `docker info` reports no daemon socket. Disposable Kafka, container
-execution, broker restart/persistence and real application Kafka integration: **NOT EXECUTED**.
-Real application tests are additionally blocked by missing clients/contracts. Azure
-connectivity/provisioning/deployment: **NOT EXECUTED** under the task safety rules.
-Bicep validation: not required; no Bicep files changed. Local Actions were not triggered.
+## I. Deployment and restart verification
 
-## Definition of Done
+[Integration testing guide](KAFKA_INTEGRATION_TESTING.md) documents exact isolated runner,
+manual-only Actions workflow, reviewed topic commands in the existing approved VM Run
+Command context, unchanged secret delivery/CD, synthetic provider correlation chain and
+separate application restart acceptance. No workflow was dispatched. Actual production
+synthetic IDs/credentials were not supplied, so no production event sender was fabricated.
+The isolated workflow has no production secrets/environment/OIDC and cannot verify Azure.
 
-| Requirement | Status | Evidence / outstanding dependency |
-|---|---|---|
-| 1. Required ResearchTrack topics exist | BLOCKED BY APPLICATION DEVELOPMENT | App contracts/names not supplied; only operational definition approved; tool tested, no live apply/list evidence |
-| 2. Producer/consumer connectivity configured | BLOCKED BY APPLICATION DEVELOPMENT | Transport binding/env/trust/rendering ready and tested; actual clients, subscriptions and live network evidence missing |
-| 3. Agreed GitHub Kafka flow demonstrated | BLOCKED BY APPLICATION DEVELOPMENT | No approved schema/key/producer/consumer/processing test |
-| 4. Agreed Jira Kafka flow demonstrated | BLOCKED BY APPLICATION DEVELOPMENT | No approved schema/key/producer/consumer/processing test |
-| 5. Topic ownership/purpose documented | VERIFIED COMPLETE | Current registry/guide document approved operational ownership, proposals, unknown application consumers and exact handoff; add approved mappings when supplied |
-| 6. Environment-specific values externalized | VERIFIED COMPLETE | Canonical optional keys, .NET binding, env/renderer tests; no application broker address hardcoded |
-| 7. Configuration integrated into deployment | IMPLEMENTED, LIVE VERIFICATION REQUIRED | Existing env/secret renderer and VM bundle integration pass offline; no deployment executed |
+Local restart evidence: expired outbox lease recovery with stale-owner rejection; new durable
+handler instances deduplicate; CA file re-delivery is atomic. Real-client tests additionally
+implement offset continuity, fetched-uncommitted replay (Jira), duplicate replay and topic
+metadata persistence; those tests are unexecuted. Full application revision/broker restart,
+production topic persistence and pending-event recovery remain NOT EXECUTED.
 
-## Manual Azure verification after review and separate authorization
+## J. Exact seven-item Definition of Done
 
-On the VM, with the reviewed bundle installed, read-only checks:
+| Requirement | Implementation status | Changed files | Verification command | Actual result | Production verification | Evidence location | Remaining blocker | Responsible team |
+|---|---|---|---|---|---|---|---|---|
+| 1. Required ResearchTrack topics exist. | IMPLEMENTED — LIVE VERIFICATION REQUIRED | topics.json; registry validator; operations regression | `kafka-topics.sh reconcile --check` in approved Actions VM context | Source validates; offline reconciliation passes; live command not run | NOT EXECUTED | Registry; 16 Python methods; operations results | Authorized deployed manifest/topic check and explicit apply if missing | DevOps |
+| 2. Producer/consumer connectivity is configured. | IMPLEMENTED — LIVE VERIFICATION REQUIRED | KafkaClients; RuntimeOptions; DI; env examples | Isolated runner, then actual enabled revision/flow | Client config/trust tests pass; real broker fixture not executed | NOT EXECUTED | .NET TRX; env renderer tests | Docker execution, actual broker CA/endpoint and authorized enablement | GitHub/Jira development + DevOps |
+| 3. Agreed GitHub Kafka flow is demonstrated. | IMPLEMENTED — LIVE VERIFICATION REQUIRED | GitHub ingress/store/handler; shared messaging; GitHubKafkaFlowTests | Isolated runner GitHub category; authorized synthetic push correlation | Real business worker mirror test passes; real transport tests skipped | NOT EXECUTED | GitHub TRX; flow test source | Real broker ack/consumer/business chain and production synthetic resource approval | GitHub team + QA + DevOps |
+| 4. Agreed Jira Kafka flow is demonstrated. | IMPLEMENTED — LIVE VERIFICATION REQUIRED | Jira ingress/scheduler/handler; shared messaging; JiraKafkaFlowTests | Isolated runner Jira category; authorized matched synthetic update | Authenticated outbox/receipt/job tests pass; real transport/snapshot test skipped | NOT EXECUTED | Jira TRX; flow test source | Real MySQL lock/Kafka/snapshot execution and production synthetic resource approval | Jira team + QA + DevOps |
+| 5. Topic ownership/purpose is documented. | COMPLETE | Approved contract; registry; event-flow guide | Registry tests + source/doc review | Owners, groups, keys, schema, retention and purpose synchronized | Documentation requirement satisfied locally | Contract approval and topic matrix | None for documentation | GitHub/Jira owners + DevOps |
+| 6. Environment-specific values are externalized. | COMPLETE | Examples; RuntimeOptions; kafka_config.py; renderer tests | Python config/env tests + .NET config tests | All ten keys, endpoint/trust, approved groups verified; no source production IP/topic | Source/config requirement satisfied; actual delivery separate | Config examples and test results | None for externalization; real CA needed for enablement | DevOps + service owners |
+| 7. Configuration is integrated into deployment. | IMPLEMENTED — LIVE VERIFICATION REQUIRED | Existing env/secret renderer reused; exact-group validator; service projects/migrations | Renderer/composition/image-impact tests; approved production CD afterward | Offline delivery/hash/composition passes | NOT EXECUTED | Config tests; deployment trace; migration SQL | Authorized deploy and runtime trust/config evidence | DevOps + DB owners |
 
-```bash
-cd /opt/researchtrack
-scripts/kafka-topics.sh validate-manifest
-scripts/kafka-topics.sh reconcile --dry-run
-scripts/kafka-topics.sh reconcile --check
-scripts/kafka-topics.sh list
-scripts/kafka-topics.sh describe researchtrack.deployment-smoke
-scripts/verify-kafka.sh --check
-```
+No flow demonstration is marked COMPLETE from a mock, receipt alone, configuration test or
+historical deployment-smoke evidence. Application restart verification is explicitly separate
+and remains pending, as described above.
 
-Expected: valid registry, candidates excluded, approved definitions match or are reported
-missing, partition/RF/retention drift nonzero, no public Kafka binding and verified broker
-trust/SAN/storage. Missing/drifting state is a failed acceptance result, not a reason to
-delete/recreate topics.
+## K. Required manual actions
 
-Only after the operator separately authorizes creation against a reviewed approved registry:
+1. Run disposable real integration tests on a machine with Docker or the separately published
+   manual isolated workflow; retain actual TRX/PASS results. Review retention/replay capacity.
+2. Owner reviews/publishes changes deliberately; this branch can automatically deploy.
+3. Operator separately authorizes additive migration deployment, actual topic dry-run/check
+   and creation of approved missing topics, using existing protected Actions context.
+4. Supply existing broker public CA and actual endpoint; update existing service env secrets
+   only with authorization, then enable using existing CD protections.
+5. Use authorized synthetic provider resources, collect each actual Kafka and business
+   boundary, then authorize/collect separate application restart and pending-work evidence.
 
-```bash
-scripts/kafka-topics.sh reconcile --apply
-scripts/kafka-topics.sh reconcile --check
-```
+## L. Git safety
 
-After developers provide approved contracts and clients, set environment values and review
-the generated spec before a separately authorized app deployment. Inspect runtime env names:
+No agent staging, commit, push, merge, rebase, PR creation, workflow dispatch, Azure write,
+production topic write, secret update or restart occurred. A read-only git fetch was used;
+HEAD moved externally from ab2996c to e37b154 and is preserved. Main divergence is now 11/7,
+with the one additional branch commit already present. Index empty; frontend unchanged.
+Two generated tracked bytecode files from the external commit are deleted in the current
+local diff; no source or credentials were removed. Real env files/private credentials were
+not inspected. Pushing this branch may automatically deploy production.
 
-```bash
-az containerapp show -g "$RESOURCE_GROUP" -n rt-github-prod \
-  --query 'properties.template.containers[0].env[].{name:name,secretRef:secretRef}' -o table
-az containerapp show -g "$RESOURCE_GROUP" -n rt-jira-prod \
-  --query 'properties.template.containers[0].env[].{name:name,secretRef:secretRef}' -o table
-az containerapp exec -g "$RESOURCE_GROUP" -n rt-github-prod \
-  --command "sh -c 'test -r /tmp/researchtrack-kafka/ca.crt'"
-az containerapp exec -g "$RESOURCE_GROUP" -n rt-jira-prod \
-  --command "sh -c 'test -r /tmp/researchtrack-kafka/ca.crt'"
-```
+## Full changed-file inventory relative to task start
 
-These CA existence checks apply to enabled revisions after actual deployment, not today's
-disabled services. Confirm healthy startup, exact private endpoint, CA fingerprint/SAN,
-and library SSL mapping. To prove private network direction, after separate diagnostic-job
-and smoke-write authorization run the existing procedure:
+52 source/config/docs/test files changed across this task (including files already
+in the externally recorded e37b154 commit). All remaining changes are local.
 
-```bash
-# Required values are supplied by the operator, never copied into source.
-export RESOURCE_GROUP ACA_ENVIRONMENT INFRA_VM INFRA_PRIVATE_IP
-./deploy/azure/scripts/network-probe.sh
-```
+- `.github/workflows/kafka-integration-tests.yml` — manual isolated Kafka/MySQL test workflow and TRX artifacts.
+- `.gitignore` — exclude generated Python bytecode.
+- `Directory.Packages.props` — centrally pin Kafka client and audited relational test dependencies.
+- `config/env/README.md` — enabled/disabled messaging and CA configuration instructions.
+- `config/env/github/.env.example` — approved service topic/version/group, verified SSL and disabled defaults.
+- `config/env/jira/.env.example` — approved service topic/version/group, verified SSL and disabled defaults.
+- `deploy/azure/scripts/kafka_config.py` — require exact approved consumer group for enabled messaging.
+- `deploy/azure/validation/test-kafka-operations.sh` — verify bundled owner-approved topic contracts and no automatic apply.
+- `deploy/azure/validation/test_kafka_topics_config.py` — approval/transport/env rendering/image-impact regressions.
+- `deploy/azure/vm/kafka/topics.json` — approved topic ownership, schemas, groups and settings.
+- `deploy/azure/vm/scripts/kafka-topic-manifest.jq` — strict names/whitespace and fixed smoke invariants.
+- `docs/devops/azure-production/IMPLEMENTATION_STATUS.md` — current evidence and remaining live verification.
+- `docs/devops/azure-production/KAFKA_CONTRACT_PROPOSAL.md` — complete owner-approved event/processing contract.
+- `docs/devops/azure-production/KAFKA_INTEGRATION_TESTING.md` — exact local tests and authorized Actions/restart evidence procedure.
+- `docs/devops/azure-production/KAFKA_OPERATIONS.md` — connect broker operations to implemented messaging.
+- `docs/devops/azure-production/KAFKA_TASK_REPORT.md` — retain historical infrastructure evidence and link current follow-up.
+- `docs/devops/azure-production/KAFKA_TOPICS_EVENT_FLOWS.md` — actual architecture, lifecycle, schema, reliability and configuration.
+- `docs/devops/azure-production/KAFKA_TOPICS_TASK_REPORT.md` — initial gaps, results, exact seven-item DoD and file inventory.
+- `docs/devops/azure-production/README.md` — navigation to current contracts/tests/flows.
+- `scripts/test-kafka-integration.sh` — disposable loopback verified-TLS Kafka/MySQL fixture runner.
+- `src/BuildingBlocks/Kafka/KafkaClients.cs` — real Confluent factory/publisher, TLS and bounded client configuration.
+- `src/BuildingBlocks/Kafka/KafkaMessagingWorkers.cs` — outbox/consumer workers, handoff/offset policy, readiness and DI.
+- `src/BuildingBlocks/Kafka/KafkaPersistence.cs` — outbox/receipt entities, leases, durable retries and deduplication.
+- `src/BuildingBlocks/Kafka/KafkaRuntimeOptions.cs` — validated service-specific contract/group and existing CA delivery.
+- `src/BuildingBlocks/Kafka/KafkaWebhookContract.cs` — strict schema/version/key/selection and timestamp normalization.
+- `src/Services/ResearchTrack.GitHubService/Features/Webhooks/GitHubKafkaEventHandler.cs` — owned durable receipt/inbox handoff and existing worker signal.
+- `src/Services/ResearchTrack.GitHubService/Features/Webhooks/GitHubWebhookDeliveryStore.cs` — atomic accepted delivery and immutable outbox.
+- `src/Services/ResearchTrack.GitHubService/Persistence/GitHubDbContext.cs` — map Kafka persistence; Jira preserves existing datetime(6) precision.
+- `src/Services/ResearchTrack.GitHubService/Persistence/Migrations/20261010151156_AddKafkaWebhookMessaging.Designer.cs` — additive two-table Kafka migration and current EF model metadata.
+- `src/Services/ResearchTrack.GitHubService/Persistence/Migrations/20261010151156_AddKafkaWebhookMessaging.cs` — additive two-table Kafka migration and current EF model metadata.
+- `src/Services/ResearchTrack.GitHubService/Persistence/Migrations/GitHubDbContextModelSnapshot.cs` — additive two-table Kafka migration and current EF model metadata.
+- `src/Services/ResearchTrack.GitHubService/Program.cs` — register trusted service options and enabled-only real messaging DI.
+- `src/Services/ResearchTrack.GitHubService/ResearchTrack.GitHubService.csproj` — Kafka linked source/client or relational test dependencies.
+- `src/Services/ResearchTrack.JiraService/Extensions/JiraFeatureExtensions.cs` — register existing project-lock adapter for Kafka handoff.
+- `src/Services/ResearchTrack.JiraService/Features/JiraKafkaEventHandler.cs` — locked atomic durable receipt/coalesced-job handoff.
+- `src/Services/ResearchTrack.JiraService/Features/JiraSyncScheduler.cs` — reuse job staging within consumer receipt transaction.
+- `src/Services/ResearchTrack.JiraService/Features/JiraWebhookService.cs` — atomic matched webhook/outbox at authenticated acceptance.
+- `src/Services/ResearchTrack.JiraService/Persistence/JiraDbContext.cs` — map Kafka persistence; Jira preserves existing datetime(6) precision.
+- `src/Services/ResearchTrack.JiraService/Persistence/Migrations/20261010151156_AddKafkaWebhookMessaging.Designer.cs` — additive two-table Kafka migration and current EF model metadata.
+- `src/Services/ResearchTrack.JiraService/Persistence/Migrations/20261010151156_AddKafkaWebhookMessaging.cs` — additive two-table Kafka migration and current EF model metadata.
+- `src/Services/ResearchTrack.JiraService/Persistence/Migrations/JiraDbContextModelSnapshot.cs` — additive two-table Kafka migration and current EF model metadata.
+- `src/Services/ResearchTrack.JiraService/Program.cs` — register trusted service options and enabled-only real messaging DI.
+- `src/Services/ResearchTrack.JiraService/ResearchTrack.JiraService.csproj` — Kafka linked source/client or relational test dependencies.
+- `tests/Kafka/IsolatedKafkaFixture.cs` — guarded real loopback client/database setup and bounded consume.
+- `tests/Kafka/KafkaTestDatabase.cs` — relational SQLite WAL or isolated MySQL test persistence.
+- `tests/Kafka/compose.yml` — separate disposable Kafka/MySQL stack; no production broker.
+- `tests/ResearchTrack.GitHubService.Tests/GitHubKafkaFlowTests.cs` — actual existing business processing and guarded real TLS broker integration/restart assertions.
+- `tests/ResearchTrack.GitHubService.Tests/KafkaMessagingTests.cs` — service atomicity, identity, duplicates, disabled behavior and shared reliability regressions.
+- `tests/ResearchTrack.GitHubService.Tests/ResearchTrack.GitHubService.Tests.csproj` — Kafka linked source/client or relational test dependencies.
+- `tests/ResearchTrack.JiraService.Tests/JiraKafkaFlowTests.cs` — actual existing business processing and guarded real TLS broker integration/restart assertions.
+- `tests/ResearchTrack.JiraService.Tests/KafkaMessagingTests.cs` — service atomicity, identity, duplicates, disabled behavior and shared reliability regressions.
+- `tests/ResearchTrack.JiraService.Tests/ResearchTrack.JiraService.Tests.csproj` — Kafka linked source/client or relational test dependencies.
 
-It creates/runs an Azure diagnostic job and writes only operational smoke data; this command
-was not executed here. Do not treat its successful token as either application event flow.
-Run developer-provided synthetic GitHub/Jira tests and retain acknowledgement, consumer
-receipt and application processing evidence. Their exact commands remain unavailable until
-developers implement and identify test entrypoints. For later approved application restarts,
-compare topic list/check and consumer recovery before/after, without recreating topics.
-Existing Kafka independent restart is optional, explicitly authorized separately, and not
-needed to install these local changes.
-
-## Exact local file changes
-
-Modified:
-
-- `.github/workflows/backend-ci.yml`
-- `config/env/README.md`
-- `config/env/github/.env.example`
-- `config/env/jira/.env.example`
-- `deploy/azure/scripts/build-vm-bundle.sh`
-- `deploy/azure/scripts/install-bundle.sh`
-- `deploy/azure/scripts/render-containerapp.py`
-- `deploy/azure/validation/test-kafka-operations.sh`
-- `deploy/azure/validation/test-service-env-composition.sh`
-- `deploy/azure/validation/test-validate-azure-env-files.sh`
-- `deploy/azure/validation/validate-azure-env-files.sh`
-- `deploy/azure/vm/scripts/kafka-topics.sh`
-- `deploy/validate-env-files.sh`
-- `docs/devops/azure-production/IMPLEMENTATION_STATUS.md`
-- `docs/devops/azure-production/README.md`
-- `src/Services/ResearchTrack.GitHubService/Program.cs`
-- `src/Services/ResearchTrack.GitHubService/ResearchTrack.GitHubService.csproj`
-- `src/Services/ResearchTrack.GitHubService/appsettings.json`
-- `src/Services/ResearchTrack.JiraService/Program.cs`
-- `src/Services/ResearchTrack.JiraService/ResearchTrack.JiraService.csproj`
-- `src/Services/ResearchTrack.JiraService/appsettings.json`
-
-Created:
-
-- `deploy/azure/scripts/kafka_config.py`
-- `deploy/azure/validation/test_kafka_topics_config.py`
-- `deploy/azure/vm/kafka/topics.json`
-- `deploy/azure/vm/scripts/kafka-topic-manifest.jq`
-- `docs/devops/azure-production/KAFKA_TOPICS_EVENT_FLOWS.md`
-- `docs/devops/azure-production/KAFKA_TOPICS_TASK_REPORT.md`
-- `src/BuildingBlocks/Kafka/KafkaRuntimeOptions.cs`
-- `tests/ResearchTrack.GitHubService.Tests/KafkaRuntimeOptionsTests.cs`
-
-## Copyable Jira update (not posted)
-
-Prepared local DevOps implementation for review: central approved-topic registry,
-non-destructive dry-run/check/explicit-apply reconciliation, bundle validation, optional
-GitHub/Jira .NET settings, actual public CA delivery and existing Azure env/secret integration.
-Release build and 334 backend tests pass; new offline Kafka/config tests and infrastructure
-regressions pass. No commit/push/deployment/live topic write or restart. GitHub/Jira Kafka
-application flows remain blocked: approved contracts have been requested and actual
-producers/consumers/processing tests are absent. Candidate topics remain unapproved and
-settings disabled. Production acceptance awaits contracts, developer clients and separately
-authorized live provisioning/connectivity/application evidence. Do not close the full task yet.
+Generated bytecode removed relative to current HEAD: `deploy/azure/scripts/__pycache__/kafka_config.cpython-314.pyc` and `deploy/azure/scripts/__pycache__/render-containerapp.cpython-314.pyc`.

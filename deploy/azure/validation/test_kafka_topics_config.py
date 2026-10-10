@@ -99,6 +99,7 @@ else: sys.exit(9)
 
     def test_invalid_manifest_rejected_before_broker_access(self):
         mutations = [("name", "bad name"), ("name", "."), ("partitions", 0), ("partitions", 1.5),
+                     ("partitions", 2), ("retentionHours", 72), ("contractVersion", "2"),
                      ("partitions", "1"), ("replicationFactor", 3), ("retentionHours", -1),
                      ("retentionHours", 0), ("retentionHours", "24"), ("approved", "true"),
                      ("consumerOwner", None), ("contractReference", None), ("domain", "wrong")]
@@ -187,6 +188,7 @@ else: sys.exit(9)
                     "10.20.10.4:9093", "http://10.20.10.4:9092", "10.20.10.4:0", "<private-ip>:9092")]
         invalid += [("Kafka__SecurityProtocol", "PLAINTEXT"), ("Kafka__EnableSslCertificateVerification", "false"),
                     ("Kafka__SslEndpointIdentificationAlgorithm", "none"), ("Kafka__ConsumerGroupId", "unrelated"),
+                    ("Kafka__ConsumerGroupId", ""),
                     ("Kafka__Topic", "researchtrack.jira.events.v1"), ("Kafka__ContractVersion", "2"),
                     ("Kafka__SslCaCertificateBase64", "invalid"), ("Kafka__SslCaLocation", "/absent/ca.crt")]
         for key, value in invalid:
@@ -226,7 +228,8 @@ else: sys.exit(9)
                 document = json.loads(output.read_text())
                 entries = document["parameters"]["env"]["value"] if kind == "app" else document["properties"]["template"]["containers"][0]["env"]
                 mapped = {entry["name"]: entry for entry in entries}
-                self.assertEqual(values["Kafka__Topic"], mapped["Kafka__Topic"]["value"])
+                for key in values.keys() - {"Kafka__SslCaCertificateBase64"}:
+                    self.assertEqual(values[key], mapped[key]["value"])
                 self.assertIn("secretRef", mapped["Kafka__SslCaCertificateBase64"])
                 self.assertNotIn(values["Kafka__SslCaCertificateBase64"], printed.getvalue())
                 self.assertEqual(0o600, output.stat().st_mode & 0o777)
@@ -252,9 +255,24 @@ else: sys.exit(9)
             def read(self, path):
                 file = ROOT / path
                 return file.read_text() if file.exists() else None
-        affected = [service for service in impact.SERVICES if impact.build_scope(WorkingTree(), service).reason(
-            "src/BuildingBlocks/Kafka/KafkaRuntimeOptions.cs")]
-        self.assertEqual(["github", "jira"], affected)
+        for path in (ROOT / "src/BuildingBlocks/Kafka").glob("*.cs"):
+            affected = [service for service in impact.SERVICES if impact.build_scope(WorkingTree(), service).reason(
+                str(path.relative_to(ROOT)))]
+            self.assertEqual(["github", "jira"], affected, str(path))
+
+    def test_owner_approved_repository_contracts_match_disabled_examples(self):
+        registry = json.loads(config.MANIFEST.read_text())
+        for service in ("github", "jira"):
+            topic = next(item for item in registry["topics"] if item["domain"] == service)
+            self.assertTrue(topic["approved"])
+            self.assertEqual(1, topic["partitions"])
+            self.assertEqual(1, topic["replicationFactor"])
+            self.assertEqual(72, topic["retentionHours"])
+            values = dict(renderer.parse_env_file(str(ROOT / f"config/env/{service}/.env.example")))
+            self.assertEqual("false", values["Kafka__Enabled"])
+            self.assertEqual(topic["name"], values["Kafka__Topic"])
+            self.assertEqual(topic["contractVersion"], values["Kafka__ContractVersion"])
+            self.assertEqual(topic["consumerGroupId"], values["Kafka__ConsumerGroupId"])
 
     def test_renderer_rejects_unapproved_before_writing_spec(self):
         values = self.settings("github")

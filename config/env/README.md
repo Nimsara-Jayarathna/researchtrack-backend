@@ -88,7 +88,7 @@ Auth, Project, GitHub, and Jira receive the same `Jwt__Issuer`, `Jwt__Audience`,
 
 ## Future integration keys
 
-Some service examples contain currently optional keys reserved for the later GitHub/Jira/Kafka/object-storage implementation. They remain in the canonical service contract but may be empty until the corresponding feature is implemented. The Test validator only requires currently operational settings to be populated. The Production validator additionally rejects `CHANGE_ME`-style placeholders in every key except the reserved `Storage__*` keys; leave other unused keys empty rather than `CHANGE_ME`.
+Some service examples contain currently optional keys reserved for the later object-storage implementation. They remain in the canonical service contract but may be empty until the corresponding feature is implemented. The Test validator only requires currently operational settings to be populated. The Production validator additionally rejects `CHANGE_ME`-style placeholders in every key except the reserved `Storage__*` keys; leave other unused keys empty rather than `CHANGE_ME`.
 
 ## Security rules
 
@@ -106,6 +106,9 @@ runtime bundles may omit these keys. When enabled, validators require a reviewed
 topic/contract in the central registry, an external TLS endpoint and real CA delivery.
 Production uses the VM RFC1918 private IPv4 listener on 9092. The public CA Base64 is
 delivered through the existing Container App secret system and written to the validated
-runtime CA path before startup. No producer or consumer is implemented by these settings.
-Do not enable candidates before contract/client review. See
+runtime CA path before startup. GitHub/Jira now have real transactional-outbox producers
+and consumers for the owner-approved webhook-reference contracts. Their examples contain
+the approved topic, version `1` and mandatory consumer group; keep enabled `false` until
+isolated and live topic/trust checks pass. The remaining blank CA must come from the
+existing broker public certificate. See
 [Kafka topics and event flows](../../docs/devops/azure-production/KAFKA_TOPICS_EVENT_FLOWS.md).

@@ -90,6 +90,7 @@ public static class KafkaPersistence
 
 public interface IKafkaOutboxStore
 {
+    Task<bool> HasHeldMessagesAsync(CancellationToken ct);
     Task<KafkaOutboxMessage?> ClaimAsync(DateTime now, CancellationToken ct);
     Task CompleteAsync(KafkaOutboxMessage message, DateTime now, CancellationToken ct);
     Task FailAsync(KafkaOutboxMessage message, DateTime now, string errorCode, bool permanent, CancellationToken ct);
@@ -97,6 +98,11 @@ public interface IKafkaOutboxStore
 
 public sealed class KafkaOutboxStore<TContext>(IDbContextFactory<TContext> factory) : IKafkaOutboxStore where TContext : DbContext
 {
+    public async Task<bool> HasHeldMessagesAsync(CancellationToken ct)
+    {
+        await using var db = await factory.CreateDbContextAsync(ct);
+        return await db.Set<KafkaOutboxMessage>().AnyAsync(x => x.Status == "FAILED", ct);
+    }
     public async Task<KafkaOutboxMessage?> ClaimAsync(DateTime now, CancellationToken ct)
     {
         await using var db = await factory.CreateDbContextAsync(ct);

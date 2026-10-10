@@ -3,35 +3,32 @@
 Prepared and explicitly approved by the owner in this session on 2026-10-10.
 Approval covers the complete same-service routing proposal and local implementation/tests.
 **It does not authorize production topic creation, enablement or deployment.**
-Review the business routing below before implementation. The existing HTTP APIs,
+The approved business routing is implemented locally. The existing HTTP APIs,
 authentication, GitHub delivery worker and Jira synchronization worker remain available
 when Kafka is disabled or unavailable.
 
-## Evidence and missing decision
+## Analysis before approval
 
 GitHub authenticates a webhook, stores `GitHubWebhookDelivery`, and processes it through
 `GitHubWebhookDeliveryWorker` → `GitHubWebhookEventProcessor` → repository synchronization.
 Jira authenticates/deduplicates a webhook, stores `JiraWebhookEvent`, then schedules
 `JiraSyncJob` → `JiraSyncWorker` → transactional Jira snapshot synchronization.
-There is no approved Kafka payload or receiving business service in source. Accessible
+Before this task, source contained no approved Kafka payload or receiving business service. Accessible
 Jira search found the platform epic [SCRUM-198](https://researchtrack.atlassian.net/browse/SCRUM-198),
 which mentions Kafka infrastructure but specifies no event contract. Rovo search reported
 partial-source warnings; this is not proof that no agreement exists elsewhere.
 
-## Proposed routing to existing processing
+## Approved routing to existing processing
 
-To avoid inventing a new business consumer, propose **same-service durable webhook
-routing**. Kafka carries a reference to an already accepted database inbox record.
+The owner approved **same-service durable webhook routing**. Kafka carries a reference to an already accepted database inbox record.
 GitHubService consumes GitHub references and JiraService consumes Jira references. The
 consumer validates identity against its own inbox and hands work to existing durable
 processing. Database workers retain recovery/polling; no raw webhook is copied to Kafka.
 
-This choice needs approval: it adds a transport route to existing synchronization,
-rather than delivering completed-sync notifications to another microservice. If Project,
-Submission or another service is intended to receive events, supply its precise processing
-outcome instead; that requires a different contract and handler.
+This contract adds a transport route to existing synchronization. Completed-sync
+notifications to another microservice require a separately reviewed contract and handler.
 
-| Decision | GitHub proposal | Jira proposal |
+| Decision | GitHub contract | Jira contract |
 |---|---|---|
 | Event name | `github.webhook.ready` | `jira.webhook.ready` |
 | Business purpose | Route an accepted delivery to existing repository processing | Route an accepted, matched delivery to existing project synchronization |
@@ -59,12 +56,12 @@ Jira `data`: `webhookRecordId` (GUID), `researchProjectId` (GUID), `cloudId` (bo
 cloud identity), `eventType` (issue created/updated/deleted). Unmatched/ignored deliveries
 are excluded. Consumers verify the currently active connection, not just IDs in a message.
 
-## Proposed reliability and security
+## Approved reliability and security
 
 - Persist the inbox record and its immutable outbox event in the **same database transaction**.
   An accepted webhook must remain recoverable if Kafka is offline. Duplicate provider
   deliveries must reuse the original outbox/event identity, never create another event.
-- An outbox publisher leases bounded batches, publishes with idempotence and `acks=all`,
+- An outbox publisher leases one durable row at a time, publishes with idempotence and `acks=all`,
   and records success only after acknowledgement. Per-send timeout 30 seconds; durable
   retries after 30 seconds, 2 minutes, 10 minutes, 30 minutes and 1 hour; after 10 attempts
   retain the failed row and require operator replay. No deletion on exhaustion.
@@ -87,7 +84,7 @@ are excluded. Consumers verify the currently active connection, not just IDs in 
   Keep identifiers/payloads out of error logs; evidence uses synthetic correlation GUIDs.
 - RF1 has no broker redundancy; acks/idempotence do not make this deployment fault tolerant.
 
-## Required processing evidence after approval
+## Required processing evidence
 
 For each service, a synthetic signed/authenticated webhook must create an inbox/outbox,
 receive a broker acknowledgement, reach its real consumer, create a durable receipt/handoff,
@@ -97,10 +94,15 @@ acknowledgement bookkeeping, consumer failure/rebalance, invalid schema/version,
 restart with pending work. Use stub provider HTTP APIs and isolated databases/Kafka for
 local tests; a test-only receipt store is not production business-processing evidence.
 
-## Approval requested
+## Approval record and scope
 
-Confirm the complete same-service routing proposal above, including event selection,
-payloads, keys, groups, outbox boundary, offset policy and failure handling; or provide
-the intended different consumer and processing outcome. Approval permits implementation
-and tests locally. It does **not** authorize production enablement, topic creation,
-secret updates, deployment, restart, commit or push.
+The owner explicitly replied **“Approve the proposed contracts”** on 2026-10-10.
+Approval covers the payloads, selection, keys, groups, transaction boundary, failure policy
+and same-service receiving behavior above, for local implementation and tests.
+Production enablement, topic creation, secret updates, deployment, restart, commit and
+push are outside this authorization. The filename remains stable for registry references.
+
+Published outbox rows and durable receipts are retained. No automatic pruning or historical
+webhook backfill is implemented. Set a reviewed database retention/replay horizon before
+production enablement; deleting receipts can allow duplicate handoffs after old-event replay.
+Existing single-partition transport order does not serialize all business sync execution.

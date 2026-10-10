@@ -53,6 +53,7 @@ public sealed class KafkaMessagingTests
             JiraProjectId = "10000", WebhookId = 9001, SyncStatus = "SYNCED", AccessTokenProtected = "protected:synthetic-token",
             TokenExpiresAt = DateTimeOffset.UtcNow.AddDays(1), LastReconciledAt = DateTimeOffset.UtcNow,
             WebhookExpiresAt = DateTimeOffset.UtcNow.AddDays(20), WebhookStatus = "ACTIVE"
+            , ConnectedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow
         });
         await db.SaveChangesAsync(ct);
         return projectId;

@@ -2,6 +2,12 @@
 
 Objective: complete Kafka operational verification while preserving the existing Azure deployment.
 
+Current application integration follow-up (2026-10-10): owner-approved same-service
+webhook contracts now have real producers/consumers, transactional outboxes and durable
+receipts. Defaults remain disabled; isolated real-broker tests and fresh Azure evidence
+are pending. This document retains historical infrastructure findings; current acceptance
+and command outcomes are in [KAFKA_TOPICS_TASK_REPORT.md](KAFKA_TOPICS_TASK_REPORT.md).
+
 ## Initial analysis (2026-10-09)
 
 Inspected latest `origin/main` at `54dcbae67793a2103b6ef78502401bf4ab04b336` before edits. The existing task branch had no commits or changes beyond main. No real environment files or production certificates were read. Azure CLI and a local Docker daemon are unavailable; no live operation is authorized in this session.

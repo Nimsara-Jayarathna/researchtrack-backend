@@ -8,7 +8,7 @@ namespace ResearchTrack.Kafka.Tests;
 // Relational SQLite proves atomic writes/constraints locally; live fixtures use MySQL.
 public sealed class KafkaTestDatabase<TContext> : IDbContextFactory<TContext>, IDisposable where TContext : DbContext
 {
-    private readonly SqliteConnection? _connection;
+    private readonly string? _directory;
     private readonly Func<DbContextOptions<TContext>, TContext> _create;
     private readonly DbContextOptions<TContext> _options;
     public KafkaTestDatabase(Func<DbContextOptions<TContext>, TContext> create, string? mysqlConnection = null)
@@ -17,18 +17,25 @@ public sealed class KafkaTestDatabase<TContext> : IDbContextFactory<TContext>, I
         var builder = new DbContextOptionsBuilder<TContext>();
         if (mysqlConnection is null)
         {
-            _connection = new SqliteConnection("Data Source=:memory:");
-            _connection.Open();
-            builder.UseSqlite(_connection).ReplaceService<IModelCustomizer, KafkaTestModelCustomizer>();
+            _directory = Path.Combine(Path.GetTempPath(), "researchtrack-kafka-db-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(_directory);
+            builder.UseSqlite(new SqliteConnectionStringBuilder
+            {
+                DataSource = Path.Combine(_directory, "fixture.sqlite"), Pooling = false, DefaultTimeout = 10
+            }.ToString()).ReplaceService<IModelCustomizer, KafkaTestModelCustomizer>();
         }
         else builder.UseMySQL(mysqlConnection);
         _options = builder.Options;
         using var db = CreateDbContext();
         db.Database.EnsureCreated();
+        if (mysqlConnection is null) db.Database.ExecuteSqlRaw("PRAGMA journal_mode=WAL;");
     }
     public TContext CreateDbContext() => _create(_options);
     public Task<TContext> CreateDbContextAsync(CancellationToken cancellationToken = default) => Task.FromResult(CreateDbContext());
-    public void Dispose() => _connection?.Dispose();
+    public void Dispose()
+    {
+        if (_directory is not null) Directory.Delete(_directory, recursive: true);
+    }
 }
 
 public sealed class KafkaTestModelCustomizer(ModelCustomizerDependencies dependencies) : RelationalModelCustomizer(dependencies)

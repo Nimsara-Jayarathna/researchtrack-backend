@@ -189,6 +189,8 @@ db-dumps/
 tmp/
 temp/
 .cache/
+__pycache__/
+*.pyc
 
 *.tmp
 *.temp

@@ -147,6 +147,10 @@ public sealed class KafkaMessagingTests
         await using var db = database.CreateDbContext();
         Assert.Equal("FAILED", (await db.Set<KafkaOutboxMessage>().SingleAsync(Ct)).Status);
         Assert.Single(await db.WebhookDeliveries.ToListAsync(Ct));
+        // Restart must not clear the health signal for a durably held outbox row.
+        var health = new KafkaMessagingHealth(store);
+        Assert.Equal(Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Degraded,
+            (await health.CheckHealthAsync(new(), Ct)).Status);
     }
 
     [Fact]
@@ -200,6 +204,16 @@ public sealed class KafkaMessagingTests
             await Assert.ThrowsAsync<InvalidOperationException>(() => worker.HandleAndCommitAsync(consumer, record, Ct));
             await handler.Received(3).HandleAsync(Arg.Any<WebhookReadyEvent>(), Arg.Any<CancellationToken>());
             consumer.DidNotReceive().Commit(Arg.Any<ConsumeResult<string, string>>());
+            // A KafkaException raised by the business handoff is still a processing
+            // failure. Only exceptions from Commit allow close/rejoin/replay.
+            handler.HandleAsync(Arg.Any<WebhookReadyEvent>(), Arg.Any<CancellationToken>())
+                .Returns(Task.FromException(new KafkaException(new Error(ErrorCode.Local_TimedOut))));
+            await Assert.ThrowsAsync<KafkaException>(() => worker.HandleAndCommitAsync(consumer, record, Ct));
+            consumer.DidNotReceive().Commit(Arg.Any<ConsumeResult<string, string>>());
+            handler.HandleAsync(Arg.Any<WebhookReadyEvent>(), Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
+            consumer.When(x => x.Commit(Arg.Any<ConsumeResult<string, string>>()))
+                .Do(_ => throw new KafkaException(new Error(ErrorCode.Local_TimedOut)));
+            await Assert.ThrowsAsync<KafkaOffsetCommitException>(() => worker.HandleAndCommitAsync(consumer, record, Ct));
             ConsumeResult<string, string> withMessage(string payload) => new() { Topic = row.Topic, Message = new() { Key = row.MessageKey, Value = payload } };
         }
     }

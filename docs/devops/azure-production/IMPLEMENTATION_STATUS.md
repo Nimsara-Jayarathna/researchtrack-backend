@@ -4,7 +4,29 @@ Update this file after each meaningful implementation session.
 
 This is intentionally short so the next agent does not re-audit everything.
 
-Last updated: 2026-10-09. **Kafka operations implemented and offline-tested; fresh live Kafka verification pending.**
+Last updated: 2026-10-10. **Approved GitHub/Jira Kafka integration implemented locally;
+real-broker and production verification remain pending.**
+
+## Sprint 4 Kafka application integration (2026-10-10)
+
+- Owner approved same-service durable webhook-reference contracts. Both application topics
+  are approved in the registry; defaults remain disabled and public production CA is missing.
+- Added Confluent.Kafka 2.16.0 producers/consumers, atomic inbox/outbox persistence, durable
+  receipt/handoff, bounded retries/leases, strict schemas, manual post-handoff offsets and
+  readiness. Existing authentication, workers and polling recovery remain available.
+- Added additive two-table migrations; corrected stale snapshots without modifying old
+  migrations or adding existing-table changes. Model drift and generated SQL checks pass.
+- Release build: zero warnings/errors. Seven .NET projects: 360 pass, 3 conditional Docker
+  tests skip; Kafka registry/config, operations, smoke, network, env and composition pass.
+- Disposable verified-TLS Kafka/MySQL fixture and manual isolated Actions workflow added.
+  Real fixture NOT EXECUTED: Docker daemon unavailable. Azure application flows/restarts,
+  live topic settings, runtime CA delivery and actual broker offsets remain unverified.
+- Agent did not stage/commit/push/merge/rebase/dispatch or change Azure/secrets/topics/services.
+  HEAD advanced externally from ab2996c to e37b154 during work; preserve that commit.
+  Remaining changes are unstaged; frontend untouched. Pushing this branch can deploy.
+- Current evidence and seven-item DoD: [KAFKA_TOPICS_TASK_REPORT.md](KAFKA_TOPICS_TASK_REPORT.md).
+  Approval: [KAFKA_CONTRACT_PROPOSAL.md](KAFKA_CONTRACT_PROPOSAL.md).
+  Tests and authorized manual procedure: [KAFKA_INTEGRATION_TESTING.md](KAFKA_INTEGRATION_TESTING.md).
 
 ## Sprint 4 topic/event configuration (2026-10-09, local review only)
 
@@ -12,8 +34,8 @@ Last updated: 2026-10-09. **Kafka operations implemented and offline-tested; fre
   bundle validation, optional GitHub/Jira runtime binding and actual public CA delivery.
 - Added enabled/disabled env checks and renderer protection through existing configuration
   and secret composition. Other service configuration, listeners, NSG and frontend unchanged.
-- GitHub/Jira have no Kafka producers/consumers or supplied approved event contracts.
-  Application candidates remain unapproved; services remain disabled by default.
+- At that historical point GitHub/Jira had no Kafka clients or supplied contracts.
+  The 2026-10-10 section above supersedes that implementation state.
 - ResearchTrack indexes/HEADs unchanged; no push, PR, workflow trigger, Azure mutation,
   topic write or restart. Existing image-impact tests used temporary fixture commits;
   see the report's Git-safety exception.

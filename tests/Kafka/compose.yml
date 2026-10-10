@@ -1,0 +1,42 @@
+# Disposable test stack only. Never used by production deployment.
+services:
+  kafka:
+    image: apache/kafka:3.9.1
+    user: "${RT_KAFKA_TEST_UID:?}:${RT_KAFKA_TEST_GID:?}"
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - >-
+        /opt/kafka/bin/kafka-storage.sh format --ignore-formatted
+        -t "$${RT_KAFKA_TEST_CLUSTER_ID}" -c /fixture/server.properties
+        && exec /opt/kafka/bin/kafka-server-start.sh /fixture/server.properties
+    environment:
+      RT_KAFKA_TEST_CLUSTER_ID: "${RT_KAFKA_TEST_CLUSTER_ID:?}"
+      KAFKA_HEAP_OPTS: -Xms256m -Xmx512m
+      LOG_DIR: /tmp/kafka-logs
+    ports: ["127.0.0.1:19092:9092"]
+    volumes:
+      - "${RT_KAFKA_TEST_WORK:?}/tls:/fixture:ro"
+      - "${RT_KAFKA_TEST_WORK:?}/kafka-data:/fixture-data"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:29092 >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+    mem_limit: 1g
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: "${RT_KAFKA_TEST_PASSWORD:?}"
+    command: ["--max-connections=50", "--innodb-buffer-pool-size=134217728"]
+    ports: ["127.0.0.1:13307:3306"]
+    volumes:
+      - "${RT_KAFKA_TEST_WORK:?}/mysql-init:/docker-entrypoint-initdb.d:ro"
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h127.0.0.1 -uroot -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    mem_limit: 1g
+volumes:
+  mysql-data:

@@ -236,7 +236,12 @@ with tarfile.open(fileobj=io.BytesIO(base64.b64decode(encoded)),mode='r:gz') as 
     assert t.getmember('./kafka/topics.json').mode==0o644
     import json
     registry=json.load(t.extractfile('./kafka/topics.json'))
-    assert [entry['name'] for entry in registry['topics'] if entry['approved']]==['researchtrack.deployment-smoke']
+    assert [entry['name'] for entry in registry['topics'] if entry['approved']]==[
+        'researchtrack.deployment-smoke', 'researchtrack.github.events.v1', 'researchtrack.jira.events.v1']
+    for entry in registry['topics'][1:]:
+        assert entry['contractVersion']=='1'
+        assert entry['consumerGroupId']=='researchtrack-'+entry['domain']+'-webhook-v1'
+        assert entry['partitions']==1 and entry['replicationFactor']==1 and entry['retentionHours']==72
     assert 'reconcile --apply' not in t.extractfile('./scripts/reconcile-stack.sh').read().decode()
     assert not any(m.name.endswith('.env') for m in t.getmembers())
 with tarfile.open(fileobj=io.BytesIO(base64.b64decode((p/'runtime.b64').read_text())),mode='r:gz') as t:
