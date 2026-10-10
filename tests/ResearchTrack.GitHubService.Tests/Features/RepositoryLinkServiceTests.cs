@@ -209,6 +209,119 @@ public sealed class RepositoryLinkServiceTests
         Assert.Equal(ProjectId, response.ProjectId);
     }
 
+
+    [Fact]
+    public async Task GetProject_rejects_empty_project_before_authorization_or_store_access()
+    {
+        var authorization = new StubAuthorizationClient();
+        var store = new StubStore([]);
+        var service = CreateService(authorization, store, new StubSyncRequester([]));
+
+        await Assert.ThrowsAsync<ApiValidationException>(() => service.GetProjectAsync(
+            UserId, Guid.Empty, TestContext.Current.CancellationToken));
+        Assert.Equal(0, authorization.CallCount);
+        Assert.Equal(0, store.GetProjectCallCount);
+    }
+
+    [Fact]
+    public async Task Link_rejects_multiple_primary_repositories_and_overlong_custom_name()
+    {
+        var authorization = new StubAuthorizationClient();
+        var store = new StubStore([]);
+        var service = CreateService(authorization, store, new StubSyncRequester([]));
+        var request = new LinkGitHubRepositoriesRequest(ProjectId, SourceId,
+        [
+            new LinkGitHubRepositoryRequestItem(Guid.NewGuid(), new string('x', 256), true),
+            new LinkGitHubRepositoryRequestItem(Guid.NewGuid(), null, true)
+        ]);
+
+        var ex = await Assert.ThrowsAsync<ApiValidationException>(() => service.LinkAsync(
+            UserId, request, TestContext.Current.CancellationToken));
+        Assert.Contains(ex.FieldErrors, e => e.Field == "repositories.primary");
+        Assert.Contains(ex.FieldErrors, e => e.Field == "repositories.customName");
+        Assert.Equal(0, authorization.CallCount);
+        Assert.Equal(0, store.CreateCallCount);
+    }
+
+    [Fact]
+    public async Task SetEnabled_false_never_queues_and_queue_failure_on_enable_marks_sync_failed()
+    {
+        var disabledStore = new StubStore([]) { EnableChanged = true };
+        var disabledQueue = new StubSyncQueue();
+        var disabledService = CreateService(new StubAuthorizationClient(), disabledStore, new StubSyncRequester([]), queue: disabledQueue);
+        await disabledService.SetEnabledAsync(UserId, LinkId, false, TestContext.Current.CancellationToken);
+        Assert.Equal(0, disabledQueue.EnqueueCallCount);
+
+        var store = new StubStore([]) { EnableChanged = true };
+        var queue = new StubSyncQueue { Failure = new InvalidOperationException("queue unavailable") };
+        var service = CreateService(new StubAuthorizationClient(), store, new StubSyncRequester([]), queue: queue);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.SetEnabledAsync(
+            UserId, LinkId, true, TestContext.Current.CancellationToken));
+        Assert.Equal(1, queue.EnqueueCallCount);
+        Assert.Equal(1, store.MarkFailedCallCount);
+    }
+
+    [Fact]
+    public async Task UpdateDisplayName_enforces_exact_255_character_boundary()
+    {
+        var store = new StubStore([]);
+        var service = CreateService(new StubAuthorizationClient(), store, new StubSyncRequester([]));
+        await service.UpdateDisplayNameAsync(UserId, LinkId, new string('x', 255), TestContext.Current.CancellationToken);
+        Assert.Equal(1, store.UpdateDisplayNameCallCount);
+
+        await Assert.ThrowsAsync<ApiValidationException>(() => service.UpdateDisplayNameAsync(
+            UserId, LinkId, new string('x', 256), TestContext.Current.CancellationToken));
+        Assert.Equal(1, store.UpdateDisplayNameCallCount);
+    }
+
+    [Fact]
+    public async Task Empty_or_unknown_link_and_source_ids_are_rejected_before_mutation()
+    {
+        var store = new StubStore([]) { LinkProjectId = null, SourceProjectId = null };
+        var authorization = new StubAuthorizationClient();
+        var service = CreateService(authorization, store, new StubSyncRequester([]));
+
+        await Assert.ThrowsAsync<ApiValidationException>(() => service.UnlinkAsync(
+            UserId, Guid.Empty, TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<ApiValidationException>(() => service.DisconnectSourceAsync(
+            UserId, Guid.Empty, TestContext.Current.CancellationToken));
+        var missingLink = await Assert.ThrowsAsync<ApiException>(() => service.UnlinkAsync(
+            UserId, LinkId, TestContext.Current.CancellationToken));
+        var missingSource = await Assert.ThrowsAsync<ApiException>(() => service.DisconnectSourceAsync(
+            UserId, SourceId, TestContext.Current.CancellationToken));
+        Assert.Equal(StatusCodes.Status404NotFound, missingLink.StatusCode);
+        Assert.Equal(StatusCodes.Status404NotFound, missingSource.StatusCode);
+    }
+
+    [Fact]
+    public async Task EnsureBelongsToProject_rejects_empty_ids_and_repository_from_another_project()
+    {
+        var store = new StubStore([]) { ProjectResponse = new ProjectGitHubRepositoriesResponse(ProjectId, 1, 1, false, [], []) };
+        var service = CreateService(new StubAuthorizationClient(), store, new StubSyncRequester([]));
+
+        await Assert.ThrowsAsync<ApiValidationException>(() => service.EnsureBelongsToProjectAsync(
+            UserId, Guid.Empty, LinkId, TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<ApiValidationException>(() => service.EnsureBelongsToProjectAsync(
+            UserId, ProjectId, Guid.Empty, TestContext.Current.CancellationToken));
+        var ex = await Assert.ThrowsAsync<ApiException>(() => service.EnsureBelongsToProjectAsync(
+            UserId, ProjectId, LinkId, TestContext.Current.CancellationToken));
+        Assert.Equal(StatusCodes.Status404NotFound, ex.StatusCode);
+    }
+
+    [Fact]
+    public async Task Manual_sync_queue_failure_marks_link_failed_and_rethrows()
+    {
+        var store = new StubStore([]);
+        var queue = new StubSyncQueue { Failure = new InvalidOperationException("queue unavailable") };
+        var service = CreateService(new StubAuthorizationClient(), store, new StubSyncRequester([]), queue: queue);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.RequestManualSyncAsync(
+            UserId, ProjectId, LinkId, TestContext.Current.CancellationToken));
+        Assert.Equal(1, store.PrepareManualSyncCallCount);
+        Assert.Equal(1, queue.EnqueueCallCount);
+        Assert.Equal(1, store.MarkFailedCallCount);
+    }
+
     private static RepositoryLinkService CreateService(
         IProjectAuthorizationClient authorization,
         IRepositoryLinkStore store,
@@ -276,6 +389,11 @@ public sealed class RepositoryLinkServiceTests
         public int MarkFailedCallCount { get; private set; }
         public int GetProjectCallCount { get; private set; }
         public bool EnableChanged { get; init; } = true;
+        public Guid? LinkProjectId { get; init; } = ProjectId;
+        public Guid? SourceProjectId { get; init; } = ProjectId;
+        public ProjectGitHubRepositoriesResponse? ProjectResponse { get; init; }
+        public int UpdateDisplayNameCallCount { get; private set; }
+        public int PrepareManualSyncCallCount { get; private set; }
 
         public Task<RepositoryLinkPersistenceResult> CreateLinksAsync(
             Guid projectId,
@@ -310,25 +428,31 @@ public sealed class RepositoryLinkServiceTests
             CancellationToken cancellationToken)
         {
             GetProjectCallCount++;
-            return Task.FromResult(Response("FAILED"));
+            return Task.FromResult(ProjectResponse ?? Response("FAILED"));
         }
 
         public Task<Guid?> GetLinkProjectIdAsync(Guid linkedRepositoryId, CancellationToken cancellationToken) =>
-            Task.FromResult<Guid?>(ProjectId);
+            Task.FromResult(LinkProjectId);
         public Task<Guid?> GetSourceProjectIdAsync(Guid sourceId, CancellationToken cancellationToken) =>
-            Task.FromResult<Guid?>(ProjectId);
+            Task.FromResult(SourceProjectId);
         public Task<RepositoryEnablementPersistenceResult> SetEnabledAsync(Guid linkedRepositoryId, bool enabled, DateTime now, CancellationToken cancellationToken) =>
             Task.FromResult(new RepositoryEnablementPersistenceResult(Response(enabled ? "PENDING" : "DISABLED"), EnableChanged, enabled));
         public Task<ProjectGitHubRepositoriesResponse> UnlinkAsync(Guid linkedRepositoryId, DateTime now, CancellationToken cancellationToken) =>
             Task.FromResult(new ProjectGitHubRepositoriesResponse(ProjectId, 5, 5, false, [], []));
         public Task<ProjectGitHubRepositoriesResponse> SelectPrimaryAsync(Guid linkedRepositoryId, DateTime now, CancellationToken cancellationToken) =>
             Task.FromResult(Response("SUCCESS"));
-        public Task<ProjectGitHubRepositoriesResponse> UpdateDisplayNameAsync(Guid linkedRepositoryId, string? customName, DateTime now, CancellationToken cancellationToken) =>
-            Task.FromResult(Response("SUCCESS"));
+        public Task<ProjectGitHubRepositoriesResponse> UpdateDisplayNameAsync(Guid linkedRepositoryId, string? customName, DateTime now, CancellationToken cancellationToken)
+        {
+            UpdateDisplayNameCallCount++;
+            return Task.FromResult(Response("SUCCESS"));
+        }
         public Task<ProjectGitHubRepositoriesResponse> DisconnectSourceAsync(Guid sourceId, DateTime now, CancellationToken cancellationToken) =>
             Task.FromResult(new ProjectGitHubRepositoriesResponse(ProjectId, 5, 5, false, [], []));
-        public Task PrepareManualSyncAsync(Guid projectId, Guid linkedRepositoryId, DateTime now, CancellationToken cancellationToken) =>
-            Task.CompletedTask;
+        public Task PrepareManualSyncAsync(Guid projectId, Guid linkedRepositoryId, DateTime now, CancellationToken cancellationToken)
+        {
+            PrepareManualSyncCallCount++;
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class StubInstallationRepositoryService : IGitHubInstallationRepositoryService
@@ -394,12 +518,13 @@ public sealed class RepositoryLinkServiceTests
     {
         public int EnqueueCallCount { get; private set; }
         public RepositorySyncWorkItem? LastItem { get; private set; }
+        public Exception? Failure { get; init; }
 
         public ValueTask EnqueueAsync(RepositorySyncWorkItem item, CancellationToken cancellationToken)
         {
             EnqueueCallCount++;
             LastItem = item;
-            return ValueTask.CompletedTask;
+            return Failure is null ? ValueTask.CompletedTask : ValueTask.FromException(Failure);
         }
         public async IAsyncEnumerable<RepositorySyncWorkItem> ReadAllAsync([System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
         {

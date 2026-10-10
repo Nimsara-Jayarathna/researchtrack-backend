@@ -15,9 +15,11 @@ on:
           - project
           - submission
           - github
+          - github-final
           - jira
           - gateway
           - meeting
+          - meeting-final
 
 permissions:
   contents: read

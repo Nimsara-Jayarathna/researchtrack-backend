@@ -42,6 +42,48 @@ public sealed class GitHubAccessRequestTokenServiceTests
         Assert.False(service.IsWellFormed(tampered, RequestId, created.Nonce, resultToken: false));
     }
 
+
+
+    [Fact]
+    public void Request_and_result_tokens_have_distinct_prefixes_and_stable_lowercase_hashes()
+    {
+        var service = CreateService();
+        var id = Guid.Parse("11111111-1111-1111-1111-111111111111");
+        var request = service.CreateRequestToken(id);
+        var result = service.CreateResultToken(id);
+
+        Assert.StartsWith($"ga1.{id:N}.", request.Token);
+        Assert.StartsWith($"gr1.{id:N}.", result.Token);
+        Assert.Equal(64, request.Hash.Length);
+        Assert.Equal(request.Hash, request.Hash.ToLowerInvariant());
+        Assert.Equal(service.Hash(request.Token), request.Hash);
+        Assert.NotEqual(request.Token, result.Token);
+    }
+
+    [Fact]
+    public void Verification_rejects_wrong_request_id_nonce_and_token_purpose()
+    {
+        var service = CreateService();
+        var id = Guid.NewGuid();
+        var created = service.CreateRequestToken(id);
+
+        Assert.True(service.IsWellFormed(created.Token, id, created.Nonce, resultToken: false));
+        Assert.False(service.IsWellFormed(created.Token, Guid.NewGuid(), created.Nonce, resultToken: false));
+        Assert.False(service.IsWellFormed(created.Token, id, created.Nonce + "x", resultToken: false));
+        Assert.False(service.IsWellFormed(created.Token, id, created.Nonce, resultToken: true));
+    }
+
+    [Fact]
+    public void Recreated_tokens_are_deterministic_for_same_context_and_change_when_nonce_changes()
+    {
+        var service = CreateService();
+        var id = Guid.NewGuid();
+        var created = service.CreateRequestToken(id);
+
+        Assert.Equal(created.Token, service.RecreateRequestToken(id, created.Nonce));
+        Assert.NotEqual(created.Token, service.RecreateRequestToken(id, created.Nonce + "x"));
+    }
+
     private static GitHubAccessRequestTokenService CreateService() => new(
         new GitHubAppOptions(
             12345,

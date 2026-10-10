@@ -447,6 +447,7 @@ public sealed class GitHubWebhookEventProcessor : IGitHubWebhookEventProcessor
         {
             if (item.ValueKind == JsonValueKind.Object
                 && item.TryGetProperty("id", out var id)
+                && id.ValueKind == JsonValueKind.Number
                 && id.TryGetInt64(out var value)
                 && value > 0)
             {
@@ -462,7 +463,9 @@ public sealed class GitHubWebhookEventProcessor : IGitHubWebhookEventProcessor
             : null;
 
     private static long? ReadInt64(JsonElement element, string property) =>
-        element.TryGetProperty(property, out var value) && value.TryGetInt64(out var result)
+        element.TryGetProperty(property, out var value)
+        && value.ValueKind == JsonValueKind.Number
+        && value.TryGetInt64(out var result)
             ? result
             : null;
 

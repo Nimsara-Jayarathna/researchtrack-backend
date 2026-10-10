@@ -7,7 +7,7 @@ TARGET="${1:-all}"
 
 usage() {
   cat <<'TXT'
-Usage: bash ./scripts/mutation-baseline.sh [all|auth|auth-registration|project|submission|submission-final|jira|jira-webhook-final|github|gateway|meeting]
+Usage: bash ./scripts/mutation-baseline.sh [all|auth|auth-registration|project|submission|submission-final|jira|jira-webhook-final|github|github-final|gateway|meeting|meeting-final]
 
 Runs ResearchTrack's targeted business-logic mutation suite against dedicated
 xUnit v2 mutation harnesses. Normal xUnit v3 unit/mock projects are verified
@@ -17,7 +17,7 @@ TXT
 }
 
 case "$TARGET" in
-  all|auth|auth-registration|project|submission|submission-final|github|jira|jira-webhook-final|gateway|meeting) ;;
+  all|auth|auth-registration|project|submission|submission-final|github|github-final|jira|jira-webhook-final|gateway|meeting|meeting-final) ;;
   -h|--help) usage; exit 0 ;;
   *) echo "Unknown mutation target: $TARGET" >&2; usage >&2; exit 2 ;;
 esac
@@ -136,6 +136,14 @@ run_github() {
   run_config github reconciliation reconciliation.json
 }
 
+run_github_final() {
+  verify_scope_tests github
+  run_config github access-token access-token.json
+  run_config github installation-state installation-state.json
+  run_config github repository-link repository-link.json
+  run_config github webhook-event webhook-event.json
+}
+
 run_jira() {
   verify_scope_tests jira
   run_config jira issue-mapper issue-mapper.json
@@ -162,6 +170,12 @@ run_meeting() {
   run_config meeting record-service record-service.json
 }
 
+run_meeting_final() {
+  verify_scope_tests meeting
+  run_config meeting channel-service channel-service.json
+  run_config meeting record-service record-service.json
+}
+
 case "$TARGET" in
   auth) run_auth ;;
   auth-registration) run_auth_registration ;;
@@ -169,10 +183,12 @@ case "$TARGET" in
   submission) run_submission ;;
   submission-final) run_submission_final ;;
   github) run_github ;;
+  github-final) run_github_final ;;
   jira) run_jira ;;
   jira-webhook-final) run_jira_webhook_final ;;
   gateway) run_gateway ;;
   meeting) run_meeting ;;
+  meeting-final) run_meeting_final ;;
   all)
     run_auth
     run_project

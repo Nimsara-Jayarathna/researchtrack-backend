@@ -309,6 +309,127 @@ public sealed class MeetingRecordServiceTests
         Assert.Equal(1, fixture.Authorization.ManageChecks);
     }
 
+
+    [Theory]
+    [InlineData(" supervisor ")]
+    [InlineData("SUPERVISOR")]
+    public async Task Create_normalizes_supervisor_role(string role)
+    {
+        var fixture = new Fixture();
+        var result = await fixture.Service.CreateAsync(
+            Guid.NewGuid(), Guid.NewGuid(), role, ValidRequest(), CancellationToken.None);
+        Assert.Equal(MeetingRecordConstants.StatusApproved, result.Status);
+        Assert.Equal(1, fixture.Authorization.ManageChecks);
+        Assert.Equal(0, fixture.Authorization.AccessChecks);
+    }
+
+    [Theory]
+    [InlineData("2026-2-03")]
+    [InlineData("2026/02/03")]
+    [InlineData("2026-02-30")]
+    [InlineData("   ")]
+    public async Task Create_rejects_non_exact_or_invalid_meeting_dates(string value)
+    {
+        var fixture = new Fixture();
+        var ex = await Assert.ThrowsAsync<ApiValidationException>(() => fixture.Service.CreateAsync(
+            Guid.NewGuid(), Guid.NewGuid(), AuthSecurityConstants.Roles.Supervisor,
+            new MeetingRecordUpsertRequest(value, 1, "summary", null, null),
+            CancellationToken.None));
+        Assert.Contains(ex.FieldErrors, e => e.Field == "meetingDate");
+        Assert.Empty(fixture.Records.Items);
+    }
+
+    [Fact]
+    public async Task Create_accepts_minimum_positive_duration_and_normalizes_optional_details()
+    {
+        var fixture = new Fixture();
+        var result = await fixture.Service.CreateAsync(
+            Guid.NewGuid(), Guid.NewGuid(), AuthSecurityConstants.Roles.Supervisor,
+            new MeetingRecordUpsertRequest("2026-10-02", 1, "  summary  ", "   ", null),
+            CancellationToken.None);
+        Assert.Equal(1, result.DurationMinutes);
+        Assert.Equal("summary", result.DiscussionSummary);
+        Assert.Null(result.DiscussionDetails);
+    }
+
+    [Fact]
+    public async Task Create_enforces_summary_and_details_length_boundaries()
+    {
+        var fixture = new Fixture();
+        var maxSummary = new string('s', MeetingRecordConstants.DiscussionSummaryMaxLength);
+        var maxDetails = new string('d', MeetingRecordConstants.DiscussionDetailsMaxLength);
+        var accepted = await fixture.Service.CreateAsync(
+            Guid.NewGuid(), Guid.NewGuid(), AuthSecurityConstants.Roles.Supervisor,
+            new MeetingRecordUpsertRequest("2026-10-02", 30, maxSummary, maxDetails, null),
+            CancellationToken.None);
+        Assert.Equal(maxSummary, accepted.DiscussionSummary);
+        Assert.Equal(maxDetails, accepted.DiscussionDetails);
+
+        var ex = await Assert.ThrowsAsync<ApiValidationException>(() => fixture.Service.CreateAsync(
+            Guid.NewGuid(), Guid.NewGuid(), AuthSecurityConstants.Roles.Supervisor,
+            new MeetingRecordUpsertRequest("2026-10-02", 30, maxSummary + "x", maxDetails + "x", null),
+            CancellationToken.None));
+        Assert.Contains(ex.FieldErrors, e => e.Field == "discussionSummary");
+        Assert.Contains(ex.FieldErrors, e => e.Field == "discussionDetails");
+    }
+
+    [Fact]
+    public async Task Update_rejects_channel_that_belongs_to_another_project_without_changing_record()
+    {
+        var fixture = new Fixture();
+        var projectId = Guid.NewGuid();
+        var record = MeetingRecord.CreateSupervisor(
+            projectId, new DateTime(2026, 10, 1), 20, "Original", null, null,
+            Guid.NewGuid(), "Supervisor", Now);
+        fixture.Records.Items.Add(record);
+        var otherChannel = AddSupervisorChannel(fixture, Guid.NewGuid());
+
+        var ex = await Assert.ThrowsAsync<ApiValidationException>(() => fixture.Service.UpdateAsync(
+            projectId, record.Id,
+            new MeetingRecordUpsertRequest("2026-10-02", 30, "Changed", null, otherChannel.Id),
+            CancellationToken.None));
+        Assert.Contains(ex.FieldErrors, e => e.Field == "channelId");
+        Assert.Equal("Original", fixture.Records.Items.Single().DiscussionSummary);
+    }
+
+    [Fact]
+    public async Task Update_delete_and_approve_reject_record_from_different_project()
+    {
+        var fixture = new Fixture();
+        var record = MeetingRecord.CreateStudent(
+            Guid.NewGuid(), new DateTime(2026, 10, 1), 20, "Original", null, null,
+            Guid.NewGuid(), "Student", Now);
+        fixture.Records.Items.Add(record);
+        var requestedProject = Guid.NewGuid();
+
+        var update = await Assert.ThrowsAsync<ApiException>(() => fixture.Service.UpdateAsync(
+            requestedProject, record.Id, ValidRequest(), CancellationToken.None));
+        Assert.Equal(StatusCodes.Status404NotFound, update.StatusCode);
+        var delete = await Assert.ThrowsAsync<ApiException>(() => fixture.Service.DeleteAsync(
+            requestedProject, record.Id, CancellationToken.None));
+        Assert.Equal(StatusCodes.Status404NotFound, delete.StatusCode);
+        var approve = await Assert.ThrowsAsync<ApiException>(() => fixture.Service.ApproveAsync(
+            requestedProject, record.Id, Guid.NewGuid(), CancellationToken.None));
+        Assert.Equal(StatusCodes.Status404NotFound, approve.StatusCode);
+        Assert.Single(fixture.Records.Items);
+    }
+
+    [Fact]
+    public async Task Approve_rejects_supervisor_created_record_without_profile_lookup()
+    {
+        var fixture = new Fixture();
+        var projectId = Guid.NewGuid();
+        var record = MeetingRecord.CreateSupervisor(
+            projectId, new DateTime(2026, 10, 1), 20, "Approved", null, null,
+            Guid.NewGuid(), "Supervisor", Now);
+        fixture.Records.Items.Add(record);
+
+        var ex = await Assert.ThrowsAsync<ApiValidationException>(() => fixture.Service.ApproveAsync(
+            projectId, record.Id, Guid.NewGuid(), CancellationToken.None));
+        Assert.Contains(ex.FieldErrors, e => e.Field == "status");
+        Assert.Equal(0, fixture.Profile.Calls);
+    }
+
     private static MeetingRecordUpsertRequest ValidRequest(Guid? channelId = null) =>
         new(
             "2026-10-02",

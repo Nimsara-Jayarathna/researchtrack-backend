@@ -248,6 +248,120 @@ public sealed class MeetingChannelServiceTests
         Assert.Equal(1, fixture.Authorization.ManageChecks);
     }
 
+
+    [Theory]
+    [InlineData(" supervisor ")]
+    [InlineData("SUPERVISOR")]
+    public async Task Create_normalizes_supervisor_role_and_trims_editable_fields(string role)
+    {
+        var fixture = new Fixture();
+        var projectId = Guid.NewGuid();
+
+        var result = await fixture.Service.CreateAsync(
+            projectId,
+            Guid.NewGuid(),
+            role,
+            new MeetingChannelCreateRequest(" zoom ", "  Weekly supervision  ", "  https://example.test/weekly  "),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal("ZOOM", result.Platform);
+        Assert.Equal("Weekly supervision", result.ChannelName);
+        Assert.Equal("https://example.test/weekly", result.LinkOrIdentifier);
+        Assert.Equal(MeetingChannelConstants.StatusApproved, result.Status);
+        Assert.Equal(1, fixture.Authorization.ManageChecks);
+        Assert.Equal(0, fixture.Authorization.AccessChecks);
+    }
+
+    [Theory]
+    [InlineData(" student ")]
+    [InlineData("STUDENT")]
+    public async Task Create_normalizes_student_role_and_keeps_channel_pending(string role)
+    {
+        var fixture = new Fixture();
+        var result = await fixture.Service.CreateAsync(
+            Guid.NewGuid(), Guid.NewGuid(), role, ValidRequest(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(MeetingChannelConstants.StatusPending, result.Status);
+        Assert.Equal(0, fixture.Authorization.ManageChecks);
+        Assert.Equal(1, fixture.Authorization.AccessChecks);
+    }
+
+    [Fact]
+    public async Task Create_accepts_exact_length_boundaries_and_rejects_values_above_them()
+    {
+        var fixture = new Fixture();
+        var maxName = new string('N', MeetingChannelConstants.ChannelNameMaxLength);
+        var prefix = "https://example.test/";
+        var maxLink = prefix + new string('a', MeetingChannelConstants.LinkMaxLength - prefix.Length);
+
+        var accepted = await fixture.Service.CreateAsync(
+            Guid.NewGuid(), Guid.NewGuid(), AuthSecurityConstants.Roles.Supervisor,
+            new MeetingChannelCreateRequest("ZOOM", maxName, maxLink),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(MeetingChannelConstants.ChannelNameMaxLength, accepted.ChannelName.Length);
+        Assert.Equal(MeetingChannelConstants.LinkMaxLength, accepted.LinkOrIdentifier.Length);
+
+        var ex = await Assert.ThrowsAsync<ApiValidationException>(() => fixture.Service.CreateAsync(
+            Guid.NewGuid(), Guid.NewGuid(), AuthSecurityConstants.Roles.Supervisor,
+            new MeetingChannelCreateRequest("ZOOM", maxName + "x", maxLink + "x"),
+            TestContext.Current.CancellationToken));
+        Assert.Contains(ex.FieldErrors, e => e.Field == "channelName");
+        Assert.Contains(ex.FieldErrors, e => e.Field == "linkOrIdentifier");
+    }
+
+    [Theory]
+    [InlineData("ftp://example.test/room")]
+    [InlineData("example.test/room")]
+    [InlineData("   ")]
+    public async Task Create_rejects_non_http_or_missing_links(string link)
+    {
+        var fixture = new Fixture();
+        var ex = await Assert.ThrowsAsync<ApiValidationException>(() => fixture.Service.CreateAsync(
+            Guid.NewGuid(), Guid.NewGuid(), AuthSecurityConstants.Roles.Supervisor,
+            new MeetingChannelCreateRequest("ZOOM", "Weekly", link),
+            TestContext.Current.CancellationToken));
+        Assert.Contains(ex.FieldErrors, e => e.Field == "linkOrIdentifier");
+        Assert.Empty(fixture.Repository.Items);
+    }
+
+    [Fact]
+    public async Task Update_and_delete_reject_channel_from_different_project()
+    {
+        var fixture = new Fixture();
+        var channel = MeetingChannel.CreateSupervisor(
+            Guid.NewGuid(), "ZOOM", "Weekly", "https://example.test/weekly",
+            Guid.NewGuid(), "Supervisor", Now);
+        fixture.Repository.Items.Add(channel);
+        var requestedProject = Guid.NewGuid();
+
+        var update = await Assert.ThrowsAsync<ApiException>(() => fixture.Service.UpdateAsync(
+            requestedProject, channel.Id,
+            new MeetingChannelUpdateRequest("Changed", "https://example.test/changed"),
+            TestContext.Current.CancellationToken));
+        Assert.Equal(StatusCodes.Status404NotFound, update.StatusCode);
+
+        var delete = await Assert.ThrowsAsync<ApiException>(() => fixture.Service.DeleteAsync(
+            requestedProject, channel.Id, TestContext.Current.CancellationToken));
+        Assert.Equal(StatusCodes.Status404NotFound, delete.StatusCode);
+        Assert.Single(fixture.Repository.Items);
+    }
+
+    [Fact]
+    public async Task Approve_rejects_already_approved_supervisor_channel_without_profile_lookup()
+    {
+        var fixture = new Fixture();
+        var projectId = Guid.NewGuid();
+        var channel = MeetingChannel.CreateSupervisor(
+            projectId, "ZOOM", "Weekly", "https://example.test/weekly",
+            Guid.NewGuid(), "Supervisor", Now);
+        fixture.Repository.Items.Add(channel);
+
+        var ex = await Assert.ThrowsAsync<ApiValidationException>(() => fixture.Service.ApproveAsync(
+            projectId, channel.Id, Guid.NewGuid(), TestContext.Current.CancellationToken));
+        Assert.Contains(ex.FieldErrors, e => e.Field == "status");
+        Assert.Equal(0, fixture.Profile.Calls);
+    }
+
     private static MeetingChannelCreateRequest ValidRequest() =>
         new("ZOOM", "Weekly supervision", "https://example.test/weekly");
 
