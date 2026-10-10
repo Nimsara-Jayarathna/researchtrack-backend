@@ -90,7 +90,7 @@ The manual GitHub Actions workflow exposes the same scopes and uploads HTML, JSO
 
 ## Threshold policy
 
-All newly introduced scopes start with Stryker `break = 0`. This is intentional. A regression threshold is evidence-based only after a valid baseline is obtained, meaningful survivors are hardened, and equivalent/non-business-value survivors are documented. Service and project-wide gates should be set below the stable final weighted score, not chosen before measurement.
+The baseline and survivor-hardening phases are complete. Per-subscope Stryker `break` floors are now set below the stable hardened scores, and weighted service/project floors are version-controlled in `config/testing/mutation-policy.json`. The complete `all` run enforces the weighted policy after regenerating all reports. These are regression guards, not aspirational score targets. See `docs/testing/mutation/project-wide/FINAL_MUTATION_BASELINE.md` for the locked service baselines and rationale.
 
 ## Survivor-review priority
 

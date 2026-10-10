@@ -1,5 +1,8 @@
 # SE3112 Mutation Testing — Phases 1–4
 
+> **Historical phase note:** This document describes the initial baseline stage. Final hardened regression floors are now defined in `config/testing/mutation-policy.json` and the Stryker configs. See `docs/testing/mutation/project-wide/FINAL_MUTATION_BASELINE.md`.
+
+
 ## Branch
 
 Use:

@@ -3,10 +3,21 @@
     "configuration": "Release",
     "mutation-level": "Standard",
     "coverage-analysis": "off",
-    "reporters": ["progress", "html", "json", "markdown"],
+    "reporters": [
+      "progress",
+      "html",
+      "json",
+      "markdown"
+    ],
     "report-file-name": "auth-registration-mutation-report",
     "break-on-initial-test-failure": true,
-    "thresholds": { "high": 80, "low": 60, "break": 0 },
-    "mutate": ["**/RegistrationService.cs"]
+    "thresholds": {
+      "high": 80,
+      "low": 60,
+      "break": 60
+    },
+    "mutate": [
+      "**/RegistrationService.cs"
+    ]
   }
 }

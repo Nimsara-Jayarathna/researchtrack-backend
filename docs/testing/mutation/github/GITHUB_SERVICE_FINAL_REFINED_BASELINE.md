@@ -31,7 +31,7 @@ This is not a score-only exclusion: the production service calls the policy dire
 Run:
 
 ```bash
-bash ./scripts/mutation-baseline.sh github-final
+bash ./scripts/mutation-baseline.sh github
 ```
 
 The command verifies the normal GitHub unit/mock suite, verifies the dedicated mutation harness, and runs the final high-value scopes including the refined reconciliation policy.

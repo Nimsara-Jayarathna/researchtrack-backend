@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import argparse
 import json
-import sys
 from collections import Counter
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
 SERVICE_SCOPES = {
@@ -77,11 +78,18 @@ class Result:
     report: str
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Generate weighted ResearchTrack mutation evidence.")
+    parser.add_argument("artifact_root", nargs="?", default="artifacts/mutation")
+    parser.add_argument("--policy", default=None, help="Regression policy JSON. Defaults to config/testing/mutation-policy.json relative to repo root.")
+    parser.add_argument("--enforce", action="store_true", help="Return non-zero if required reports are missing or weighted regression floors fail.")
+    return parser.parse_args()
+
+
 def latest_json(directory: Path) -> Path | None:
     if not directory.exists():
         return None
-    files = list(directory.rglob("*.json"))
-    files = [p for p in files if "report" in p.name.lower() or "mutation" in p.name.lower()]
+    files = [p for p in directory.rglob("*.json") if "report" in p.name.lower() or "mutation" in p.name.lower()]
     return max(files, key=lambda p: p.stat().st_mtime) if files else None
 
 
@@ -126,35 +134,78 @@ def weighted(results: list[Result]):
     return ((100.0 * (killed + timeout) / denom) if denom else None, killed, survived, timeout, no_cov)
 
 
+def default_policy_path(root: Path) -> Path:
+    repo = root.resolve().parents[1] if root.name == "mutation" and root.parent.name == "artifacts" else Path.cwd()
+    return repo / "config" / "testing" / "mutation-policy.json"
+
+
+def load_policy(path: Path) -> dict:
+    if not path.exists():
+        return {"overallFloor": None, "serviceFloors": {}}
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def gate(score: float | None, floor: float | None) -> str:
+    if floor is None:
+        return "N/A"
+    if score is None:
+        return "MISSING"
+    return "PASS" if score + 1e-9 >= floor else "FAIL"
+
+
 def main() -> int:
-    root = Path(sys.argv[1] if len(sys.argv) > 1 else "artifacts/mutation")
+    args = parse_args()
+    root = Path(args.artifact_root)
     root.mkdir(parents=True, exist_ok=True)
+    policy_path = Path(args.policy) if args.policy else default_policy_path(root)
+    policy = load_policy(policy_path)
+    service_floors: dict[str, float] = {k: float(v) for k, v in policy.get("serviceFloors", {}).items()}
+    overall_floor = policy.get("overallFloor")
+    overall_floor = float(overall_floor) if overall_floor is not None else None
+
     all_results: dict[str, list[Result]] = {
         service: [result_for(root, service, label, scope) for label, scope in scopes]
         for service, scopes in SERVICE_SCOPES.items()
     }
 
     lines = [
-        "# ResearchTrack Mutation Testing — Project-Wide Business-Logic Evidence",
+        "# ResearchTrack Mutation Testing — Final Project-Wide Business-Logic Evidence",
         "",
-        "Mutation testing is intentionally scoped to high-value validation, authorization, security, state-transition, workflow, synchronization, and orchestration logic. Controllers, DTO-only contracts, generated code, migrations, and routine persistence/transport plumbing are not used to inflate the denominator.",
+        f"Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}",
         "",
-        "## Service summary",
+        "Mutation testing is intentionally scoped to high-value validation, authorization, security, state-transition, workflow, synchronization, and orchestration logic. Controllers, DTO-only contracts, generated code, migrations, and routine persistence/transport plumbing are excluded from the mutation denominator.",
         "",
-        "| Service | Weighted score | Killed | Survived | Timeout | No coverage |",
-        "|---|---:|---:|---:|---:|---:|",
+        "## Service summary and regression gates",
+        "",
+        "| Service | Weighted score | Regression floor | Gate | Killed | Survived | Timeout | No coverage |",
+        "|---|---:|---:|:---:|---:|---:|---:|---:|",
     ]
 
     project_k = project_s = project_t = project_n = 0
+    service_weighted: dict[str, tuple] = {}
+    failures: list[str] = []
     for service in SERVICE_SCOPES:
         score, k, s, t, n = weighted(all_results[service])
+        service_weighted[service] = (score, k, s, t, n)
         project_k += k; project_s += s; project_t += t; project_n += n
-        lines.append(f"| {DISPLAY[service]} | {fmt_score(score)} | {k if (k+s+t+n) else '—'} | {s if (k+s+t+n) else '—'} | {t if (k+s+t+n) else '—'} | {n if (k+s+t+n) else '—'} |")
+        floor = service_floors.get(service)
+        status = gate(score, floor)
+        if args.enforce and status != "PASS":
+            failures.append(f"{DISPLAY[service]}: {status} (score={fmt_score(score)}, floor={floor})")
+        lines.append(
+            f"| {DISPLAY[service]} | {fmt_score(score)} | {fmt_score(floor)} | **{status}** | "
+            f"{k if (k+s+t+n) else '—'} | {s if (k+s+t+n) else '—'} | {t if (k+s+t+n) else '—'} | {n if (k+s+t+n) else '—'} |"
+        )
 
     total = project_k + project_s + project_t + project_n
     overall = 100.0 * (project_k + project_t) / total if total else None
+    overall_status = gate(overall, overall_floor)
+    if args.enforce and overall_status != "PASS":
+        failures.append(f"Overall: {overall_status} (score={fmt_score(overall)}, floor={overall_floor})")
     lines += [
-        f"| **Overall selected business logic** | **{fmt_score(overall)}** | **{project_k if total else '—'}** | **{project_s if total else '—'}** | **{project_t if total else '—'}** | **{project_n if total else '—'}** |",
+        f"| **Overall selected business logic** | **{fmt_score(overall)}** | **{fmt_score(overall_floor)}** | **{overall_status}** | **{project_k if total else '—'}** | **{project_s if total else '—'}** | **{project_t if total else '—'}** | **{project_n if total else '—'}** |",
+        "",
+        "Regression floors are deliberately below the hardened baselines. They are intended to detect meaningful test-quality regressions without requiring every equivalent or low-value mutant to be killed.",
         "",
     ]
 
@@ -175,17 +226,29 @@ def main() -> int:
         "## Interpretation",
         "",
         "- `Killed` and `Timeout` are detected mutants.",
-        "- `Survived` means selected tests still passed and the mutant needs survivor review.",
+        "- `Survived` means selected tests still passed; remaining survivors require review, not automatic score chasing.",
         "- `No coverage` means the selected mutation harness did not execute the mutant.",
-        "- `Ignored` and `Compile error` are shown separately and are not counted as surviving business mutants.",
+        "- `Ignored` and `Compile error` are reported transparently and are not counted as surviving business mutants.",
         "- Weighted service and overall scores use actual mutant counts; percentages are never averaged across unequal subscopes.",
-        "- Stryker `break` remains `0` while new service scopes are baselined. Add regression floors only after survivor hardening produces stable final scores.",
+        "- Per-subscope Stryker `break` thresholds are evidence-based regression floors derived from hardened baselines.",
+        "- The project-wide gate is enforced only on the complete `all` run, where every service report is regenerated in the same execution.",
+        "",
+        "## Final evidence checklist",
+        "",
+        "- Normal xUnit unit/mock suites pass with `Category!=DatabaseIntegration`.",
+        "- Dedicated mutation harnesses pass before Stryker starts.",
+        "- HTML, JSON and Markdown Stryker reports are retained per subscope.",
+        "- `mutation-summary.md` records weighted service and overall scores plus regression-gate status.",
+        "- The final project-wide command is `bash ./scripts/mutation-baseline.sh all`.",
         "",
     ]
+    if failures:
+        lines += ["## Gate failures", ""] + [f"- {item}" for item in failures] + [""]
+
     out = root / "mutation-summary.md"
     out.write_text("\n".join(lines), encoding="utf-8")
     print(out.read_text(encoding="utf-8"))
-    return 0
+    return 1 if args.enforce and failures else 0
 
 if __name__ == "__main__":
     raise SystemExit(main())

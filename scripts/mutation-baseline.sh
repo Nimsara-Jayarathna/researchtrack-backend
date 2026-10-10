@@ -7,17 +7,18 @@ TARGET="${1:-all}"
 
 usage() {
   cat <<'TXT'
-Usage: bash ./scripts/mutation-baseline.sh [all|auth|auth-registration|project|submission|submission-final|jira|jira-webhook-final|github|github-final|gateway|meeting|meeting-final]
+Usage: bash ./scripts/mutation-baseline.sh [all|auth|project|submission|github|jira|gateway|meeting]
 
 Runs ResearchTrack's targeted business-logic mutation suite against dedicated
 xUnit v2 mutation harnesses. Normal xUnit v3 unit/mock projects are verified
-first with database integration tests excluded. Stryker break thresholds stay at
-0 until all service baselines are stabilized and survivor review is complete.
+first with database integration tests excluded. Final evidence-based per-scope
+Stryker regression floors are enabled. The complete all-service run additionally
+enforces weighted service and project-wide floors from config/testing/mutation-policy.json.
 TXT
 }
 
 case "$TARGET" in
-  all|auth|auth-registration|project|submission|submission-final|github|github-final|jira|jira-webhook-final|gateway|meeting|meeting-final) ;;
+  all|auth|project|submission|github|jira|gateway|meeting) ;;
   -h|--help) usage; exit 0 ;;
   *) echo "Unknown mutation target: $TARGET" >&2; usage >&2; exit 2 ;;
 esac
@@ -101,10 +102,6 @@ run_auth() {
   run_config auth user-directory user-directory.json
 }
 
-run_auth_registration() {
-  verify_scope_tests auth
-  run_config auth registration registration.json
-}
 
 run_project() {
   verify_scope_tests project
@@ -120,10 +117,6 @@ run_submission() {
   run_config submission submission-service submission-service.json
 }
 
-run_submission_final() {
-  verify_scope_tests submission
-  run_config submission submission-service submission-service.json
-}
 
 run_github() {
   verify_scope_tests github
@@ -136,17 +129,6 @@ run_github() {
   run_config github reconciliation reconciliation.json
 }
 
-run_github_final() {
-  verify_scope_tests github
-  run_config github access-token access-token.json
-  run_config github installation-state installation-state.json
-  run_config github repository-link repository-link.json
-  run_config github webhook-event webhook-event.json
-  # Reconciliation orchestration previously produced 55 compile-error mutants and
-  # only 8 testable mutants. The final scope mutates the extracted pure decision
-  # policy instead, while the orchestration tests still execute the real service.
-  run_config github reconciliation reconciliation.json
-}
 
 run_jira() {
   verify_scope_tests jira
@@ -157,10 +139,6 @@ run_jira() {
   run_config jira webhook webhook.json
 }
 
-run_jira_webhook_final() {
-  verify_scope_tests jira
-  run_config jira webhook webhook.json
-}
 
 run_gateway() {
   verify_scope_tests gateway
@@ -174,25 +152,15 @@ run_meeting() {
   run_config meeting record-service record-service.json
 }
 
-run_meeting_final() {
-  verify_scope_tests meeting
-  run_config meeting channel-service channel-service.json
-  run_config meeting record-service record-service.json
-}
 
 case "$TARGET" in
   auth) run_auth ;;
-  auth-registration) run_auth_registration ;;
   project) run_project ;;
   submission) run_submission ;;
-  submission-final) run_submission_final ;;
   github) run_github ;;
-  github-final) run_github_final ;;
   jira) run_jira ;;
-  jira-webhook-final) run_jira_webhook_final ;;
   gateway) run_gateway ;;
   meeting) run_meeting ;;
-  meeting-final) run_meeting_final ;;
   all)
     run_auth
     run_project
@@ -216,7 +184,11 @@ fi
 if (( ${#PYTHON_CMD[@]} == 0 )); then
   echo "WARNING: Python 3 was not found; Stryker reports are complete, but mutation-summary.md was not regenerated." >&2
 else
-  "${PYTHON_CMD[@]}" "${ROOT_DIR}/scripts/mutation-summary.py" "$ARTIFACT_ROOT"
+  if [[ "$TARGET" == "all" ]]; then
+    "${PYTHON_CMD[@]}" "${ROOT_DIR}/scripts/mutation-summary.py" "$ARTIFACT_ROOT" --enforce
+  else
+    "${PYTHON_CMD[@]}" "${ROOT_DIR}/scripts/mutation-summary.py" "$ARTIFACT_ROOT"
+  fi
 fi
 
 echo

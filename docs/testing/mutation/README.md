@@ -29,4 +29,4 @@ bash ./scripts/mutation-baseline.sh all
 
 Each command verifies the corresponding normal unit/mock suite with database integration tests excluded, verifies the dedicated mutation harness, runs the selected Stryker subscopes and regenerates `artifacts/mutation/mutation-summary.md` when Python 3 is available.
 
-New scopes intentionally use `break = 0` until a valid baseline and survivor-hardening pass are complete. Do not introduce arbitrary exclusions or thresholds merely to improve the reported percentage.
+Survivor hardening is now complete. Evidence-based per-subscope `break` floors are version-controlled in the Stryker configs, and weighted service/project floors are defined in `config/testing/mutation-policy.json`. The complete `all` run enforces those final gates. See `docs/testing/mutation/project-wide/FINAL_MUTATION_BASELINE.md`.

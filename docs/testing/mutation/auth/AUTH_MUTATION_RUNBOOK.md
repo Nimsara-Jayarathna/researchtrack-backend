@@ -29,7 +29,7 @@ After adding a justified test, run the normal Auth tests and the dedicated harne
 After Registration survivor changes, avoid rerunning all six Auth scopes during iteration:
 
 ```bash
-bash ./scripts/mutation-baseline.sh auth-registration
+bash ./scripts/mutation-baseline.sh auth
 ```
 
 This target first verifies the normal Auth unit/mock suite with `Category!=DatabaseIntegration`, then verifies the dedicated mutation harness, and finally runs only the Registration Stryker configuration.

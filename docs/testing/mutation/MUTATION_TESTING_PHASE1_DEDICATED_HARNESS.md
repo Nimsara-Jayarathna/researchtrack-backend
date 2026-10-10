@@ -1,5 +1,8 @@
 # SE3112 Mutation Testing — Phase 1 Dedicated Harness
 
+> **Historical phase note:** This document describes the initial baseline stage. Final hardened regression floors are now defined in `config/testing/mutation-policy.json` and the Stryker configs. See `docs/testing/mutation/project-wide/FINAL_MUTATION_BASELINE.md`.
+
+
 ## Why this exists
 
 The main ResearchTrack test projects use xUnit v3. Stryker.NET 5.0.0 was able

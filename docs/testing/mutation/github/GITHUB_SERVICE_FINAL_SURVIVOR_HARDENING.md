@@ -12,7 +12,7 @@ The final hardening focuses on:
 Run the focused final pass with:
 
 ```bash
-bash ./scripts/mutation-baseline.sh github-final
+bash ./scripts/mutation-baseline.sh github
 ```
 
 The full GitHub mutation portfolio remains available with `bash ./scripts/mutation-baseline.sh github`.

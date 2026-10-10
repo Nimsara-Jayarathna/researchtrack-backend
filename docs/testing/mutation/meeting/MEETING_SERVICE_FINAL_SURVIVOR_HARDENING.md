@@ -9,7 +9,7 @@ The record-service hardening covers role normalization, exact `yyyy-MM-dd` date 
 Run the focused MeetingService pass with:
 
 ```bash
-bash ./scripts/mutation-baseline.sh meeting-final
+bash ./scripts/mutation-baseline.sh meeting
 ```
 
 The two Meeting subscopes remain independent in the generated mutation summary: `channel-service` and `record-service`.

@@ -18,7 +18,7 @@ Added assertions cover exact delivery-id boundaries, delivery-id trimming, issue
 Run only the final weak scope with:
 
 ```bash
-bash ./scripts/mutation-baseline.sh jira-webhook-final
+bash ./scripts/mutation-baseline.sh jira
 ```
 
 The normal Jira unit/mock suite and dedicated mutation harness are verified first.

@@ -14,7 +14,7 @@ Added assertions cover revision eligibility and version increments, stale-sessio
 Run only the final weak scope with:
 
 ```bash
-bash ./scripts/mutation-baseline.sh submission-final
+bash ./scripts/mutation-baseline.sh submission
 ```
 
 The normal Submission unit/mock suite and dedicated mutation harness are verified first. Do not change production behavior merely to improve the score; remaining survivors should be classified after this pass.

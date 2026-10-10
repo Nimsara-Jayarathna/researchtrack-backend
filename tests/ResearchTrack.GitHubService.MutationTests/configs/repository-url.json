@@ -12,9 +12,9 @@
     "report-file-name": "github-repository-url-mutation-report",
     "break-on-initial-test-failure": true,
     "thresholds": {
-      "high": 80,
-      "low": 60,
-      "break": 0
+      "high": 85,
+      "low": 80,
+      "break": 80
     },
     "mutate": [
       "**/GitHubRepositoryUrlParser.cs"

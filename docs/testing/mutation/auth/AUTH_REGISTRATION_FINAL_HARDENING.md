@@ -45,10 +45,10 @@ dotnet test tests/ResearchTrack.AuthService.Tests/ResearchTrack.AuthService.Test
 dotnet test tests/ResearchTrack.AuthService.MutationTests/ResearchTrack.AuthService.MutationTests.csproj \
   -c Release
 
-bash ./scripts/mutation-baseline.sh auth-registration
+bash ./scripts/mutation-baseline.sh auth
 ```
 
-The `auth-registration` target verifies both test suites first and then reruns only the RegistrationService Stryker scope, avoiding a full six-scope Auth rerun during survivor iteration.
+The `auth` service target verifies both test suites first and then reruns only the RegistrationService Stryker scope, avoiding a full six-scope Auth rerun during survivor iteration.
 
 When Registration is stable, run the final full Auth evidence pass:
 
