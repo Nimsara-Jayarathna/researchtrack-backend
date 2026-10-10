@@ -225,6 +225,119 @@ public sealed class GitHubWebhookEventProcessorCoverageTests
         Assert.False((await db.Repositories.SingleAsync(x => x.Id == ids.RepositoryId, ct)).Available);
     }
 
+
+    [Fact]
+    public async Task ProcessAsync_TagPush_IsIgnoredEvenForEnabledDefaultBranchLink()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var factory = new TestFactory();
+        await SeedAsync(factory, ct);
+        var sut = CreateSut(factory, Substitute.For<IGitHubInstallationRepositoryInventoryService>(), Substitute.For<IGitHubAppClient>());
+
+        var result = await sut.ProcessAsync(
+            Delivery("PUSH", RepositoryPayload("refs/tags/v1.0.0"), installationId: 42), ct);
+
+        Assert.True(result.Ignored);
+        Assert.Equal("push_without_branch_ref", result.Reason);
+        Assert.Empty(result.LinkedRepositoryIds);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_DefaultBranchPush_IgnoresDisabledOrUnavailableLinks()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var factory = new TestFactory();
+        var ids = await SeedAsync(factory, ct);
+        await using (var db = factory.CreateDbContext())
+        {
+            var link = await db.ProjectRepositoryLinks.SingleAsync(x => x.Id == ids.LinkId, ct);
+            link.Enabled = false;
+            await db.SaveChangesAsync(ct);
+        }
+        var sut = CreateSut(factory, Substitute.For<IGitHubInstallationRepositoryInventoryService>(), Substitute.For<IGitHubAppClient>());
+
+        var disabled = await sut.ProcessAsync(
+            Delivery("push", RepositoryPayload("refs/heads/main"), installationId: 42), ct);
+        Assert.True(disabled.Ignored);
+        Assert.Equal("non_default_branch_or_unlinked_repository", disabled.Reason);
+
+        await using (var db = factory.CreateDbContext())
+        {
+            var link = await db.ProjectRepositoryLinks.SingleAsync(x => x.Id == ids.LinkId, ct);
+            var repo = await db.Repositories.SingleAsync(x => x.Id == ids.RepositoryId, ct);
+            link.Enabled = true;
+            repo.Available = false;
+            await db.SaveChangesAsync(ct);
+        }
+        var unavailable = await sut.ProcessAsync(
+            Delivery("push", RepositoryPayload("refs/heads/main"), installationId: 42), ct);
+        Assert.True(unavailable.Ignored);
+        Assert.Equal("non_default_branch_or_unlinked_repository", unavailable.Reason);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_InstallationWithoutAction_ThrowsPermanentException()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var factory = new TestFactory();
+        var sut = CreateSut(factory, Substitute.For<IGitHubInstallationRepositoryInventoryService>(), Substitute.For<IGitHubAppClient>());
+
+        await Assert.ThrowsAsync<GitHubWebhookPermanentException>(() => sut.ProcessAsync(
+            Delivery("installation", "{}", installationId: 42, action: null), ct));
+    }
+
+    [Fact]
+    public async Task ProcessAsync_UnsupportedInstallationAction_IsIgnoredWithoutGitHubLookup()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var factory = new TestFactory();
+        var app = Substitute.For<IGitHubAppClient>();
+        var sut = CreateSut(factory, Substitute.For<IGitHubInstallationRepositoryInventoryService>(), app);
+
+        var result = await sut.ProcessAsync(
+            Delivery("installation", "{}", installationId: 42, action: "transferred"), ct);
+
+        Assert.True(result.Ignored);
+        Assert.Equal("unsupported_installation_action:transferred", result.Reason);
+        await app.DidNotReceive().GetInstallationAsync(Arg.Any<long>(), ct);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_InstallationCreatedForUnknownInstallation_IsIgnoredAsUnmanaged()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var factory = new TestFactory();
+        var app = Substitute.For<IGitHubAppClient>();
+        app.GetInstallationAsync(42, ct).Returns(new GitHubInstallationInfo(42, "owner", "User"));
+        var inventory = Substitute.For<IGitHubInstallationRepositoryInventoryService>();
+        var sut = CreateSut(factory, inventory, app);
+
+        var result = await sut.ProcessAsync(
+            Delivery("installation", "{}", installationId: 42, action: "created"), ct);
+
+        Assert.True(result.Ignored);
+        Assert.Equal("installation_not_managed_by_researchtrack", result.Reason);
+        await inventory.DidNotReceive().TryRefreshAsync(Arg.Any<Guid>(), ct);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_InstallationRepositoriesAddition_ProcessesOnlyAddedLinkedRepository()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var factory = new TestFactory();
+        var ids = await SeedAsync(factory, ct);
+        var inventory = Substitute.For<IGitHubInstallationRepositoryInventoryService>();
+        var sut = CreateSut(factory, inventory, Substitute.For<IGitHubAppClient>());
+        var payload = """{"repositories_added":[{"id":1001},{"id":0},{"id":"bad"}],"repositories_removed":[]}""";
+
+        var result = await sut.ProcessAsync(
+            Delivery("installation_repositories", payload, installationId: 42), ct);
+
+        Assert.False(result.Ignored);
+        Assert.Equal(ids.LinkId, Assert.Single(result.LinkedRepositoryIds));
+        await inventory.Received(1).TryRefreshAsync(ids.SourceId, ct);
+    }
+
     private static GitHubWebhookEventProcessor CreateSut(
         IDbContextFactory<GitHubDbContext> factory,
         IGitHubInstallationRepositoryInventoryService inventory,

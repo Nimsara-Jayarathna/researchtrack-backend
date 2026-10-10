@@ -19,4 +19,4 @@ The backend uses service-specific xUnit projects. Keep tests close to the servic
 - Avoid testing trivial getters/setters or framework code.
 - Add a mock only when an interaction is part of the expected behaviour.
 
-See `docs/testing/UNIT_TESTING_STRATEGY.md` and `docs/testing/UNIT_TEST_COVERAGE_MATRIX.md` for the full plan.
+See `docs/testing/unit/UNIT_TESTING_STRATEGY.md` and `docs/testing/coverage/UNIT_TEST_COVERAGE_MATRIX.md` for the full plan.

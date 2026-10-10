@@ -92,14 +92,11 @@ public sealed class GitHubReconciliationService : IGitHubReconciliationService
             foreach (var candidate in group)
             {
                 checkedLinks++;
-                var changed = !string.Equals(
-                                  candidate.DefaultBranch,
-                                  remoteHead.DefaultBranch,
-                                  StringComparison.Ordinal)
-                              || !string.Equals(
-                                  candidate.LastKnownHeadSha,
-                                  remoteHead.HeadSha,
-                                  StringComparison.OrdinalIgnoreCase);
+                var changed = GitHubReconciliationPolicy.HasRemoteChange(
+                    candidate.DefaultBranch,
+                    candidate.LastKnownHeadSha,
+                    remoteHead.DefaultBranch,
+                    remoteHead.HeadSha);
 
                 if (!changed)
                 {

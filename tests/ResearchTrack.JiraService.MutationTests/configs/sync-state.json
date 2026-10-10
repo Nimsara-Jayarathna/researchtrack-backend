@@ -1,0 +1,23 @@
+{
+  "stryker-config": {
+    "configuration": "Release",
+    "mutation-level": "Standard",
+    "coverage-analysis": "off",
+    "reporters": [
+      "progress",
+      "html",
+      "json",
+      "markdown"
+    ],
+    "report-file-name": "jira-sync-state-mutation-report",
+    "break-on-initial-test-failure": true,
+    "thresholds": {
+      "high": 80,
+      "low": 75,
+      "break": 75
+    },
+    "mutate": [
+      "**/JiraSyncStateTransitions.cs"
+    ]
+  }
+}

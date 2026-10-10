@@ -211,6 +211,66 @@ public sealed class GitHubInstallationStateServiceTests
             TestContext.Current.CancellationToken));
     }
 
+
+
+    [Fact]
+    public async Task Exact_expiry_boundary_is_rejected()
+    {
+        var store = new StubStore();
+        var service = CreateService(store, Now);
+        var created = await service.CreateAsync(ProjectId, UserId, GitHubInstallationFlowTypes.Direct, "/projects/return", TestContext.Current.CancellationToken);
+        Assert.NotNull(store.State);
+        store.State!.ExpiresAt = Now.UtcDateTime;
+
+        var ex = await Assert.ThrowsAsync<ApiException>(() => service.ValidateAsync(
+            created.Value, UserId, GitHubInstallationFlowTypes.Direct, TestContext.Current.CancellationToken));
+        Assert.Equal(StatusCodes.Status400BadRequest, ex.StatusCode);
+    }
+
+    [Fact]
+    public async Task Validation_rejects_wrong_flow_even_for_same_user_and_valid_state()
+    {
+        var store = new StubStore();
+        var service = CreateService(store, Now);
+        var created = await service.CreateAsync(ProjectId, UserId, GitHubInstallationFlowTypes.Direct, "/projects/return", TestContext.Current.CancellationToken);
+
+        var ex = await Assert.ThrowsAsync<ApiException>(() => service.ValidateAsync(
+            created.Value, UserId, GitHubInstallationFlowTypes.Requested, TestContext.Current.CancellationToken));
+        Assert.Equal(StatusCodes.Status400BadRequest, ex.StatusCode);
+    }
+
+    [Theory]
+    [InlineData(0L)]
+    [InlineData(-1L)]
+    public async Task Bind_rejects_non_positive_installation_ids(long installationId)
+    {
+        var service = CreateService(new StubStore(), Now);
+        var ex = await Assert.ThrowsAsync<ApiException>(() => service.BindInstallationAsync(
+            "state", installationId, GitHubInstallationFlowTypes.Direct, TestContext.Current.CancellationToken));
+        Assert.Equal(StatusCodes.Status400BadRequest, ex.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("/\\evil")]
+    [InlineData("relative/path")]
+    [InlineData("   ")]
+    public async Task Create_rejects_non_local_return_contexts(string returnPath)
+    {
+        var service = CreateService(new StubStore(), Now);
+        await Assert.ThrowsAsync<ArgumentException>(() => service.CreateAsync(
+            ProjectId, UserId, GitHubInstallationFlowTypes.Direct, returnPath, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task Create_rejects_empty_project_or_user_identifiers()
+    {
+        var service = CreateService(new StubStore(), Now);
+        await Assert.ThrowsAsync<ArgumentException>(() => service.CreateAsync(
+            Guid.Empty, UserId, GitHubInstallationFlowTypes.Direct, "/return", TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<ArgumentException>(() => service.CreateAsync(
+            ProjectId, Guid.Empty, GitHubInstallationFlowTypes.Direct, "/return", TestContext.Current.CancellationToken));
+    }
+
     private static GitHubInstallationStateService CreateService(StubStore store, DateTimeOffset now) => new(
         store,
         new GitHubAppOptions(

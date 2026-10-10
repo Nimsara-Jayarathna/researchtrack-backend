@@ -39,13 +39,18 @@ public sealed class SubmissionRequirementService : ISubmissionRequirementService
     {
         var projectContext = await _projectAuthorization.GetSubmissionContextAsync(projectId, cancellationToken);
         await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-        var requirements = await db.SubmissionRequirements.AsNoTracking()
-            .Where(x => x.ProjectId == projectId)
+        // Materialize the project-scoped rows first, then apply the presentation order in memory.
+        // SQLite cannot translate DateTimeOffset ORDER BY expressions, while MySQL can. Keeping
+        // the database predicate server-side and the small project-local ordering client-side makes
+        // this deterministic across the production provider and the mutation/unit-test provider.
+        var requirements = (await db.SubmissionRequirements.AsNoTracking()
+                .Where(x => x.ProjectId == projectId)
+                .ToListAsync(cancellationToken))
             .OrderBy(x => x.Status == SubmissionConstants.RequirementStatus.Open ? 0 : x.Status == SubmissionConstants.RequirementStatus.Closed ? 1 : 2)
             .ThenBy(x => x.DueAt == null)
             .ThenBy(x => x.DueAt)
-            .ThenBy(x => x.Title)
-            .ToListAsync(cancellationToken);
+            .ThenBy(x => x.Title, StringComparer.Ordinal)
+            .ToList();
 
         var submissions = await db.ResearchSubmissions.AsNoTracking()
             .Where(x => x.ProjectId == projectId)
