@@ -1454,3 +1454,7 @@ See the [Documentation index](docs/README.md) for guides, plans, and the documen
 ## SE3112 — Load & Performance Testing (Nimsara)
 
 The backend includes an authenticated k6 suite, a fixed-IP **and secret** VPS gateway rate-limit exemption, and a manual GitHub Actions workflow that borrows and restores the existing Azure runtime. The normal backend and frontend test suites remain first-class CI checks. See [`tests/performance/README.md`](tests/performance/README.md) for complete setup, GitHub secrets/variables, available profiles, rate limiting, reporting, account preparation, and workflow operation.
+
+## SE3112 unit testing, mocking and coverage evidence
+
+The assessment-focused unit/mock suite excludes database integration tests and publishes two merged coverage views: full production source and a business-logic quality-gate scope. Run `./scripts/coverage.sh --no-build` after a Release build. See `docs/testing/PHASE4_BUSINESS_COVERAGE_HARDENING.md` and `docs/testing/COVERAGE_GAP_REGISTER.md` for the risk-based coverage strategy.
