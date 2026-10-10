@@ -5,7 +5,7 @@ The backend uses service-specific xUnit projects. Keep tests close to the servic
 ## Test categories by intent
 
 - **Pure unit tests:** deterministic rules, parsers, validation, calculations, authorization decisions and state transitions.
-- **Mocked unit tests (next phase):** service orchestration with isolated dependencies and interaction verification.
+- **Mocked unit tests:** service orchestration with isolated dependencies and interaction verification.
 - **Integration tests:** ASP.NET/EF/infrastructure boundaries using the existing ResearchTrack test infrastructure.
 - **Performance tests:** k6 under `tests/performance`; separate from this unit-testing workstream.
 
@@ -19,4 +19,4 @@ The backend uses service-specific xUnit projects. Keep tests close to the servic
 - Avoid testing trivial getters/setters or framework code.
 - Add a mock only when an interaction is part of the expected behaviour.
 
-See `docs/testing/UNIT_TESTING_STRATEGY.md` and `docs/testing/UNIT_TEST_COVERAGE_MATRIX.md` for the full plan.
+See `docs/testing/UNIT_TESTING_STRATEGY.md`, `docs/testing/UNIT_TEST_COVERAGE_MATRIX.md`, and `docs/testing/COVERAGE_AND_CI.md` for the full plan and evidence workflow.

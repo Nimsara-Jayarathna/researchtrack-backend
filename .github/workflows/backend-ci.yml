@@ -113,5 +113,31 @@ jobs:
       - name: Build
         run: dotnet build ResearchTrack.sln -c Release --no-restore
 
-      - name: Test
-        run: ./scripts/test.sh all
+      - name: Restore repository .NET tools
+        run: dotnet tool restore
+
+      - name: Unit and mocking tests with merged coverage
+        run: ./scripts/coverage.sh --no-build
+
+      - name: Publish unit-test coverage summary
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f artifacts/coverage/coverage-summary.md ]]; then
+            cat artifacts/coverage/coverage-summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [[ -f artifacts/coverage/report/SummaryGithub.md ]]; then
+            printf '\n## Detailed coverage by assembly/class\n\n' >> "$GITHUB_STEP_SUMMARY"
+            cat artifacts/coverage/report/SummaryGithub.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload unit-test coverage evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-unit-test-coverage-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            artifacts/coverage
+            artifacts/test-results/unit
+          if-no-files-found: warn
+          retention-days: 14

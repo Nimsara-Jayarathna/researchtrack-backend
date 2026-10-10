@@ -1003,6 +1003,16 @@ Run one service test project:
 
 These commands exclude tests categorized as `DatabaseIntegration`.
 
+## Unit/mock coverage evidence
+
+Generate the merged unit/mock coverage report after a successful Release build:
+
+```bash
+./scripts/coverage.sh --no-build
+```
+
+The script runs the same non-database unit/mock scope, merges the seven Cobertura files, and writes HTML, Markdown, JSON, CSV, text and merged Cobertura evidence under `artifacts/coverage/`. The CI workflow publishes the summary and uploads the complete evidence artifact. See `docs/testing/COVERAGE_AND_CI.md`.
+
 ## Database integration tests
 
 Run explicitly:
