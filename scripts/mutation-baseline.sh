@@ -7,7 +7,7 @@ TARGET="${1:-all}"
 
 usage() {
   cat <<'TXT'
-Usage: bash ./scripts/mutation-baseline.sh [all|auth|auth-registration|project|submission|jira|github|gateway|meeting]
+Usage: bash ./scripts/mutation-baseline.sh [all|auth|auth-registration|project|submission|submission-final|jira|jira-webhook-final|github|gateway|meeting]
 
 Runs ResearchTrack's targeted business-logic mutation suite against dedicated
 xUnit v2 mutation harnesses. Normal xUnit v3 unit/mock projects are verified
@@ -17,7 +17,7 @@ TXT
 }
 
 case "$TARGET" in
-  all|auth|auth-registration|project|submission|github|jira|gateway|meeting) ;;
+  all|auth|auth-registration|project|submission|submission-final|github|jira|jira-webhook-final|gateway|meeting) ;;
   -h|--help) usage; exit 0 ;;
   *) echo "Unknown mutation target: $TARGET" >&2; usage >&2; exit 2 ;;
 esac
@@ -120,6 +120,11 @@ run_submission() {
   run_config submission submission-service submission-service.json
 }
 
+run_submission_final() {
+  verify_scope_tests submission
+  run_config submission submission-service submission-service.json
+}
+
 run_github() {
   verify_scope_tests github
   run_config github repository-url repository-url.json
@@ -140,6 +145,11 @@ run_jira() {
   run_config jira webhook webhook.json
 }
 
+run_jira_webhook_final() {
+  verify_scope_tests jira
+  run_config jira webhook webhook.json
+}
+
 run_gateway() {
   verify_scope_tests gateway
   run_config gateway performance-rate-limit performance-rate-limit.json
@@ -157,8 +167,10 @@ case "$TARGET" in
   auth-registration) run_auth_registration ;;
   project) run_project ;;
   submission) run_submission ;;
+  submission-final) run_submission_final ;;
   github) run_github ;;
   jira) run_jira ;;
+  jira-webhook-final) run_jira_webhook_final ;;
   gateway) run_gateway ;;
   meeting) run_meeting ;;
   all)

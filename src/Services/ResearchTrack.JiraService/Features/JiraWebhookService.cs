@@ -210,7 +210,12 @@ public sealed class JiraWebhookService : IJiraWebhookService
         var ids=new List<long>();
         if(root.TryGetProperty("matchedWebhookIds",out var matched)&&matched.ValueKind==JsonValueKind.Array)
             foreach(var item in matched.EnumerateArray())
-                if(item.TryGetInt64(out var value)&&!ids.Contains(value))ids.Add(value);
+                if(item.ValueKind==JsonValueKind.Number &&
+                   item.TryGetInt64(out var value) &&
+                   !ids.Contains(value))
+                {
+                    ids.Add(value);
+                }
         return ids;
     }
 
@@ -293,11 +298,20 @@ public sealed class JiraWebhookService : IJiraWebhookService
             }
 
             using var payload = JsonDocument.Parse(WebEncoders.Base64UrlDecode(parts[1]));
-            if (payload.RootElement.TryGetProperty("exp", out var exp) &&
-                exp.TryGetInt64(out var unix) &&
-                DateTimeOffset.FromUnixTimeSeconds(unix) < DateTimeOffset.UtcNow.AddMinutes(-1))
+            if (payload.RootElement.ValueKind != JsonValueKind.Object)
             {
                 return false;
+            }
+            if (payload.RootElement.TryGetProperty("exp", out var exp))
+            {
+                if (exp.ValueKind != JsonValueKind.Number || !exp.TryGetInt64(out var unix))
+                {
+                    return false;
+                }
+                if (DateTimeOffset.FromUnixTimeSeconds(unix) < DateTimeOffset.UtcNow.AddMinutes(-1))
+                {
+                    return false;
+                }
             }
 
             return true;

@@ -303,6 +303,245 @@ public sealed class SubmissionMutationFinalHardeningTests
         await storage.DidNotReceive().CreateDownloadGrantAsync(Arg.Any<string>(),Arg.Any<string>(),Arg.Any<bool>(),Arg.Any<CancellationToken>());
     }
 
+
+    [Fact]
+    public async Task CreateUploadSession_RevisionRequiresFormalChangeRequestAndUsesNextVersion()
+    {
+        var ct = CancellationToken.None;
+        await using var factory = await SqliteFactory.CreateAsync(ct);
+        var projectId = Guid.NewGuid(); var studentId = Guid.NewGuid();
+        var seeded = await SeedCompleted(factory, projectId, studentId, ct);
+        await using (var db = factory.CreateDbContext())
+        {
+            var submission = await db.ResearchSubmissions.SingleAsync(x => x.Id == seeded.SubmissionId, ct);
+            submission.Status = SubmissionConstants.SubmissionStatus.ChangesRequested;
+            db.SubmissionReviews.Add(new SubmissionReview
+            {
+                Id = Guid.NewGuid(), SubmissionId = seeded.SubmissionId, VersionId = seeded.VersionId,
+                Decision = SubmissionConstants.ReviewDecision.ChangesRequested, Feedback = "Revise",
+                ReviewedBy = Guid.NewGuid(), ReviewedByName = "Supervisor", ReviewedAt = Now
+            });
+            await db.SaveChangesAsync(ct);
+        }
+
+        var storage = Substitute.For<IObjectStorageService>();
+        storage.CreateUploadGrantAsync(Arg.Any<string>(), "application/pdf", ct)
+            .Returns(new ObjectUploadGrant("https://upload", Now.AddMinutes(5), new Dictionary<string,string>()));
+        var sut = SubmissionSut(factory, Auth(projectId, studentId), Profile("Student"), storage);
+        var response = await sut.CreateUploadSessionAsync(projectId,
+            (await factory.CreateDbContext().ResearchSubmissions.SingleAsync(x => x.Id == seeded.SubmissionId, ct)).RequirementId,
+            studentId, ValidUpload(), ct);
+
+        Assert.Equal(2, response.VersionNumber);
+        await using var verify = factory.CreateDbContext();
+        var session = await verify.SubmissionUploadSessions.SingleAsync(x => x.Id == response.UploadSessionId, ct);
+        Assert.Equal(seeded.SubmissionId, session.SubmissionId);
+        Assert.Equal(2, session.ExpectedVersionNumber);
+        Assert.Equal("ACTIVE", session.ActiveSlot);
+    }
+
+    [Fact]
+    public async Task CreateUploadSession_DifferentOwnerActiveSessionIsFailedAndReplaced()
+    {
+        var ct = CancellationToken.None;
+        await using var factory = await SqliteFactory.CreateAsync(ct);
+        var projectId = Guid.NewGuid(); var studentId = Guid.NewGuid();
+        var req = await SeedRequirement(factory, projectId, studentId, Now.AddDays(1), ct);
+        var stale = Session(projectId, req.Id, Guid.NewGuid(), 1, Now.AddMinutes(5), active: true);
+        await SeedSession(factory, stale, ct);
+        var storage = Substitute.For<IObjectStorageService>();
+        storage.CreateUploadGrantAsync(Arg.Any<string>(), "application/pdf", ct)
+            .Returns(new ObjectUploadGrant("https://upload", Now.AddMinutes(5), new Dictionary<string,string>()));
+        var sut = SubmissionSut(factory, Auth(projectId, studentId), Profile("Student"), storage);
+
+        var replacement = await sut.CreateUploadSessionAsync(projectId, req.Id, studentId, ValidUpload(), ct);
+
+        Assert.Equal(1, replacement.VersionNumber);
+        await using var verify = factory.CreateDbContext();
+        var old = await verify.SubmissionUploadSessions.SingleAsync(x => x.Id == stale.Id, ct);
+        Assert.Equal(SubmissionConstants.UploadSessionStatus.Failed, old.Status);
+        Assert.Null(old.ActiveSlot);
+        Assert.Equal("Upload session was replaced after submission responsibility changed.", old.FailureReason);
+        await storage.Received(1).DeleteIfExistsAsync(stale.TemporaryObjectKey, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task CompleteUploadSession_RevisionRejectsChangedSubmissionAndVersionRaceBeforeStorage()
+    {
+        var ct = CancellationToken.None;
+        await using var factory = await SqliteFactory.CreateAsync(ct);
+        var projectId = Guid.NewGuid(); var studentId = Guid.NewGuid();
+        var seeded = await SeedCompleted(factory, projectId, studentId, ct);
+        Guid requirementId;
+        await using (var db = factory.CreateDbContext())
+        {
+            var submission = await db.ResearchSubmissions.SingleAsync(x => x.Id == seeded.SubmissionId, ct);
+            requirementId = submission.RequirementId;
+            submission.Status = SubmissionConstants.SubmissionStatus.ChangesRequested;
+            db.SubmissionReviews.Add(new SubmissionReview { Id = Guid.NewGuid(), SubmissionId = seeded.SubmissionId, VersionId = seeded.VersionId, Decision = SubmissionConstants.ReviewDecision.ChangesRequested, Feedback = "Revise", ReviewedBy = Guid.NewGuid(), ReviewedByName = "Supervisor", ReviewedAt = Now });
+            await db.SaveChangesAsync(ct);
+        }
+        var wrongSubmission = Session(projectId, requirementId, studentId, 2, Now.AddMinutes(5), active: true);
+        await SeedSession(factory, wrongSubmission, ct);
+        var storage = Substitute.For<IObjectStorageService>();
+        var sut = SubmissionSut(factory, Auth(projectId, studentId), Profile("Student"), storage);
+
+        Assert.Equal(409, (await Assert.ThrowsAsync<ApiException>(() => sut.CompleteUploadSessionAsync(projectId, wrongSubmission.Id, studentId, ct))).StatusCode);
+        await storage.DidNotReceive().GetMetadataAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+
+        await using (var db = factory.CreateDbContext())
+        {
+            db.SubmissionUploadSessions.Remove(await db.SubmissionUploadSessions.SingleAsync(x => x.Id == wrongSubmission.Id, ct));
+            var submission = await db.ResearchSubmissions.SingleAsync(x => x.Id == seeded.SubmissionId, ct);
+            submission.VersionCount = 2;
+            await db.SaveChangesAsync(ct);
+        }
+        var raced = Session(projectId, requirementId, studentId, 2, Now.AddMinutes(5), active: true);
+        raced.SubmissionId = seeded.SubmissionId;
+        await SeedSession(factory, raced, ct);
+        Assert.Equal(409, (await Assert.ThrowsAsync<ApiException>(() => sut.CompleteUploadSessionAsync(projectId, raced.Id, studentId, ct))).StatusCode);
+        await storage.DidNotReceive().GetMetadataAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task CompleteUploadSession_RevisionSuccessCreatesVersionTwoAndClearsPriorApproval()
+    {
+        var ct = CancellationToken.None;
+        await using var factory = await SqliteFactory.CreateAsync(ct);
+        var projectId = Guid.NewGuid(); var studentId = Guid.NewGuid();
+        var seeded = await SeedCompleted(factory, projectId, studentId, ct);
+        Guid requirementId;
+        await using (var db = factory.CreateDbContext())
+        {
+            var submission = await db.ResearchSubmissions.SingleAsync(x => x.Id == seeded.SubmissionId, ct);
+            requirementId = submission.RequirementId;
+            submission.Status = SubmissionConstants.SubmissionStatus.ChangesRequested;
+            submission.ApprovedVersionId = seeded.VersionId;
+            submission.ApprovedAt = Now.AddHours(-1);
+            db.SubmissionReviews.Add(new SubmissionReview { Id = Guid.NewGuid(), SubmissionId = seeded.SubmissionId, VersionId = seeded.VersionId, Decision = SubmissionConstants.ReviewDecision.ChangesRequested, Feedback = "Revise", ReviewedBy = Guid.NewGuid(), ReviewedByName = "Supervisor", ReviewedAt = Now.AddMinutes(-5) });
+            await db.SaveChangesAsync(ct);
+        }
+        var session = Session(projectId, requirementId, studentId, 2, Now.AddMinutes(5), active: true);
+        session.SubmissionId = seeded.SubmissionId;
+        session.SubmissionNote = "revision";
+        await SeedSession(factory, session, ct);
+        var storage = Substitute.For<IObjectStorageService>();
+        storage.GetMetadataAsync(session.TemporaryObjectKey, ct).Returns(new StoredObjectMetadata(1024, "application/pdf", "temp-v2"));
+        storage.GetMetadataAsync(session.FinalObjectKey, ct).Returns(new StoredObjectMetadata(1024, "application/pdf", "final-v2"));
+        var sut = SubmissionSut(factory, Auth(projectId, studentId), Profile("Student"), storage);
+
+        var response = await sut.CompleteUploadSessionAsync(projectId, session.Id, studentId, ct);
+
+        Assert.Equal(SubmissionConstants.SubmissionStatus.PendingReview, response.Status);
+        Assert.Equal(2, response.VersionCount);
+        Assert.Equal(session.VersionId, response.CurrentVersionId);
+        Assert.Null(response.ApprovedVersionId);
+        Assert.Null(response.ApprovedAt);
+        var current = Assert.Single(response.Versions, x => x.IsCurrent);
+        Assert.Equal(2, current.VersionNumber);
+        Assert.Equal("revision", current.SubmissionNote);
+        Assert.False(current.IsApproved);
+        await storage.Received(1).PromoteAsync(session.TemporaryObjectKey, session.FinalObjectKey, ct);
+        await storage.Received(1).DeleteIfExistsAsync(session.TemporaryObjectKey, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task CompleteUploadSession_AfterDueDateMarksLateAndUsesTemporaryMetadataWhenFinalLookupIsMissing()
+    {
+        var ct = CancellationToken.None;
+        await using var factory = await SqliteFactory.CreateAsync(ct);
+        var projectId = Guid.NewGuid(); var studentId = Guid.NewGuid();
+        var req = await SeedRequirement(factory, projectId, studentId, Now.AddTicks(-1), ct);
+        var session = Session(projectId, req.Id, studentId, 1, Now.AddMinutes(5), active: true);
+        await SeedSession(factory, session, ct);
+        var storage = Substitute.For<IObjectStorageService>();
+        storage.GetMetadataAsync(session.TemporaryObjectKey, ct).Returns(new StoredObjectMetadata(1024, "application/pdf", "temporary-etag"));
+        storage.GetMetadataAsync(session.FinalObjectKey, ct).Returns((StoredObjectMetadata?)null);
+        var sut = SubmissionSut(factory, Auth(projectId, studentId), Profile("Student"), storage);
+
+        var response = await sut.CompleteUploadSessionAsync(projectId, session.Id, studentId, ct);
+
+        var version = Assert.Single(response.Versions);
+        Assert.True(version.IsLate);
+        await using var verify = factory.CreateDbContext();
+        var stored = await verify.SubmissionVersions.SingleAsync(x => x.Id == session.VersionId, ct);
+        Assert.Equal(1024, stored.FileSizeBytes);
+        Assert.Equal("temporary-etag", stored.ObjectETag);
+    }
+
+    [Fact]
+    public async Task Review_ApprovalPersistsExactReviewerAndApprovalSnapshot()
+    {
+        var ct = CancellationToken.None;
+        await using var factory = await SqliteFactory.CreateAsync(ct);
+        var projectId = Guid.NewGuid(); var studentId = Guid.NewGuid(); var reviewerId = Guid.NewGuid();
+        var seeded = await SeedCompleted(factory, projectId, studentId, ct);
+        var sut = SubmissionSut(factory, Auth(projectId, studentId), Profile("Supervisor Exact"), Substitute.For<IObjectStorageService>());
+
+        var response = await sut.ReviewAsync(projectId, seeded.SubmissionId, reviewerId,
+            new(seeded.VersionId, " approved ", "   "), ct);
+
+        Assert.Equal(SubmissionConstants.SubmissionStatus.Approved, response.Status);
+        Assert.Equal(seeded.VersionId, response.ApprovedVersionId);
+        Assert.Equal(Now, response.ApprovedAt);
+        var review = Assert.Single(response.Versions).Review;
+        Assert.NotNull(review);
+        Assert.Equal(reviewerId, review!.ReviewedBy);
+        Assert.Equal("Supervisor Exact", review.ReviewedByName);
+        Assert.Equal(Now, review.ReviewedAt);
+        Assert.Null(review.Feedback);
+    }
+
+    [Fact]
+    public async Task Review_StaleCurrentVersionMissingVersionAndDuplicateReviewAreDistinctConflicts()
+    {
+        var ct = CancellationToken.None;
+        await using var factory = await SqliteFactory.CreateAsync(ct);
+        var projectId = Guid.NewGuid(); var studentId = Guid.NewGuid();
+        var seeded = await SeedCompleted(factory, projectId, studentId, ct);
+        var sut = SubmissionSut(factory, Auth(projectId, studentId), Profile("Supervisor"), Substitute.For<IObjectStorageService>());
+
+        Assert.Equal(409, (await Assert.ThrowsAsync<ApiException>(() => sut.ReviewAsync(projectId, seeded.SubmissionId, Guid.NewGuid(), new(Guid.NewGuid(), SubmissionConstants.ReviewDecision.Approved, null), ct))).StatusCode);
+
+        await using (var db = factory.CreateDbContext())
+        {
+            var submission = await db.ResearchSubmissions.SingleAsync(x => x.Id == seeded.SubmissionId, ct);
+            var missing = Guid.NewGuid();
+            submission.CurrentVersionId = missing;
+            await db.SaveChangesAsync(ct);
+        }
+        var currentMissing = (await factory.CreateDbContext().ResearchSubmissions.SingleAsync(x => x.Id == seeded.SubmissionId, ct)).CurrentVersionId!.Value;
+        Assert.Equal(404, (await Assert.ThrowsAsync<ApiException>(() => sut.ReviewAsync(projectId, seeded.SubmissionId, Guid.NewGuid(), new(currentMissing, SubmissionConstants.ReviewDecision.Approved, null), ct))).StatusCode);
+
+        await using (var db = factory.CreateDbContext())
+        {
+            var submission = await db.ResearchSubmissions.SingleAsync(x => x.Id == seeded.SubmissionId, ct);
+            submission.CurrentVersionId = seeded.VersionId;
+            db.SubmissionReviews.Add(new SubmissionReview { Id = Guid.NewGuid(), SubmissionId = seeded.SubmissionId, VersionId = seeded.VersionId, Decision = SubmissionConstants.ReviewDecision.Approved, ReviewedBy = Guid.NewGuid(), ReviewedByName = "Existing", ReviewedAt = Now });
+            await db.SaveChangesAsync(ct);
+        }
+        Assert.Equal(409, (await Assert.ThrowsAsync<ApiException>(() => sut.ReviewAsync(projectId, seeded.SubmissionId, Guid.NewGuid(), new(seeded.VersionId, SubmissionConstants.ReviewDecision.Approved, null), ct))).StatusCode);
+    }
+
+    [Fact]
+    public async Task Download_ForwardsStoredObjectFileNameAndInlineFlagExactly()
+    {
+        var ct = CancellationToken.None;
+        await using var factory = await SqliteFactory.CreateAsync(ct);
+        var projectId = Guid.NewGuid(); var studentId = Guid.NewGuid();
+        var seeded = await SeedCompleted(factory, projectId, studentId, ct);
+        var storage = Substitute.For<IObjectStorageService>();
+        storage.CreateDownloadGrantAsync("projects/final/report.pdf", "report.pdf", false, ct)
+            .Returns(new ObjectDownloadGrant("https://download", Now.AddMinutes(3)));
+        var sut = SubmissionSut(factory, Auth(projectId, studentId), Profile("x"), storage);
+
+        var response = await sut.GetDownloadUrlAsync(projectId, seeded.SubmissionId, seeded.VersionId, false, ct);
+
+        Assert.Equal("https://download", response.Url);
+        Assert.Equal(Now.AddMinutes(3), response.ExpiresAt);
+        await storage.Received(1).CreateDownloadGrantAsync("projects/final/report.pdf", "report.pdf", false, ct);
+    }
+
     private static SubmissionRequirementService RequirementSut(IDbContextFactory<SubmissionDbContext> factory,IProjectAuthorizationClient auth,IUserProfileClient profile)=>new(factory,auth,profile,new SubmissionOptions{AllowedFileTypes=["pdf","docx","pptx","zip"]},new StorageOptions{MaximumFileSizeBytes=MaxBytes},new FixedTimeProvider(Now));
     private static ResearchSubmissionService SubmissionSut(IDbContextFactory<SubmissionDbContext> factory,IProjectAuthorizationClient auth,IUserProfileClient profile,IObjectStorageService storage)=>new(factory,auth,profile,storage,new SubmissionOptions{AllowedFileTypes=["pdf","docx","pptx","zip"],UploadSessionLifetimeMinutes=10},new FixedTimeProvider(Now),NullLogger<ResearchSubmissionService>.Instance);
     private static IUserProfileClient Profile(string name){var p=Substitute.For<IUserProfileClient>();p.GetCurrentUserDisplayNameAsync(Arg.Any<CancellationToken>()).Returns(name);return p;}
