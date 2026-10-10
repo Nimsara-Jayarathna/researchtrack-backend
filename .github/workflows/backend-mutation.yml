@@ -10,9 +10,14 @@ on:
         type: choice
         options:
           - all
-          - project
           - auth
+          - auth-registration
+          - project
           - submission
+          - github
+          - jira
+          - gateway
+          - meeting
 
 permissions:
   contents: read
@@ -21,7 +26,7 @@ jobs:
   mutation:
     name: Stryker business-logic mutation (${{ inputs.scope }})
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 240
 
     steps:
       - name: Checkout
@@ -37,22 +42,24 @@ jobs:
             Directory.Packages.props
             .config/dotnet-tools.json
 
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
       - name: Restore repository tools
         run: dotnet tool restore
 
-      - name: Restore
+      - name: Restore solution
         run: dotnet restore ResearchTrack.sln
 
-      - name: Build
+      - name: Build production and normal tests
         run: dotnet build ResearchTrack.sln -c Release --no-restore
 
-      - name: Verify normal unit/mock suite before mutation
+      - name: Verify normal unit/mock suite
         run: dotnet test ResearchTrack.sln -c Release --no-build --filter "Category!=DatabaseIntegration"
 
-      - name: Verify dedicated mutation harness
-        run: bash ./scripts/mutation-harness-verify.sh
-
-      - name: Run targeted mutation baseline
+      - name: Run selected mutation scope
         run: bash ./scripts/mutation-baseline.sh "${{ inputs.scope }}"
 
       - name: Publish mutation summary
@@ -67,7 +74,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: mutation-baseline-${{ inputs.scope }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: mutation-evidence-${{ inputs.scope }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/mutation/
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 21

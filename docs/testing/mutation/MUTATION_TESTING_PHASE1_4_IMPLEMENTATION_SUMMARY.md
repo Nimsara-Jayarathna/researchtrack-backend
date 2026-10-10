@@ -37,3 +37,7 @@ The original xUnit v3 Stryker entry points are superseded by the dedicated
 xUnit v2 mutation harness documented in
 `MUTATION_TESTING_PHASE1_DEDICATED_HARNESS_SUMMARY.md`. Do not record the prior
 `K 0` xUnit v3 runs as the mutation baseline.
+
+## Project-wide expansion
+
+The initial Project/Auth/Submission Phase 1–4 setup has since been expanded to a project-wide selected-business-logic portfolio. The current scope and execution model are documented in `docs/testing/mutation/project-wide/PROJECT_WIDE_MUTATION_STRATEGY.md`. Historical Phase 1 evidence remains in this document for traceability.
