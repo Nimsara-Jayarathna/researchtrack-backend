@@ -31,6 +31,10 @@ class KafkaTests(unittest.TestCase):
         self.work = Path(self.temporary.name)
         self.addCleanup(self.temporary.cleanup)
         self.registry = json.loads(config.MANIFEST.read_text())
+        # Exercise the approval gate independently of the owner's repository approvals.
+        for topic in self.registry["topics"][1:]:
+            topic.update(approved=False, consumerOwner=None, consumerGroupId=None,
+                         contractVersion=None, contractReference=None)
         self.manifest = self.work / "topics.json"
         self.scripts = self.work / "scripts"
         self.scripts.mkdir()
@@ -193,7 +197,7 @@ else: sys.exit(9)
             with self.subTest(missing=key), self.assertRaises(ValueError):
                 config.validate("github", {**values, key: ""}, True, self.manifest)
         with self.assertRaises(ValueError):
-            config.validate("github", values, True)  # Real manifest still unapproved.
+            config.validate("github", {**values, "Kafka__Topic": "researchtrack.github.unapproved.v1"}, True)
 
     def test_local_test_support_external_tls_endpoints(self):
         values = self.settings("jira")
@@ -254,6 +258,7 @@ else: sys.exit(9)
 
     def test_renderer_rejects_unapproved_before_writing_spec(self):
         values = self.settings("github")
+        values["Kafka__Topic"] = "researchtrack.github.unapproved.v1"
         env = self.work / "github.env"
         env.write_text("\n".join(f"{key}={value}" for key, value in values.items()))
         output = self.work / "blocked.json"

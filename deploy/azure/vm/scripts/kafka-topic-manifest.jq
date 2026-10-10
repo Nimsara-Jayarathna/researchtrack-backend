@@ -1,5 +1,5 @@
 # Validation is shared by bundle creation and the existing topic CLI.
-def text: type == "string" and length > 0 and (test("[\\r\\n\\t]") | not);
+def text: type == "string" and length > 0 and test("\\S") and (test("[\\r\\n\\t]") | not);
 def nullable_text: . == null or text;
 def integer_between($min; $max): type == "number" and floor == . and . >= $min and . <= $max;
 .schemaVersion == 1 and
@@ -19,6 +19,7 @@ all(.topics[];
   (.consumerOwner | nullable_text) and (.consumerGroupId | nullable_text) and
   (.partitions | integer_between(1; 9999)) and .replicationFactor == 1 and
   (.retentionHours | integer_between(1; 99999)) and
+  (if .name == "researchtrack.deployment-smoke" then .partitions == 1 and .retentionHours == 24 and .contractVersion == "1" else true end) and
   (.contractVersion | nullable_text) and (.contractReference | nullable_text) and
   (.approved | type == "boolean") and
   (if .approved then

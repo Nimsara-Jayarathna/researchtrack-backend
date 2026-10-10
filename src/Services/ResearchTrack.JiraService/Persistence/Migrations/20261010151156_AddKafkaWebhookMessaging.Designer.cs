@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using ResearchTrack.JiraService.Persistence;
 
@@ -10,9 +11,11 @@ using ResearchTrack.JiraService.Persistence;
 namespace ResearchTrack.JiraService.Persistence.Migrations
 {
     [DbContext(typeof(JiraDbContext))]
-    partial class JiraDbContextModelSnapshot : ModelSnapshot
+    [Migration("20261010151156_AddKafkaWebhookMessaging")]
+    partial class AddKafkaWebhookMessaging
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

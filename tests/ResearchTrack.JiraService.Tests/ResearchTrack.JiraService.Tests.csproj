@@ -5,6 +5,10 @@
     <OutputType>Exe</OutputType>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" />
+    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" />
+    <PackageReference Include="NSubstitute" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" />
     <PackageReference Include="xunit.v3" />
@@ -19,6 +23,8 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/Services/ResearchTrack.JiraService/ResearchTrack.JiraService.csproj" />
+    <Compile Include="../Kafka/KafkaTestDatabase.cs" Link="Kafka/KafkaTestDatabase.cs" />
+    <Compile Include="../Kafka/IsolatedKafkaFixture.cs" Link="Kafka/IsolatedKafkaFixture.cs" />
     <ProjectReference Include="../ResearchTrack.Testing/ResearchTrack.Testing.csproj" />
   </ItemGroup>
 </Project>

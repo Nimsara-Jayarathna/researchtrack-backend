@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using ResearchTrack.JiraService.Domain;
+using ResearchTrack.BuildingBlocks.Kafka;
 namespace ResearchTrack.JiraService.Persistence;
 public sealed class JiraDbContext : DbContext
 {
@@ -14,6 +15,16 @@ public sealed class JiraDbContext : DbContext
  public DbSet<JiraSyncJob> JiraSyncJobs=>Set<JiraSyncJob>();
  protected override void OnModelCreating(ModelBuilder b)
  {
+  KafkaPersistence.Configure(b);
+  b.Entity<JiraWebhookEvent>().Property(x=>x.ReceivedAt).HasColumnType("datetime(6)");
+  b.Entity<JiraWebhookEvent>().Property(x=>x.ProcessedAt).HasColumnType("datetime(6)");
+  b.Entity<JiraSyncJob>().Property(x=>x.StartedAt).HasColumnType("datetime(6)");
+  b.Entity<JiraSyncJob>().Property(x=>x.RequestedAt).HasColumnType("datetime(6)");
+  b.Entity<JiraSyncJob>().Property(x=>x.CompletedAt).HasColumnType("datetime(6)");
+  b.Entity<JiraSyncJob>().Property(x=>x.AvailableAt).HasColumnType("datetime(6)");
+  b.Entity<JiraConnection>().Property(x=>x.WebhookExpiresAt).HasColumnType("datetime(6)");
+  b.Entity<JiraConnection>().Property(x=>x.LastWebhookAt).HasColumnType("datetime(6)");
+  b.Entity<JiraConnection>().Property(x=>x.LastReconciledAt).HasColumnType("datetime(6)");
   b.Entity<JiraOAuthState>(e=>{e.ToTable("jira_oauth_states");e.HasKey(x=>x.Id);e.Property(x=>x.StateHash).HasMaxLength(128).IsRequired();e.HasIndex(x=>x.StateHash).IsUnique();e.HasIndex(x=>new{x.ResearchProjectId,x.SupervisorUserId});});
   b.Entity<JiraOAuthSelection>(e=>{e.ToTable("jira_oauth_selections");e.HasKey(x=>x.Id);e.Property(x=>x.SelectionTokenHash).HasMaxLength(128).IsRequired();e.HasIndex(x=>x.SelectionTokenHash).IsUnique();e.Property(x=>x.AccessTokenProtected).HasColumnType("text");e.Property(x=>x.RefreshTokenProtected).HasColumnType("text");e.Property(x=>x.WorkspacesJson).HasColumnType("text");});
   b.Entity<JiraConnection>(e=>{e.ToTable("jira_connections");e.HasKey(x=>x.Id);e.HasIndex(x=>x.ResearchProjectId).IsUnique();e.Property(x=>x.CloudId).HasMaxLength(128).IsRequired();e.Property(x=>x.WorkspaceName).HasMaxLength(255).IsRequired();e.Property(x=>x.WorkspaceUrl).HasMaxLength(1024);e.Property(x=>x.JiraProjectId).HasMaxLength(128).IsRequired();e.Property(x=>x.JiraProjectKey).HasMaxLength(64).IsRequired();e.Property(x=>x.JiraProjectName).HasMaxLength(255).IsRequired();e.Property(x=>x.JiraBoardName).HasMaxLength(255);e.Property(x=>x.JiraBoardType).HasMaxLength(32);e.Property(x=>x.AccessTokenProtected).HasColumnType("text");e.Property(x=>x.RefreshTokenProtected).HasColumnType("text");e.Property(x=>x.SyncStatus).HasMaxLength(32).IsRequired();e.Property(x=>x.LastSyncError).HasColumnType("text");e.Property(x=>x.WebhookStatus).HasMaxLength(32).IsRequired();e.Property(x=>x.SyncRevision).IsRequired();});

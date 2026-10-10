@@ -26,6 +26,16 @@ public sealed class JiraSyncScheduler : IJiraSyncScheduler
         await using var lease = await JiraDatabaseLock.TryAcquireAsync(db, JiraDatabaseLock.ProjectSchedule(projectId), 10, ct)
             ?? throw new InvalidOperationException($"Could not acquire Jira sync scheduling lock for project {projectId}.");
 
+        await StageAsync(db, projectId, reason, availableAt, entityId, ct);
+        await db.SaveChangesAsync(ct);
+    }
+
+    // Consumer receipts and the existing coalesced job are saved in one transaction.
+    // Caller must hold the same project scheduling lock as RequestAsync.
+    internal static async Task StageAsync(JiraDbContext db, Guid projectId, string reason,
+        DateTimeOffset availableAt, string? entityId, CancellationToken ct)
+    {
+
         var trigger = JiraOperationalMetrics.Trigger(reason);
         var connection = await db.JiraConnections
             .AsNoTracking()
@@ -59,7 +69,6 @@ public sealed class JiraSyncScheduler : IJiraSyncScheduler
             pending.Reason = MergeReason(pending.Reason, reason);
             pending.EntityId = pending.EntityId == entityId ? entityId : null;
             pending.LastError = null;
-            await db.SaveChangesAsync(ct);
             JiraOperationalMetrics.SyncRequests.WithLabels(trigger, "coalesced").Inc();
             return;
         }
@@ -75,7 +84,6 @@ public sealed class JiraSyncScheduler : IJiraSyncScheduler
             RequestedAt = now,
             AvailableAt = availableAt
         });
-        await db.SaveChangesAsync(ct);
         JiraOperationalMetrics.SyncRequests.WithLabels(trigger, "queued").Inc();
     }
 

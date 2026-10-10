@@ -91,7 +91,7 @@ def validate(service: str, values: dict[str, str], production: bool,
     if not agreed or agreed["contractVersion"] != values["Kafka__ContractVersion"]:
         fail("Kafka__Topic / Kafka__ContractVersion (approved contract required)")
     group = values.get("Kafka__ConsumerGroupId", "")
-    if group and group != agreed["consumerGroupId"]:
+    if group != (agreed["consumerGroupId"] or ""):
         fail("Kafka__ConsumerGroupId (must match approved consumer)")
 
 

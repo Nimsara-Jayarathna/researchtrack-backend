@@ -11,6 +11,8 @@ namespace ResearchTrack.BuildingBlocks.Kafka;
 /// <summary>Validated transport settings only. Does not register a Kafka client or provision topics.</summary>
 public sealed class KafkaRuntimeOptions
 {
+    // Assigned by each service's messaging registration, never from deployment input.
+    public string Service { get; set; } = "";
     public const string DeliveredCaLocation = "/tmp/researchtrack-kafka/ca.crt";
     public bool Enabled { get; set; }
     public string BootstrapServers { get; set; } = "";
@@ -23,12 +25,13 @@ public sealed class KafkaRuntimeOptions
     public string ContractVersion { get; set; } = "";
     public string ConsumerGroupId { get; set; } = "";
 
-    public static KafkaRuntimeOptions Create(IConfiguration configuration, bool production)
+    public static KafkaRuntimeOptions Create(IConfiguration configuration, bool production, string service = "")
     {
         var section = configuration.GetSection("Kafka");
         // Disabled integrations must not bind or validate unused client/trust settings.
         if (!section.GetValue<bool>(nameof(Enabled))) return new();
         var options = section.Get<KafkaRuntimeOptions>() ?? new();
+        options.Service = service;
         static void Require(bool condition, string key)
         {
             if (!condition) throw new InvalidOperationException($"Invalid or missing Kafka:{key} configuration.");
@@ -39,6 +42,11 @@ public sealed class KafkaRuntimeOptions
         Require(Regex.IsMatch(options.Topic, @"^researchtrack\.[a-z][a-z0-9-]*\.[a-z][a-z0-9-]*\.v[1-9][0-9]*$"), nameof(Topic));
         Require(!string.IsNullOrWhiteSpace(options.ContractVersion) &&
                 !Regex.IsMatch(options.ContractVersion, "CHANGE_ME|[<>]", RegexOptions.IgnoreCase), nameof(ContractVersion));
+        if (service is "github" or "jira")
+        {
+            Require(options.ContractVersion == "1", nameof(ContractVersion));
+            Require(options.ConsumerGroupId == "researchtrack-" + service + "-webhook-v1", nameof(ConsumerGroupId));
+        }
         Require(!string.IsNullOrWhiteSpace(options.BootstrapServers), nameof(BootstrapServers));
         foreach (var endpoint in options.BootstrapServers.Split(','))
         {
@@ -106,9 +114,9 @@ public sealed class KafkaRuntimeOptions
 public static class KafkaConfigurationExtensions
 {
     public static IServiceCollection AddResearchTrackKafkaConfiguration(
-        this IServiceCollection services, IConfiguration configuration, bool production)
+        this IServiceCollection services, IConfiguration configuration, bool production, string service = "")
     {
-        services.AddSingleton(KafkaRuntimeOptions.Create(configuration, production));
+        services.AddSingleton(KafkaRuntimeOptions.Create(configuration, production, service));
         return services;
     }
 }

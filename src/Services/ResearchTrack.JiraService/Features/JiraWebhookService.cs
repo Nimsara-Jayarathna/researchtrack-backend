@@ -8,6 +8,7 @@ using ResearchTrack.JiraService.Configuration;
 using ResearchTrack.JiraService.Domain;
 using ResearchTrack.JiraService.Infrastructure;
 using ResearchTrack.JiraService.Persistence;
+using ResearchTrack.BuildingBlocks.Kafka;
 
 namespace ResearchTrack.JiraService.Features;
 
@@ -21,7 +22,8 @@ public interface IJiraWebhookService
 public sealed class JiraWebhookService : IJiraWebhookService
 {
     private readonly IDbContextFactory<JiraDbContext> _factory; private readonly AtlassianClient _client; private readonly IJiraTokenProtector _protector; private readonly JiraOptions _options; private readonly IJiraSyncScheduler _scheduler; private readonly ILogger<JiraWebhookService> _logger;
-    public JiraWebhookService(IDbContextFactory<JiraDbContext> factory,AtlassianClient client,IJiraTokenProtector protector,JiraOptions options,IJiraSyncScheduler scheduler,ILogger<JiraWebhookService> logger){_factory=factory;_client=client;_protector=protector;_options=options;_scheduler=scheduler;_logger=logger;}
+    private readonly KafkaRuntimeOptions _kafka;
+    public JiraWebhookService(IDbContextFactory<JiraDbContext> factory,AtlassianClient client,IJiraTokenProtector protector,JiraOptions options,IJiraSyncScheduler scheduler,ILogger<JiraWebhookService> logger,KafkaRuntimeOptions? kafka=null){_factory=factory;_client=client;_protector=protector;_options=options;_scheduler=scheduler;_logger=logger;_kafka=kafka??new();}
 
     public async Task EnsureRegisteredAsync(Guid projectId,CancellationToken ct)
     {
@@ -112,7 +114,7 @@ public sealed class JiraWebhookService : IJiraWebhookService
                 }
             }
 
-            var now=DateTimeOffset.UtcNow;
+            var now=KafkaWebhookContract.NormalizeUtc(DateTimeOffset.UtcNow);
             if(targets.Count==0)
             {
                 if(!await db.JiraWebhookEvents.AnyAsync(x=>x.DeliveryId==baseDeliveryId,ct))
@@ -149,7 +151,7 @@ public sealed class JiraWebhookService : IJiraWebhookService
                 var existing=await db.JiraWebhookEvents.SingleOrDefaultAsync(x=>x.DeliveryId==eventDeliveryId,ct);
                 if(existing is null)
                 {
-                    db.JiraWebhookEvents.Add(new JiraWebhookEvent
+                    var acceptedEvent = new JiraWebhookEvent
                     {
                         Id=Guid.NewGuid(),
                         DeliveryId=eventDeliveryId,
@@ -161,7 +163,9 @@ public sealed class JiraWebhookService : IJiraWebhookService
                         PayloadJson=payload,
                         ReceivedAt=now,
                         Status="RECEIVED"
-                    });
+                    };
+                    db.JiraWebhookEvents.Add(acceptedEvent);
+                    AddKafkaOutbox(db, acceptedEvent);
                     projectsToSchedule.Add(connection.ResearchProjectId);
                 }
                 else if(existing.Status=="RECEIVED")
@@ -180,6 +184,7 @@ public sealed class JiraWebhookService : IJiraWebhookService
                     existing.Status="RECEIVED";
                     existing.LastError=null;
                     existing.ProcessedAt=null;
+                    AddKafkaOutbox(db, existing);
                     projectsToSchedule.Add(connection.ResearchProjectId);
                 }
 
@@ -212,6 +217,18 @@ public sealed class JiraWebhookService : IJiraWebhookService
             foreach(var item in matched.EnumerateArray())
                 if(item.TryGetInt64(out var value)&&!ids.Contains(value))ids.Add(value);
         return ids;
+    }
+
+    private void AddKafkaOutbox(JiraDbContext db, JiraWebhookEvent record)
+    {
+        if (!_kafka.Enabled || !KafkaWebhookContract.SupportsJira(record.EventType)) return;
+        var value = new WebhookReadyEvent(record.Id, "jira.webhook.ready", _kafka.ContractVersion,
+            record.ReceivedAt.ToUniversalTime(), record.Id, new()
+            {
+                WebhookRecordId = record.Id, ResearchProjectId = record.ResearchProjectId,
+                CloudId = record.CloudId, EventType = record.EventType
+            });
+        db.Set<KafkaOutboxMessage>().Add(KafkaOutboxMessage.Create(value, _kafka));
     }
 
     private static string? ExtractProjectKey(JsonElement root,JsonElement issue,string? issueKey)

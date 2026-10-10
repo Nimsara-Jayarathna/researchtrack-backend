@@ -18,30 +18,30 @@
     {
       "name": "researchtrack.github.events.v1",
       "domain": "github",
-      "description": "PROPOSED only: event selection, payload, key, consumer and processing semantics await approved contracts.",
-      "producerOwner": "GitHub development team (proposed)",
-      "consumerOwner": null,
-      "consumerGroupId": null,
+      "description": "Approved github.webhook.ready v1: durable inbox references routed to existing GitHub processing; no raw provider payloads.",
+      "producerOwner": "GitHubService transactional outbox / GitHub team",
+      "consumerOwner": "GitHubService durable delivery processing / GitHub team",
+      "consumerGroupId": "researchtrack-github-webhook-v1",
       "partitions": 1,
       "replicationFactor": 1,
       "retentionHours": 72,
-      "contractVersion": null,
-      "contractReference": null,
-      "approved": false
+      "contractVersion": "1",
+      "contractReference": "docs/devops/azure-production/KAFKA_CONTRACT_PROPOSAL.md",
+      "approved": true
     },
     {
       "name": "researchtrack.jira.events.v1",
       "domain": "jira",
-      "description": "PROPOSED only: event selection, payload, key, consumer and processing semantics await approved contracts.",
-      "producerOwner": "Jira development team (proposed)",
-      "consumerOwner": null,
-      "consumerGroupId": null,
+      "description": "Approved jira.webhook.ready v1: matched durable inbox references routed to existing Jira synchronization; no raw provider payloads.",
+      "producerOwner": "JiraService transactional outbox / Jira team",
+      "consumerOwner": "JiraService persistent sync scheduler/worker / Jira team",
+      "consumerGroupId": "researchtrack-jira-webhook-v1",
       "partitions": 1,
       "replicationFactor": 1,
       "retentionHours": 72,
-      "contractVersion": null,
-      "contractReference": null,
-      "approved": false
+      "contractVersion": "1",
+      "contractReference": "docs/devops/azure-production/KAFKA_CONTRACT_PROPOSAL.md",
+      "approved": true
     }
   ]
 }
