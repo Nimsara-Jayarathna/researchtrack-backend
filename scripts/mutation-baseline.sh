@@ -7,7 +7,7 @@ TARGET="${1:-all}"
 
 usage() {
   cat <<'TXT'
-Usage: bash ./scripts/mutation-baseline.sh [all|auth|auth-registration|project|submission|github|jira|gateway|meeting]
+Usage: bash ./scripts/mutation-baseline.sh [all|auth|auth-registration|project|submission|jira|github|gateway|meeting]
 
 Runs ResearchTrack's targeted business-logic mutation suite against dedicated
 xUnit v2 mutation harnesses. Normal xUnit v3 unit/mock projects are verified
