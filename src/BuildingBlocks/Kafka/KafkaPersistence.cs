@@ -88,8 +88,11 @@ public static class KafkaPersistence
         });
 }
 
+public sealed record KafkaOutboxSnapshot(long Pending, long Failed);
+
 public interface IKafkaOutboxStore
 {
+    Task<KafkaOutboxSnapshot> SampleAsync(CancellationToken ct);
     Task<bool> HasHeldMessagesAsync(CancellationToken ct);
     Task<KafkaOutboxMessage?> ClaimAsync(DateTime now, CancellationToken ct);
     Task CompleteAsync(KafkaOutboxMessage message, DateTime now, CancellationToken ct);
@@ -98,6 +101,15 @@ public interface IKafkaOutboxStore
 
 public sealed class KafkaOutboxStore<TContext>(IDbContextFactory<TContext> factory) : IKafkaOutboxStore where TContext : DbContext
 {
+    public async Task<KafkaOutboxSnapshot> SampleAsync(CancellationToken ct)
+    {
+        await using var db = await factory.CreateDbContextAsync(ct);
+        var counts = await db.Set<KafkaOutboxMessage>().AsNoTracking()
+            .Where(x => x.Status == "PENDING" || x.Status == "PUBLISHING" || x.Status == "FAILED")
+            .GroupBy(x => x.Status).Select(group => new { Status = group.Key, Count = group.LongCount() }).ToListAsync(ct);
+        return new(counts.Where(x => x.Status != "FAILED").Sum(x => x.Count),
+            counts.Where(x => x.Status == "FAILED").Sum(x => x.Count));
+    }
     public async Task<bool> HasHeldMessagesAsync(CancellationToken ct)
     {
         await using var db = await factory.CreateDbContextAsync(ct);

@@ -27,6 +27,11 @@ on:
       - ".github/workflows/azure-infrastructure.yml"
   workflow_dispatch:
     inputs:
+      monitoring_only:
+        description: Update exporter, rules and dashboards only; preserve broker/database/edge and existing runtime secrets.
+        required: false
+        type: boolean
+        default: false
       allow_destructive:
         description: Proceed even if Azure What-If reports resource deletions.
         required: false
@@ -74,6 +79,7 @@ jobs:
       KAFKA_RETENTION_HOURS: ${{ vars.KAFKA_RETENTION_HOURS || '72' }}
       ACA_TLS_VERIFY: ${{ vars.ACA_TLS_VERIFY || 'on' }}
       FORBIDDEN_HOSTS: ${{ vars.TEST_HOSTNAMES }}
+      MONITORING_ONLY: ${{ inputs.monitoring_only || false }}
       ALLOW_DESTRUCTIVE: ${{ inputs.allow_destructive || false }}
 
     steps:
@@ -103,7 +109,9 @@ jobs:
           else
             echo "Infrastructure VM size: Bicep default (production.bicepparam)"
           fi
-          for key in AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID AZURE_LOCATION AZURE_VM_ADMIN_SSH_PUBLIC_KEY; do
+          required=(AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID)
+          if [[ "$MONITORING_ONLY" != true ]]; then required+=(AZURE_LOCATION AZURE_VM_ADMIN_SSH_PUBLIC_KEY); fi
+          for key in "${required[@]}"; do
             [[ -n "${!key:-}" ]] || { echo "$key is not configured for the production environment." >&2; exit 1; }
           done
           [[ "$ACA_TLS_VERIFY" == on || "$ACA_TLS_VERIFY" == off ]] || { echo "ACA_TLS_VERIFY must be on or off." >&2; exit 1; }
@@ -111,6 +119,7 @@ jobs:
           echo "BUNDLE_DIR=$RUNNER_TEMP/researchtrack-vm" >> "$GITHUB_ENV"
 
       - name: Materialize and validate VM runtime configuration
+        if: ${{ !inputs.monitoring_only }}
         shell: bash
         env:
           MYSQL_ENV_FILE: ${{ secrets.MYSQL_ENV_FILE }}
@@ -133,17 +142,18 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: What-If
+        if: ${{ !inputs.monitoring_only }}
         shell: bash
         run: ./deploy/azure/scripts/whatif-gate.sh
 
-      - name: Deploy Bicep
+      - name: Read existing infrastructure outputs or deploy Bicep
         shell: bash
         run: |
           set -euo pipefail
-          outputs="$(az deployment sub create \
-            --location "$AZURE_LOCATION" \
+          operation=(create --location "$AZURE_LOCATION" --parameters deploy/azure/parameters/production.bicepparam)
+          if [[ "$MONITORING_ONLY" == true ]]; then operation=(show); fi
+          outputs="$(az deployment sub "${operation[@]}" \
             --name researchtrack-prod-infrastructure \
-            --parameters deploy/azure/parameters/production.bicepparam \
             --query properties.outputs -o json)"
           out() { jq -r ".$1.value" <<<"$outputs"; }
           {
@@ -162,17 +172,31 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           az extension add --name containerapp --upgrade --only-show-errors
 
+      - name: Require an already-running VM for monitoring-only delivery
+        if: ${{ inputs.monitoring_only }}
+        shell: bash
+        run: |
+          state="$(az vm get-instance-view -g "$RESOURCE_GROUP" -n "$INFRA_VM" --query "instanceView.statuses[?starts_with(code, 'PowerState/')].code | [0]" -o tsv)"
+          [[ "$state" == PowerState/running ]] || { echo 'Monitoring-only delivery requires the existing VM to be running.' >&2; exit 1; }
+
       - name: Configure VM (OS, Docker, data disk)
+        if: ${{ !inputs.monitoring_only }}
         shell: bash
         run: ./deploy/azure/scripts/vm-run.sh "$RESOURCE_GROUP" "$INFRA_VM" deploy/azure/scripts/configure-vm.sh
 
-      - name: Reconcile VM stack (Nginx, MySQL, Kafka, Prometheus, Grafana)
+      - name: Reconcile VM stack or monitoring only
         shell: bash
         run: |
           set -euo pipefail
-          ./deploy/azure/scripts/build-vm-bundle.sh "$ENV_DIR" "$BUNDLE_DIR"
-          ./deploy/azure/scripts/vm-run.sh "$RESOURCE_GROUP" "$INFRA_VM" "$BUNDLE_DIR/reconcile-vm.sh" \
-            --protected "RT_RUNTIME_B64=@$BUNDLE_DIR/runtime.b64"
+          mode=stack
+          if [[ "$MONITORING_ONLY" == true ]]; then mode=monitoring; fi
+          RT_RECONCILE_MODE="$mode" ./deploy/azure/scripts/build-vm-bundle.sh "$ENV_DIR" "$BUNDLE_DIR"
+          if [[ "$MONITORING_ONLY" == true ]]; then
+            ./deploy/azure/scripts/vm-run.sh "$RESOURCE_GROUP" "$INFRA_VM" "$BUNDLE_DIR/reconcile-vm.sh"
+          else
+            ./deploy/azure/scripts/vm-run.sh "$RESOURCE_GROUP" "$INFRA_VM" "$BUNDLE_DIR/reconcile-vm.sh" \
+              --protected "RT_RUNTIME_B64=@$BUNDLE_DIR/runtime.b64"
+          fi
 
       - name: Detect application Container Apps
         shell: bash
@@ -200,9 +224,10 @@ jobs:
         run: |
           printf '%s\n' '/opt/researchtrack/scripts/validate-vm-stack.sh' > "$RUNNER_TEMP/validate-vm-stack.run"
           ./deploy/azure/scripts/vm-run.sh "$RESOURCE_GROUP" "$INFRA_VM" "$RUNNER_TEMP/validate-vm-stack.run" \
-            "EXPECT_APPS=$EXPECT_APPS"
+            "EXPECT_APPS=$EXPECT_APPS" "MONITORING_ONLY=$MONITORING_ONLY"
 
       - name: Validate private networking (VM side)
+        if: ${{ !inputs.monitoring_only }}
         shell: bash
         run: |
           printf '%s\n' '/opt/researchtrack/scripts/validate-infrastructure.sh' > "$RUNNER_TEMP/validate-infrastructure.run"
@@ -210,6 +235,7 @@ jobs:
             "EXPECT_APPS=$EXPECT_APPS" "ACA_ENV_STATIC_IP=$ACA_ENV_STATIC_IP"
 
       - name: Validate private networking (Container Apps side)
+        if: ${{ !inputs.monitoring_only }}
         shell: bash
         run: ./deploy/azure/scripts/network-probe.sh
 

@@ -121,3 +121,8 @@ Actions-based production evidence and application restart checks.
 Never inspect real `.env` files.
 
 Use only `.env.example` contracts.
+
+
+## Kafka observability
+
+Locally implemented exporter, bounded GitHub/Jira worker metrics, cached outbox depths, 18-panel Kafka dashboard and ten Kafka alerts extend the existing platform. See [Kafka observability](KAFKA_OBSERVABILITY.md) for architecture, exact queries, isolated tests, monitoring-only delivery, verification and rollback. Production verification is pending; no deployment or production failure simulation was performed. See the [local task audit](KAFKA_OBSERVABILITY_TASK_REPORT.md) for executed results and the seven-item Definition of Done.

@@ -1,4 +1,5 @@
 using Confluent.Kafka;
+using System.Text.Json;
 using Microsoft.Extensions.Logging.Abstractions;
 using ResearchTrack.BuildingBlocks.Kafka;
 
@@ -45,4 +46,26 @@ public static class IsolatedKafkaFixture
         throw new TimeoutException("Isolated Kafka event was not received.");
     }
     public static KafkaClientFactory Factory(KafkaRuntimeOptions options) => new(options, NullLogger<KafkaClientFactory>.Instance);
+
+    public static async Task WaitForMetricAsync(string query, Func<double, bool> expected, CancellationToken ct)
+    {
+        if (!Enabled || Environment.GetEnvironmentVariable("RT_KAFKA_TEST_PROMETHEUS") != "http://127.0.0.1:19090")
+            throw new InvalidOperationException("Only the isolated loopback Prometheus fixture is permitted.");
+        using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+        var deadline = DateTime.UtcNow.AddSeconds(90);
+        while (DateTime.UtcNow < deadline)
+        {
+            try
+            {
+                var body = await client.GetStringAsync("http://127.0.0.1:19090/api/v1/query?query=" + Uri.EscapeDataString(query), ct);
+                using var json = JsonDocument.Parse(body);
+                var results = json.RootElement.GetProperty("data").GetProperty("result");
+                if (results.GetArrayLength() == 1 && double.TryParse(results[0].GetProperty("value")[1].GetString(),
+                    System.Globalization.CultureInfo.InvariantCulture, out var value) && expected(value)) return;
+            }
+            catch (HttpRequestException) { }
+            await Task.Delay(1000, ct);
+        }
+        throw new TimeoutException("Isolated Prometheus metric/alert condition did not converge: " + query);
+    }
 }

@@ -29,6 +29,7 @@ for contract in shared gateway auth project github jira meeting submission; do
     while read -r key; do
       if [[ "$key" == Jwt__SigningKey ]]; then echo "$key=$signing_key"
       elif [[ "$key" == Kafka__Enabled ]]; then echo "$key=false"
+      elif [[ "$key" == Kafka__SslCaCertificateBase64 ]]; then echo "$key="
       else echo "$key=synthetic-$contract-$key"; fi
     done > "$file"
 done
@@ -83,8 +84,13 @@ for service in "${services[@]}"; do
     [[ "$(jq -r '.parameters.env.value[] | select(.name == "RateLimiting__PerformanceTest__Token") | .secretRef // "plain"' "$spec")" != plain ]] \
       || fail "gateway: performance exemption token must use a Container App secretRef"
   fi
+  if [[ "$service" == github || "$service" == jira ]]; then
+    jq -e 'all(.parameters.env.value[]; .name != "Kafka__SslCaCertificateBase64") and
+      all(.parameters.secrets.value.items[]; .name != "env-kafka-sslcacertificatebase64")' "$spec" >/dev/null \
+      || fail "$service: disabled empty Kafka CA emitted an env or secret"
+  fi
   # Service-specific configuration is still present alongside the shared keys.
-  own_key="$(sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' "$work/env/$service.env" | tail -n1)"
+  own_key="$(sed '/^Kafka__SslCaCertificateBase64=/d' "$work/env/$service.env" | sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' | tail -n1)"
   grep -qx "$own_key" <<<"$names" || fail "$service: service-specific key $own_key missing"
   echo "ok   $service: JWT consumer=$uses_jwt, env files: $(service_env_files "$service")"
 done
@@ -94,7 +100,10 @@ render job jira rt-migrate-jira-prod ghcr.io/example/researchtrack-jira@sha256:0
 for key in "${shared_auth_keys[@]}"; do
   env_names "$work/jira.job.json" | grep -qx "$key" || fail "jira migration job env lacks $key"
 done
-echo "ok   jira migration job receives shared JWT configuration"
+jq -e 'all(.properties.template.containers[0].env[]; .name != "Kafka__SslCaCertificateBase64") and
+  all(.properties.configuration.secrets[]; .name != "env-kafka-sslcacertificatebase64")' "$work/jira.job.json" >/dev/null \
+  || fail "jira migration job: disabled empty Kafka CA emitted an env or secret"
+echo "ok   jira migration job receives shared JWT configuration; optional empty Kafka CA omitted"
 
 # Missing shared key: rendering fails before any spec exists, naming only the key.
 cp "$work/env/shared-auth.env" "$work/shared-auth.env.bak"

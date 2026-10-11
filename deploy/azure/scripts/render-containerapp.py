@@ -25,6 +25,7 @@ SECRET_KEY_PATTERN = re.compile(
 )
 REVISION_ENV = "RESEARCHTRACK_DEPLOYMENT_REVISION"
 REGISTRY_SECRET = "registry-password"
+KAFKA_CA_KEY = "Kafka__SslCaCertificateBase64"
 
 
 def parse_env_file(path: str) -> list[tuple[str, str]]:
@@ -57,10 +58,16 @@ def build_env(env_files: list[str], extra_env: list[str]) -> tuple[list[dict], l
         key, _, value = item.partition("=")
         entries.append((key, value))
 
+    kafka_disabled = dict(entries).get("Kafka__Enabled", "false").lower() == "false"
+
     for key, value in entries:
         if key in seen:
             sys.exit(f"Environment key '{key}' is defined more than once across env files.")
         seen.add(key)
+        # Azure rejects empty secret values. This one setting is optional when
+        # Kafka is disabled; retain duplicate and required-key checks for all keys.
+        if key == KAFKA_CA_KEY and kafka_disabled and value == "":
+            continue
         if SECRET_KEY_PATTERN.search(key):
             name = secret_name(key)
             if name in secret_names:

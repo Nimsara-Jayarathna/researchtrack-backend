@@ -19,6 +19,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: isolated-kafka-integration-${{ github.run_id }}
-          path: artifacts/kafka-integration/*.trx
+          path: artifacts/kafka-integration/
           if-no-files-found: warn
           retention-days: 14

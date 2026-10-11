@@ -1,4 +1,5 @@
 using Confluent.Kafka;
+using System.Diagnostics;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -18,11 +19,15 @@ public sealed class KafkaOffsetCommitException(ErrorCode code) : Exception("Kafk
     public ErrorCode Code { get; } = code;
 }
 
-public sealed class KafkaMessagingHealth(IKafkaOutboxStore? store = null) : IHealthCheck
+public sealed class KafkaMessagingHealth(IKafkaOutboxStore? store = null, KafkaMetrics? metrics = null) : IHealthCheck
 {
     private int _consumerHeld;
     private int _publisherFailed;
-    public void HoldConsumer() => Interlocked.Exchange(ref _consumerHeld, 1);
+    public void HoldConsumer()
+    {
+        Interlocked.Exchange(ref _consumerHeld, 1);
+        metrics?.HoldConsumer();
+    }
     public void PublisherResult(bool success) => Interlocked.Exchange(ref _publisherFailed, success ? 0 : 1);
     public async Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default)
     {
@@ -35,16 +40,19 @@ public sealed class KafkaMessagingHealth(IKafkaOutboxStore? store = null) : IHea
 }
 
 public sealed class KafkaOutboxWorker(IKafkaOutboxStore store, IKafkaEventPublisher publisher,
-    KafkaMessagingHealth health, ILogger<KafkaOutboxWorker> logger) : BackgroundService
+    KafkaMessagingHealth health, ILogger<KafkaOutboxWorker> logger, KafkaMetrics? metrics = null) : BackgroundService
 {
     public async Task<bool> PublishOneAsync(CancellationToken ct)
     {
         var row = await store.ClaimAsync(DateTime.UtcNow, ct);
         if (row is null) return false;
+        var timer = Stopwatch.StartNew();
+        if (row.AttemptCount > 1) metrics?.Retry(KafkaMetricStage.Publish);
         try
         {
             await publisher.PublishAsync(row, ct);
             await store.CompleteAsync(row, DateTime.UtcNow, ct);
+            metrics?.Published();
             health.PublisherResult(true);
             logger.LogInformation("Kafka outbox acknowledged. CorrelationId={CorrelationId}", row.EventId);
         }
@@ -52,10 +60,13 @@ public sealed class KafkaOutboxWorker(IKafkaOutboxStore store, IKafkaEventPublis
         catch (Exception exception)
         {
             var code = exception is KafkaException kafka ? kafka.Error.Code.ToString() : exception.GetType().Name;
-            await store.FailAsync(row, DateTime.UtcNow, code, exception is KafkaContractException || exception is KafkaException { Error.IsFatal: true }, ct);
+            var permanent = exception is KafkaContractException || exception is KafkaException { Error.IsFatal: true };
+            metrics?.PublicationFailed(permanent || row.AttemptCount >= 10);
+            await store.FailAsync(row, DateTime.UtcNow, code, permanent, ct);
             health.PublisherResult(false);
             logger.LogWarning("Kafka outbox retained after publication failure. CorrelationId={CorrelationId} Code={Code} Attempt={Attempt}", row.EventId, code, row.AttemptCount);
         }
+        finally { metrics?.ObservePublication(timer.Elapsed.TotalSeconds); }
         return true;
     }
 
@@ -78,35 +89,47 @@ public sealed class KafkaOutboxWorker(IKafkaOutboxStore store, IKafkaEventPublis
     }
 }
 
-public sealed class KafkaRecordProcessor(KafkaRuntimeOptions options)
+public sealed class KafkaRecordProcessor(KafkaRuntimeOptions options, KafkaMetrics? metrics = null)
 {
     public async Task<Guid> ProcessAsync(ConsumeResult<string, string> record, IKafkaEventHandler handler, CancellationToken ct)
     {
-        if (record.Topic != options.Topic) throw new KafkaContractException();
-        var value = KafkaWebhookContract.Parse(record.Message?.Value, record.Message?.Key, options.Service, options.ContractVersion);
-        for (var attempt = 1; ; attempt++)
+        var timer = Stopwatch.StartNew();
+        try
         {
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeout.CancelAfter(TimeSpan.FromSeconds(15));
-            try { await handler.HandleAsync(value, timeout.Token); return value.CorrelationId; }
-            catch (KafkaContractException) { throw; }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
-            catch (Exception) when (attempt < 3) { await Task.Delay(TimeSpan.FromSeconds(attempt), ct); }
+            if (record.Topic != options.Topic) throw new KafkaContractException();
+            var value = KafkaWebhookContract.Parse(record.Message?.Value, record.Message?.Key, options.Service, options.ContractVersion);
+            for (var attempt = 1; ; attempt++)
+            {
+                if (attempt > 1) metrics?.Retry(KafkaMetricStage.Process);
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                timeout.CancelAfter(TimeSpan.FromSeconds(15));
+                try { await handler.HandleAsync(value, timeout.Token); return value.CorrelationId; }
+                catch (KafkaContractException) { throw; }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+                catch (Exception)
+                {
+                    metrics?.ProcessingFailed(rejected: false);
+                    if (attempt >= 3) throw;
+                    await Task.Delay(TimeSpan.FromSeconds(attempt), ct);
+                }
+            }
         }
+        catch (KafkaContractException) { metrics?.ProcessingFailed(rejected: true); throw; }
+        finally { metrics?.ObserveProcessing(timer.Elapsed.TotalSeconds); }
     }
 }
 
 public sealed class KafkaConsumerWorker(IKafkaClientFactory factory, KafkaRuntimeOptions options,
     IServiceScopeFactory scopes, KafkaRecordProcessor processor, KafkaMessagingHealth health,
-    ILogger<KafkaConsumerWorker> logger) : BackgroundService
+    ILogger<KafkaConsumerWorker> logger, KafkaMetrics? metrics = null) : BackgroundService
 {
     // Exposed for deterministic offset-policy tests using the same production processing path.
     public async Task HandleAndCommitAsync(IConsumer<string, string> consumer, ConsumeResult<string, string> record, CancellationToken ct)
     {
         using var scope = scopes.CreateScope();
         var correlationId = await processor.ProcessAsync(record, scope.ServiceProvider.GetRequiredService<IKafkaEventHandler>(), ct);
-        try { consumer.Commit(record); } // Never consume a later record after a failed commit.
-        catch (KafkaException exception) { throw new KafkaOffsetCommitException(exception.Error.Code); }
+        try { consumer.Commit(record); metrics?.Committed(); } // Never consume a later record after a failed commit.
+        catch (KafkaException exception) { metrics?.CommitFailed(); throw new KafkaOffsetCommitException(exception.Error.Code); }
         logger.LogInformation("Kafka durable handoff and offset commit completed. CorrelationId={CorrelationId} Partition={Partition} Offset={Offset}", correlationId, record.Partition.Value, record.Offset.Value);
     }
 
@@ -129,6 +152,7 @@ public sealed class KafkaConsumerWorker(IKafkaClientFactory factory, KafkaRuntim
                         // Deserialization failures can advance the local position. Hold rather than
                         // committing a later offset over an unseen invalid record.
                         logger.LogError("Kafka consumption held. Code={Code}", exception.Error.Code);
+                        metrics?.ProcessingFailed(rejected: true);
                         health.HoldConsumer();
                         await Task.Delay(Timeout.InfiniteTimeSpan, stoppingToken);
                         break;
@@ -167,13 +191,15 @@ public static class KafkaMessagingExtensions
     public static IServiceCollection AddWebhookKafkaMessaging<TContext, THandler>(this IServiceCollection services,
         IConfiguration configuration, string service) where TContext : DbContext where THandler : class, IKafkaEventHandler
     {
-        if (!configuration.GetValue<bool>("Kafka:Enabled")) return services;
+        var enabled = configuration.GetValue<bool>("Kafka:Enabled");
+        services.AddSingleton(new KafkaMetrics(service, enabled));
+        if (!enabled) return services;
         services.AddSingleton(provider =>
         {
             var options = provider.GetRequiredService<KafkaRuntimeOptions>();
             if (options.Service != service || options.ContractVersion != "1" || options.ConsumerGroupId != "researchtrack-" + service + "-webhook-v1")
                 throw new InvalidOperationException("Kafka contract version or consumer group does not match approved webhook routing.");
-            return new KafkaRecordProcessor(options);
+            return new KafkaRecordProcessor(options, provider.GetRequiredService<KafkaMetrics>());
         });
         services.AddSingleton<IKafkaClientFactory, KafkaClientFactory>();
         services.AddSingleton<IKafkaEventPublisher, KafkaEventPublisher>();
@@ -183,6 +209,34 @@ public static class KafkaMessagingExtensions
         services.AddHealthChecks().AddCheck<KafkaMessagingHealth>("kafka-messaging", tags: ["ready"]);
         services.AddHostedService<KafkaOutboxWorker>();
         services.AddHostedService<KafkaConsumerWorker>();
+        services.AddHostedService<KafkaOutboxMetricsWorker>();
         return services;
+    }
+}
+
+// Sample at most once per minute, with a five-second query budget. Scrapes read
+// cached gauges only; database errors leave depths explicitly stale/unknown.
+public sealed class KafkaOutboxMetricsWorker(IKafkaOutboxStore store, KafkaMetrics metrics,
+    ILogger<KafkaOutboxMetricsWorker> logger) : BackgroundService
+{
+    public async Task SampleAsync(CancellationToken ct)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(TimeSpan.FromSeconds(5));
+        try { metrics.OutboxSample(await store.SampleAsync(timeout.Token)); }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception exception)
+        {
+            metrics.OutboxSampleFailed();
+            logger.LogWarning("Kafka outbox metrics sample unavailable. ErrorType={ErrorType}", exception.GetType().Name);
+        }
+    }
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            await SampleAsync(stoppingToken);
+            await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken);
+        }
     }
 }

@@ -128,7 +128,7 @@ done
 expect pass "older service env files without Kafka keys remain valid"
 
 new_case kafka-disabled
-set_key github.env Kafka__SslCaCertificateBase64 CHANGE_ME
+set_key github.env Kafka__SslCaCertificateBase64 ""
 expect pass "disabled Kafka does not require unused trust material"
 
 new_case kafka-enabled-missing

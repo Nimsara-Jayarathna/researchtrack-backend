@@ -1,4 +1,5 @@
 using Confluent.Kafka;
+using Prometheus;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -45,15 +46,19 @@ public sealed class GitHubKafkaFlowTests
     {
         using var database = new KafkaTestDatabase<GitHubDbContext>(options => new(options), IsolatedKafkaFixture.DatabaseConnection("github"));
         var options = IsolatedKafkaFixture.Options("github");
-        var setup = await SetupAsync(database, options);
+        var registry = Metrics.NewCustomRegistry();
+        var metrics = new KafkaMetrics("github", true, registry);
+        await KafkaMetricSnapshot.SaveIsolatedAsync("github", registry, Ct);
+        await IsolatedKafkaFixture.WaitForMetricAsync("researchtrack_kafka_enabled{service=\"github\"}", x => x == 1, Ct);
+        var setup = await SetupAsync(database, options, metrics);
         using var provider = setup.Provider;
         await using var db = database.CreateDbContext();
         var row = await db.Set<KafkaOutboxMessage>().SingleAsync(Ct);
         var factory = IsolatedKafkaFixture.Factory(options);
         using (var publisher = new KafkaEventPublisher(factory, options))
-            Assert.True(await new KafkaOutboxWorker(new KafkaOutboxStore<GitHubDbContext>(database), publisher, new(), NullLogger<KafkaOutboxWorker>.Instance).PublishOneAsync(Ct));
+            Assert.True(await new KafkaOutboxWorker(new KafkaOutboxStore<GitHubDbContext>(database), publisher, new(), NullLogger<KafkaOutboxWorker>.Instance, metrics).PublishOneAsync(Ct));
         Assert.Equal("PUBLISHED", (await db.Set<KafkaOutboxMessage>().AsNoTracking().SingleAsync(Ct)).Status);
-        var worker = new KafkaConsumerWorker(factory, options, provider.GetRequiredService<IServiceScopeFactory>(), new(options), new(), NullLogger<KafkaConsumerWorker>.Instance);
+        var worker = new KafkaConsumerWorker(factory, options, provider.GetRequiredService<IServiceScopeFactory>(), new(options, metrics), new(null, metrics), NullLogger<KafkaConsumerWorker>.Instance, metrics);
         TopicPartitionOffset next;
         using (var consumer = factory.CreateConsumer())
         {
@@ -82,6 +87,14 @@ public sealed class GitHubKafkaFlowTests
         }
         Assert.Single(await db.Set<KafkaInboxReceipt>().ToListAsync(Ct));
         Assert.Single(await db.SyncRuns.ToListAsync(Ct));
+        var sample = await KafkaMetricSnapshot.ExportAsync(registry, Ct);
+        Assert.Equal(1, KafkaMetricSnapshot.Value(sample, "researchtrack_kafka_publish_total", ("outcome", "success")));
+        Assert.Equal(1, KafkaMetricSnapshot.Value(sample, "researchtrack_kafka_consume_total", ("stage", "process"), ("outcome", "success")));
+        Assert.Equal(1, KafkaMetricSnapshot.Value(sample, "researchtrack_kafka_consume_total", ("stage", "process"), ("outcome", "duplicate")));
+        await new KafkaOutboxMetricsWorker(new KafkaOutboxStore<GitHubDbContext>(database), metrics, NullLogger<KafkaOutboxMetricsWorker>.Instance).SampleAsync(Ct);
+        await KafkaMetricSnapshot.SaveIsolatedAsync("github", registry, Ct);
+        await IsolatedKafkaFixture.WaitForMetricAsync("researchtrack_kafka_consume_total{service=\"github\",stage=\"process\",outcome=\"success\"}", x => x == 1, Ct);
+        await VerifyHeldLagAndRecoveryAsync(database, options, row, metrics, registry);
         using var admin = new AdminClientBuilder(KafkaClientConfiguration.Producer(options)).Build();
         Assert.Equal(ErrorCode.NoError, Assert.Single(admin.GetMetadata(options.Topic, TimeSpan.FromSeconds(10)).Topics).Error.Code);
     }
@@ -95,16 +108,77 @@ public sealed class GitHubKafkaFlowTests
         options.BootstrapServers = "localhost:1"; // Unavailable loopback fixture, never production.
         await new GitHubWebhookDeliveryStore(database, new("fixture-secret", 16384, 5, TimeSpan.FromMinutes(5), TimeSpan.FromSeconds(1)), options)
             .AcceptAsync(KafkaMessagingTests.Envelope(), DateTime.UtcNow, Ct);
+        var registry = Metrics.NewCustomRegistry();
+        var metrics = new KafkaMetrics("github", true, registry);
         using var publisher = new KafkaEventPublisher(IsolatedKafkaFixture.Factory(options), options);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(Ct);
         timeout.CancelAfter(TimeSpan.FromSeconds(40));
-        Assert.True(await new KafkaOutboxWorker(new KafkaOutboxStore<GitHubDbContext>(database), publisher, new(), NullLogger<KafkaOutboxWorker>.Instance).PublishOneAsync(timeout.Token));
+        Assert.True(await new KafkaOutboxWorker(new KafkaOutboxStore<GitHubDbContext>(database), publisher, new(), NullLogger<KafkaOutboxWorker>.Instance, metrics).PublishOneAsync(timeout.Token));
         await using var db = database.CreateDbContext();
         Assert.Equal("PENDING", (await db.Set<KafkaOutboxMessage>().SingleAsync(Ct)).Status);
         Assert.Single(await db.WebhookDeliveries.ToListAsync(Ct));
+        var text = await KafkaMetricSnapshot.ExportAsync(registry, Ct);
+        Assert.Equal(1, KafkaMetricSnapshot.Value(text, "researchtrack_kafka_publish_total", ("outcome", "retryable_failure")));
+        Assert.Equal(0, KafkaMetricSnapshot.Value(text, "researchtrack_kafka_publish_total", ("outcome", "success")));
     }
 
-    private static async Task<(ServiceProvider Provider, Guid DeliveryId)> SetupAsync(KafkaTestDatabase<GitHubDbContext> database, KafkaRuntimeOptions options)
+    private static async Task VerifyHeldLagAndRecoveryAsync(KafkaTestDatabase<GitHubDbContext> database,
+        KafkaRuntimeOptions options, KafkaOutboxMessage row, KafkaMetrics metrics, CollectorRegistry registry)
+    {
+        var factory = IsolatedKafkaFixture.Factory(options);
+        using (var publisher = new KafkaEventPublisher(factory, options))
+            for (var i = 0; i < 128; i++) await publisher.PublishAsync(row, Ct);
+        var brokenHandler = Substitute.For<IKafkaEventHandler>();
+        brokenHandler.HandleAsync(Arg.Any<WebhookReadyEvent>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException(new InvalidOperationException("synthetic failure")));
+        using var brokenProvider = new ServiceCollection().AddSingleton(brokenHandler).BuildServiceProvider();
+        using (var held = new KafkaConsumerWorker(factory, options, brokenProvider.GetRequiredService<IServiceScopeFactory>(),
+            new(options, metrics), new(null, metrics), NullLogger<KafkaConsumerWorker>.Instance, metrics))
+        {
+            await held.StartAsync(Ct);
+            try
+            {
+                var deadline = DateTime.UtcNow.AddSeconds(30);
+                while (KafkaMetricSnapshot.Value(await KafkaMetricSnapshot.ExportAsync(registry, Ct), "researchtrack_kafka_consumer_held") != 1)
+                {
+                    if (DateTime.UtcNow >= deadline) throw new TimeoutException("Disposable consumer did not hold.");
+                    await Task.Delay(100, Ct);
+                }
+                await KafkaMetricSnapshot.SaveIsolatedAsync("github", registry, Ct);
+                await IsolatedKafkaFixture.WaitForMetricAsync("sum(kafka_consumergroup_lag{consumergroup=\"researchtrack-github-webhook-v1\"})", x => x >= 128, Ct);
+                foreach (var name in new[] { "ConsumerHeld", "ConsumerLagHigh", "EventProcessingFailures" })
+                    await IsolatedKafkaFixture.WaitForMetricAsync($"sum(ALERTS{{alertname=\"ResearchTrackKafka{name}\",alertstate=\"firing\"}})", x => x == 1, Ct);
+            }
+            finally { await held.StopAsync(Ct); }
+        }
+        // Fresh metric registry models a reviewed service restart; receipt deduplication survives it.
+        var recoveredRegistry = Metrics.NewCustomRegistry();
+        var recovered = new KafkaMetrics("github", true, recoveredRegistry);
+        using var provider = new ServiceCollection().AddSingleton<IDbContextFactory<GitHubDbContext>>(database)
+            .AddSingleton(new GitHubWebhookSignal()).AddSingleton(recovered).AddScoped<IKafkaEventHandler, GitHubKafkaEventHandler>().BuildServiceProvider();
+        using var worker = new KafkaConsumerWorker(factory, options, provider.GetRequiredService<IServiceScopeFactory>(),
+            new(options, recovered), new(null, recovered), NullLogger<KafkaConsumerWorker>.Instance, recovered);
+        using (var consumer = factory.CreateConsumer())
+        {
+            consumer.Subscribe(options.Topic);
+            for (var i = 0; i < 128; i++)
+                await worker.HandleAndCommitAsync(consumer, await IsolatedKafkaFixture.ReceiveAsync(consumer, row.EventId, Ct), Ct);
+            consumer.Close();
+        }
+        await new KafkaOutboxMetricsWorker(new KafkaOutboxStore<GitHubDbContext>(database), recovered, NullLogger<KafkaOutboxMetricsWorker>.Instance).SampleAsync(Ct);
+        var text = await KafkaMetricSnapshot.ExportAsync(recoveredRegistry, Ct);
+        Assert.Equal(128, KafkaMetricSnapshot.Value(text, "researchtrack_kafka_consume_total", ("stage", "process"), ("outcome", "duplicate")));
+        Assert.Equal(0, KafkaMetricSnapshot.Value(text, "researchtrack_kafka_consume_total", ("stage", "process"), ("outcome", "success")));
+        await KafkaMetricSnapshot.SaveIsolatedAsync("github", recoveredRegistry, Ct);
+        await IsolatedKafkaFixture.WaitForMetricAsync("sum(kafka_consumergroup_lag{consumergroup=\"researchtrack-github-webhook-v1\"})", x => x == 0, Ct);
+        foreach (var name in new[] { "ConsumerHeld", "ConsumerLagHigh" })
+            await IsolatedKafkaFixture.WaitForMetricAsync($"absent(ALERTS{{alertname=\"ResearchTrackKafka{name}\",alertstate=\"firing\"}})", x => x == 1, Ct);
+        await using var db = database.CreateDbContext();
+        Assert.Single(await db.SyncRuns.ToListAsync(Ct));
+        Assert.Single(await db.Set<KafkaInboxReceipt>().ToListAsync(Ct));
+    }
+
+    private static async Task<(ServiceProvider Provider, Guid DeliveryId)> SetupAsync(KafkaTestDatabase<GitHubDbContext> database, KafkaRuntimeOptions options, KafkaMetrics? metrics = null)
     {
         var sourceId = Guid.NewGuid(); var repoId = Guid.NewGuid(); var linkId = Guid.NewGuid();
         await using (var db = database.CreateDbContext())
@@ -135,6 +209,7 @@ public sealed class GitHubKafkaFlowTests
             .AddScoped<IGitHubWebhookEventProcessor, GitHubWebhookEventProcessor>()
             .AddScoped<IGitHubRepositorySynchronizationService, GitHubRepositorySynchronizationService>()
             .AddScoped<IKafkaEventHandler, GitHubKafkaEventHandler>();
+        if (metrics is not null) services.AddSingleton(metrics);
         var provider = services.BuildServiceProvider();
         var envelope = KafkaMessagingTests.Envelope();
         var bytes = System.Text.Encoding.UTF8.GetBytes(envelope.PayloadJson);

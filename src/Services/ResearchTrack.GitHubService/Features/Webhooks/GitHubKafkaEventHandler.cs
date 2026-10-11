@@ -7,13 +7,13 @@ using ResearchTrack.GitHubService.Persistence;
 namespace ResearchTrack.GitHubService.Features.Webhooks;
 
 public sealed class GitHubKafkaEventHandler(IDbContextFactory<GitHubDbContext> factory,
-    GitHubWebhookSignal signal) : IKafkaEventHandler
+    GitHubWebhookSignal signal, KafkaMetrics? metrics = null) : IKafkaEventHandler
 {
     public async Task HandleAsync(WebhookReadyEvent value, CancellationToken ct)
     {
         await using var db = await factory.CreateDbContextAsync(ct);
         await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
-        if (await KafkaPersistence.AlreadyHandledAsync(db, value, ct)) return;
+        if (await KafkaPersistence.AlreadyHandledAsync(db, value, ct)) { metrics?.Duplicate(); return; }
         await KafkaPersistence.AssertOwnedAsync(db, value, ct);
         var record = await db.WebhookDeliveries.SingleOrDefaultAsync(x => x.Id == value.EventId, ct);
         var outcome = "removed";
@@ -30,6 +30,7 @@ public sealed class GitHubKafkaEventHandler(IDbContextFactory<GitHubDbContext> f
         KafkaPersistence.AddReceipt(db, value, outcome);
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
+        metrics?.HandedOff(outcome != "durable_inbox");
         signal.Pulse();
     }
 }

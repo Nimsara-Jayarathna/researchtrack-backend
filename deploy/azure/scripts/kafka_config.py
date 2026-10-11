@@ -21,6 +21,27 @@ KEYS = {
 }
 
 
+def validate_ca(service: str, encoded: str) -> None:
+    """Accept only a currently valid public CA certificate, never private-key material."""
+    def fail(key: str) -> None:
+        raise ValueError(f"{service}: invalid or missing {key} for Kafka configuration")
+
+    if encoded:
+        try:
+            pem = base64.b64decode(encoded, validate=True)
+            if not re.fullmatch(rb"\s*-----BEGIN CERTIFICATE-----[A-Za-z0-9+/=\r\n]+-----END CERTIFICATE-----\s*", pem):
+                fail("Kafka__SslCaCertificateBase64")
+            certificate = subprocess.run(["openssl", "x509", "-noout", "-text", "-startdate", "-checkend", "0"],
+                                         input=pem, capture_output=True, timeout=10)
+            if certificate.returncode or b"CA:TRUE" not in certificate.stdout:
+                fail("Kafka__SslCaCertificateBase64")
+            start = re.search(rb"notBefore=(.+)", certificate.stdout)
+            if not start or datetime.strptime(start[1].decode(), "%b %d %H:%M:%S %Y GMT").replace(tzinfo=timezone.utc) > datetime.now(timezone.utc):
+                fail("Kafka__SslCaCertificateBase64")
+        except (ValueError, OSError, subprocess.SubprocessError):
+            fail("Kafka__SslCaCertificateBase64")
+
+
 def validate(service: str, values: dict[str, str], production: bool,
              manifest: Path = MANIFEST) -> None:
     def fail(key: str) -> None:
@@ -36,6 +57,8 @@ def validate(service: str, values: dict[str, str], production: bool,
     enabled = values.get("Kafka__Enabled", "false").lower()
     if enabled not in {"true", "false"}:
         fail("Kafka__Enabled")
+    encoded = values.get("Kafka__SslCaCertificateBase64", "")
+    validate_ca(service, encoded)
     if enabled == "false":
         return  # Older env files need no Kafka keys, trust or credentials.
     for key in {"Kafka__BootstrapServers", "Kafka__Topic", "Kafka__ContractVersion", "Kafka__SslCaLocation"}:
@@ -64,23 +87,8 @@ def validate(service: str, values: dict[str, str], production: bool,
                 fail("Kafka__BootstrapServers")
     if not values["Kafka__SslCaLocation"].startswith("/"):
         fail("Kafka__SslCaLocation")
-    encoded = values.get("Kafka__SslCaCertificateBase64", "")
     if production and (not encoded or values["Kafka__SslCaLocation"] != CA_LOCATION):
         fail("Kafka__SslCaCertificateBase64 / Kafka__SslCaLocation")
-    if encoded:
-        try:
-            pem = base64.b64decode(encoded, validate=True)
-            if not re.fullmatch(rb"\s*-----BEGIN CERTIFICATE-----[A-Za-z0-9+/=\r\n]+-----END CERTIFICATE-----\s*", pem):
-                fail("Kafka__SslCaCertificateBase64")
-            certificate = subprocess.run(["openssl", "x509", "-noout", "-text", "-startdate", "-checkend", "0"],
-                                         input=pem, capture_output=True, timeout=10)
-            if certificate.returncode or b"CA:TRUE" not in certificate.stdout:
-                fail("Kafka__SslCaCertificateBase64")
-            start = re.search(rb"notBefore=(.+)", certificate.stdout)
-            if not start or datetime.strptime(start[1].decode(), "%b %d %H:%M:%S %Y GMT").replace(tzinfo=timezone.utc) > datetime.now(timezone.utc):
-                fail("Kafka__SslCaCertificateBase64")
-        except (ValueError, OSError, subprocess.SubprocessError):
-            fail("Kafka__SslCaCertificateBase64")
     check = subprocess.run(["jq", "-e", "-f", str(AZURE_ROOT / "vm/scripts/kafka-topic-manifest.jq"),
                             str(manifest)], capture_output=True, timeout=10)
     if check.returncode:

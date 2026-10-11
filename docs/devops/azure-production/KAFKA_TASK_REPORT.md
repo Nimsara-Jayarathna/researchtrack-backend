@@ -134,3 +134,8 @@ Draft [PR #77](https://github.com/Nimsara-Jayarathna/researchtrack-backend/pull/
 ## Copyable Jira comment
 
 > Completed the repository work for Sprint 4 Kafka infrastructure verification. Reused the existing Kafka 3.9.1 KRaft deployment, private TLS listener, durable storage and ACA network probe. Added Kafka-only read-only checks, safe topic operations, explicit restart/persistence verification, and guards against replacing lost cluster identity or TLS trust material. Offline Kafka smoke (9), operations (43), network probe (12), and related Azure regression suites pass; changed shell scripts pass Bash/ShellCheck and Compose validation passes. No production deployment, Azure test or Kafka restart was performed. Live VM/NSG/ACA smoke evidence and an explicitly approved maintenance-window restart remain required before closing the task. Guide and acceptance checklist: docs/devops/azure-production/KAFKA_OPERATIONS.md and KAFKA_TASK_REPORT.md.
+
+
+## Sprint 4 observability follow-up
+
+Locally implemented exporter, bounded GitHub/Jira worker metrics, cached outbox depths, 18-panel Kafka dashboard and ten Kafka alerts extend the existing platform. See [Sprint 4 observability follow-up](KAFKA_OBSERVABILITY.md) for architecture, exact queries, isolated tests, monitoring-only delivery, verification and rollback. Production verification is pending; no deployment or production failure simulation was performed. See the [local task audit](KAFKA_OBSERVABILITY_TASK_REPORT.md) for executed results and the seven-item Definition of Done.

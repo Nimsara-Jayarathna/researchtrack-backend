@@ -285,6 +285,8 @@ printf '%s\n' "$kafka_inputs_hash" > "$data/kafka/.inputs-hash"
 
 # ---------------------------------------------------------------------------
 log "[7/9] Prometheus and Grafana"
+# Exporter changes are independent: never recreate/restart Kafka for metrics.
+"$compose" up -d --no-deps kafka-exporter
 # Bind-mounted configuration is only guaranteed active after recreation (same
 # rule as the Test stack). Their data directories persist on the data disk.
 "$compose" up -d --force-recreate prometheus grafana

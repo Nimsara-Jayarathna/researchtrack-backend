@@ -14,6 +14,8 @@ env_dir="${1:?validated env dir required}"
 out_dir="${2:?output dir required}"
 azure_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 repo_root="$(cd "$azure_dir/../.." && pwd)"
+mode="${RT_RECONCILE_MODE:-stack}"
+[[ "$mode" == stack || "$mode" == monitoring ]] || { echo 'RT_RECONCILE_MODE must be stack or monitoring.' >&2; exit 1; }
 
 for key in INFRA_PRIVATE_IP API_HOSTNAME GRAFANA_HOSTNAME ACA_ENV_DOMAIN; do
   [[ -n "${!key:-}" ]] || { echo "$key is required." >&2; exit 1; }
@@ -48,6 +50,7 @@ chmod -R u=rwX,go=rX "$cfg"
 chmod 755 "$cfg/scripts/"*.sh
 
 # Runtime values.
+if [[ "$mode" == stack ]]; then
 cp "$env_dir/mysql.env" "$env_dir/grafana.env" "$stage/runtime/"
 cat > "$stage/runtime/infra.env" <<EOF
 INFRA_PRIVATE_IP=$INFRA_PRIVATE_IP
@@ -59,13 +62,21 @@ LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL:-}
 KAFKA_RETENTION_HOURS=${KAFKA_RETENTION_HOURS:-72}
 PROMETHEUS_RETENTION=${PROMETHEUS_RETENTION:-15d}
 EOF
+fi
 
 bundle_b64="$(tar -C "$cfg" -czf - . | base64 | tr -d '\n')"
 {
   printf 'RT_BUNDLE_B64=%q\nexport RT_BUNDLE_B64\n' "$bundle_b64"
-  cat "$azure_dir/scripts/install-bundle.sh"
+  if [[ "$mode" == monitoring ]]; then
+    cat "$azure_dir/scripts/install-monitoring-bundle.sh"
+  else
+    cat "$azure_dir/scripts/install-bundle.sh"
+  fi
 } > "$out_dir/reconcile-vm.sh"
 
+if [[ "$mode" == stack ]]; then
 tar -C "$stage/runtime" -czf - . | base64 | tr -d '\n' > "$out_dir/runtime.b64"
-
 echo "VM bundle: $(wc -c < "$out_dir/reconcile-vm.sh") bytes script, $(wc -c < "$out_dir/runtime.b64") bytes protected runtime."
+else
+  echo "Monitoring-only bundle: $(wc -c < "$out_dir/reconcile-vm.sh") bytes; uses existing VM runtime configuration."
+fi

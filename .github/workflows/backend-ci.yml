@@ -88,6 +88,12 @@ jobs:
       - name: Test Kafka topic registry, reconciliation and service configuration (offline)
         run: python3 deploy/azure/validation/test_kafka_topics_config.py
 
+      - name: Test Kafka monitoring configuration, dashboards and Prometheus scenarios
+        run: ./scripts/test-kafka-observability.sh
+
+      - name: Test monitoring-only VM reconciliation (mocked Docker)
+        run: python3 deploy/azure/validation/test_monitoring_reconciliation.py
+
       - name: Test VM private-IP safety check (stubbed ip)
         run: ./deploy/azure/validation/test-private-ip-check.sh
 

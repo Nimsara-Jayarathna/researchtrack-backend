@@ -22,7 +22,11 @@ cleanup() {
   rm -rf -- "$RT_KAFKA_TEST_WORK"
 }
 trap cleanup EXIT
-mkdir -p "$RT_KAFKA_TEST_WORK/tls" "$RT_KAFKA_TEST_WORK/private" "$RT_KAFKA_TEST_WORK/kafka-data" "$RT_KAFKA_TEST_WORK/mysql-init"
+mkdir -p "$RT_KAFKA_TEST_WORK/metrics" "$RT_KAFKA_TEST_WORK/monitoring/rules" "$RT_KAFKA_TEST_WORK/tls" "$RT_KAFKA_TEST_WORK/private" "$RT_KAFKA_TEST_WORK/kafka-data" "$RT_KAFKA_TEST_WORK/mysql-init"
+cp "$root/tests/Kafka/prometheus.yml" "$RT_KAFKA_TEST_WORK/monitoring/prometheus.yml"
+# Only fixture stabilization durations are shortened; expressions and thresholds are unchanged.
+sed -E 's/for: [0-9]+[ms]/for: 10s/g' "$root/deploy/monitoring/rules/researchtrack-alerts.yml"   > "$RT_KAFKA_TEST_WORK/monitoring/rules/researchtrack-alerts.yml"
+chmod -R a+rX "$RT_KAFKA_TEST_WORK/metrics" "$RT_KAFKA_TEST_WORK/monitoring"
 umask 077
 openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj '/CN=ResearchTrack isolated Kafka CA' \
   -addext 'basicConstraints=critical,CA:TRUE' -keyout "$RT_KAFKA_TEST_WORK/private/ca.key" \
@@ -81,11 +85,14 @@ for service in kafka mysql; do
     sleep 2
   done
 done
+"${compose[@]}" exec -T kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:29092   --create --if-not-exists --topic researchtrack.deployment-smoke --partitions 1 --replication-factor 1
 for domain in github jira; do
   "${compose[@]}" exec -T kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:29092 \
     --create --if-not-exists --topic "researchtrack.$domain.events.v1" --partitions 1 \
     --replication-factor 1 --config retention.ms=259200000
 done
+export RT_KAFKA_TEST_PROMETHEUS=http://127.0.0.1:19090
+export RT_KAFKA_TEST_METRICS_DIRECTORY="$RT_KAFKA_TEST_WORK/metrics"
 export RT_KAFKA_TEST_ENABLE=1 RT_KAFKA_TEST_ENDPOINT=localhost:19092 RT_KAFKA_TEST_CA="$RT_KAFKA_TEST_WORK/tls/ca.crt"
 export RT_KAFKA_TEST_GITHUB_CONNECTION="Server=127.0.0.1;Port=13307;Database=researchtrack_kafka_github;User=fixture;Password=$RT_KAFKA_TEST_PASSWORD;SslMode=Disabled"
 export RT_KAFKA_TEST_JIRA_CONNECTION="Server=127.0.0.1;Port=13307;Database=researchtrack_kafka_jira;User=fixture;Password=$RT_KAFKA_TEST_PASSWORD;SslMode=Disabled"
@@ -97,4 +104,12 @@ for service in GitHub Jira; do
     --filter 'Category=KafkaIntegration' --logger "trx;LogFileName=kafka-$service.trx" \
     --results-directory "$root/artifacts/kafka-integration"
 done
-echo 'PASS: isolated TLS Kafka application integration tests. This is not Azure production evidence.'
+# Broker failure is simulated ONLY inside this newly created disposable project.
+python3 "$root/tests/Kafka/verify_observability.py" healthy
+"${compose[@]}" stop kafka
+python3 "$root/tests/Kafka/verify_observability.py" unavailable
+"${compose[@]}" start kafka
+python3 "$root/tests/Kafka/verify_observability.py" healthy
+mkdir -p "$root/artifacts/kafka-integration/metrics"
+cp "$RT_KAFKA_TEST_WORK/metrics/"*.prom "$root/artifacts/kafka-integration/metrics/"
+echo 'PASS: isolated TLS Kafka application and observability checks. This is not Azure production evidence.'

@@ -18,7 +18,7 @@ public sealed class JiraKafkaScheduleLease : IJiraKafkaScheduleLease
 }
 
 public sealed class JiraKafkaEventHandler(IDbContextFactory<JiraDbContext> factory,
-    IJiraKafkaScheduleLease scheduleLease) : IKafkaEventHandler
+    IJiraKafkaScheduleLease scheduleLease, KafkaMetrics? metrics = null) : IKafkaEventHandler
 {
     public async Task HandleAsync(WebhookReadyEvent value, CancellationToken ct)
     {
@@ -26,7 +26,7 @@ public sealed class JiraKafkaEventHandler(IDbContextFactory<JiraDbContext> facto
         await using var db = await factory.CreateDbContextAsync(ct);
         await using var lease = await scheduleLease.AcquireAsync(db, projectId, ct);
         await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
-        if (await KafkaPersistence.AlreadyHandledAsync(db, value, ct)) return;
+        if (await KafkaPersistence.AlreadyHandledAsync(db, value, ct)) { metrics?.Duplicate(); return; }
         await KafkaPersistence.AssertOwnedAsync(db, value, ct);
         var record = await db.JiraWebhookEvents.SingleOrDefaultAsync(x => x.Id == value.EventId, ct);
         var connection = await db.JiraConnections.AsNoTracking().SingleOrDefaultAsync(x => x.ResearchProjectId == projectId, ct);
@@ -56,5 +56,6 @@ public sealed class JiraKafkaEventHandler(IDbContextFactory<JiraDbContext> facto
         KafkaPersistence.AddReceipt(db, value, outcome);
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
+        metrics?.HandedOff(outcome is not ("durable_sync_job" or "existing_running_job"));
     }
 }

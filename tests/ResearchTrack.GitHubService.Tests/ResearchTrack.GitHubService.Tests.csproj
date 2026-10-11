@@ -23,6 +23,7 @@
   <ItemGroup>
     <ProjectReference Include="../../src/Services/ResearchTrack.GitHubService/ResearchTrack.GitHubService.csproj" />
     <Compile Include="../Kafka/KafkaTestDatabase.cs" Link="Kafka/KafkaTestDatabase.cs" />
+    <Compile Include="../Kafka/KafkaMetricSnapshot.cs" Link="Kafka/KafkaMetricSnapshot.cs" />
     <Compile Include="../Kafka/IsolatedKafkaFixture.cs" Link="Kafka/IsolatedKafkaFixture.cs" />
     <ProjectReference Include="../ResearchTrack.Testing/ResearchTrack.Testing.csproj" />
   </ItemGroup>

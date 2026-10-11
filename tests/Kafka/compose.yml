@@ -23,6 +23,42 @@ services:
       timeout: 10s
       retries: 30
     mem_limit: 1g
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:v1.10.0@sha256:346a53c2489a3530790d01f7b96632496d0d58926662f4c35bb65f569db2ab42
+    command:
+      - --kafka.server=kafka:29092
+      - --kafka.version=3.9.1
+      - --topic.filter=^researchtrack\.(deployment-smoke|github\.events\.v1|jira\.events\.v1)$
+      - --group.filter=^researchtrack-(github|jira)-webhook-v1$
+      - --refresh.metadata=5s
+      - --no-kafka.allow-auto-topic-creation
+    restart: on-failure
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 96m
+    cpus: 0.1
+  metric-snapshots:
+    # Test-only HTTP delivery of actual application registry snapshots.
+    image: python:3.13-alpine
+    command: [python, -m, http.server, '8080', --directory, /metrics]
+    user: '65534:65534'
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    volumes: ['${RT_KAFKA_TEST_WORK:?}/metrics:/metrics:ro']
+    mem_limit: 32m
+  prometheus:
+    image: prom/prometheus:v3.15.0
+    command: ['--config.file=/etc/prometheus/prometheus.yml', '--storage.tsdb.path=/prometheus', '--storage.tsdb.retention.time=1h']
+    ports: ['127.0.0.1:19090:9090']
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    volumes:
+      - '${RT_KAFKA_TEST_WORK:?}/monitoring:/etc/prometheus:ro'
+    tmpfs: ['/prometheus:uid=65534,gid=65534']
+    mem_limit: 256m
   mysql:
     image: mysql:8.4
     environment:

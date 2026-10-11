@@ -175,7 +175,7 @@ else: sys.exit(9)
     def test_disabled_and_older_configuration_remain_compatible(self):
         for service in ("github", "jira"):
             config.validate(service, {}, True)
-            config.validate(service, {"Kafka__Enabled": "false", "Kafka__SslCaCertificateBase64": "CHANGE_ME"}, True)
+            config.validate(service, {"Kafka__Enabled": "false", "Kafka__SslCaCertificateBase64": ""}, True)
         for service in ("auth", "project", "gateway", "meeting", "submission"):
             config.validate(service, {}, True)
             with self.assertRaises(ValueError):
@@ -208,9 +208,78 @@ else: sys.exit(9)
 
     def test_private_material_is_not_accepted_as_ca(self):
         values = self.settings("github")
-        private = base64.b64encode((self.work / "ca.key").read_bytes()).decode()
-        with self.assertRaises(ValueError):
-            config.validate("github", {**values, "Kafka__SslCaCertificateBase64": private}, True, self.manifest)
+        materials = [(self.work / "ca.key").read_bytes(),
+                     b"-----BEGIN OPENSSH PRIVATE KEY-----\nsynthetic-invalid-key\n-----END OPENSSH PRIVATE KEY-----"]
+        for material in materials:
+            private = base64.b64encode(material).decode()
+            for enabled in ("false", "true"):
+                with self.subTest(enabled=enabled), self.assertRaises(ValueError) as failure:
+                    config.validate("github", {**values, "Kafka__Enabled": enabled,
+                                    "Kafka__SslCaCertificateBase64": private}, True, self.manifest)
+                self.assertNotIn(private, str(failure.exception))
+
+    def render_case(self, service, kind, values, required=()):
+        env = self.work / f"{service}.{kind}.env"
+        env.write_text("\n".join(f"{key}={value}" for key, value in values.items()))
+        output = self.work / f"{service}.{kind}.json"
+        output.unlink(missing_ok=True)
+        argv = ["render", "--kind", kind, "--service", service, "--name", f"rt-{service}-prod",
+                "--location", "offline", "--environment-id", "/offline", "--image", "offline",
+                "--env-file", str(env), "--output", str(output)]
+        for key in required:
+            argv += ["--require", key]
+        with patch.object(sys, "argv", argv), patch.object(renderer, "validate_kafka",
+             side_effect=lambda s, v, p: config.validate(s, v, p, self.manifest)), contextlib.redirect_stdout(io.StringIO()):
+            renderer.main()
+        document = json.loads(output.read_text())
+        if kind == "app":
+            return document["parameters"]["env"]["value"], document["parameters"]["secrets"]["value"]["items"]
+        return document["properties"]["template"]["containers"][0]["env"], document["properties"]["configuration"]["secrets"]
+
+    def test_renderer_omits_disabled_empty_ca_for_apps_and_jobs(self):
+        for service in ("github", "jira"):
+            for kind in ("app", "job"):
+                for enabled in (None, "false", "FALSE"):
+                    # Enabled is deliberately after CA: omission uses the complete configuration.
+                    values = {"Kafka__SslCaCertificateBase64": "", "Jwt__SigningKey": "synthetic-signing-key"}
+                    if enabled is not None:
+                        values["Kafka__Enabled"] = enabled
+                    with self.subTest(service=service, kind=kind, enabled=enabled):
+                        entries, secrets = self.render_case(service, kind, values, ("Jwt__SigningKey",))
+                        self.assertNotIn("Kafka__SslCaCertificateBase64", [item["name"] for item in entries])
+                        self.assertNotIn("env-kafka-sslcacertificatebase64", [item["name"] for item in secrets])
+                        self.assertEqual("env-jwt-signingkey", next(x for x in entries if x["name"] == "Jwt__SigningKey")["secretRef"])
+
+    def test_renderer_rejects_enabled_empty_ca_before_writing_apps_and_jobs(self):
+        for service in ("github", "jira"):
+            values = {**self.settings(service), "Kafka__SslCaCertificateBase64": ""}
+            for kind in ("app", "job"):
+                with self.subTest(service=service, kind=kind), self.assertRaisesRegex(SystemExit, "Kafka__SslCaCertificateBase64"):
+                    self.render_case(service, kind, values)
+                self.assertFalse((self.work / f"{service}.{kind}.json").exists())
+
+    def test_renderer_preserves_provided_public_ca_secretrefs_when_disabled(self):
+        for service in ("github", "jira"):
+            values = {**self.settings(service), "Kafka__Enabled": "false"}
+            for kind in ("app", "job"):
+                with self.subTest(service=service, kind=kind):
+                    entries, secrets = self.render_case(service, kind, values)
+                    self.assertEqual({"name": "Kafka__SslCaCertificateBase64", "secretRef": "env-kafka-sslcacertificatebase64"},
+                                     next(x for x in entries if x["name"] == "Kafka__SslCaCertificateBase64"))
+                    self.assertEqual(values["Kafka__SslCaCertificateBase64"],
+                                     next(x for x in secrets if x["name"] == "env-kafka-sslcacertificatebase64")["value"])
+
+    def test_renderer_does_not_hide_other_empty_required_secrets(self):
+        for service in ("github", "jira"):
+            for kind in ("app", "job"):
+                values = {"Kafka__Enabled": "false", "Kafka__SslCaCertificateBase64": "", "Jwt__SigningKey": ""}
+                with self.subTest(service=service, kind=kind), self.assertRaisesRegex(SystemExit, "Jwt__SigningKey"):
+                    self.render_case(service, kind, values, ("Jwt__SigningKey",))
+                self.assertFalse((self.work / f"{service}.{kind}.json").exists())
+
+    def test_build_env_does_not_hide_duplicate_empty_ca_keys(self):
+        with self.assertRaisesRegex(SystemExit, "defined more than once"):
+            renderer.build_env([], ["Kafka__Enabled=false", "Kafka__SslCaCertificateBase64=", "Kafka__SslCaCertificateBase64="])
 
     def test_real_renderer_passes_service_keys_and_ca_as_secret(self):
         for service in ("github", "jira"):
@@ -231,6 +300,9 @@ else: sys.exit(9)
                 for key in values.keys() - {"Kafka__SslCaCertificateBase64"}:
                     self.assertEqual(values[key], mapped[key]["value"])
                 self.assertIn("secretRef", mapped["Kafka__SslCaCertificateBase64"])
+                secret_items = document["parameters"]["secrets"]["value"]["items"] if kind == "app" else document["properties"]["configuration"]["secrets"]
+                self.assertEqual(values["Kafka__SslCaCertificateBase64"],
+                                 next(x for x in secret_items if x["name"] == mapped["Kafka__SslCaCertificateBase64"]["secretRef"])["value"])
                 self.assertNotIn(values["Kafka__SslCaCertificateBase64"], printed.getvalue())
                 self.assertEqual(0o600, output.stat().st_mode & 0o777)
 

@@ -203,3 +203,8 @@ Configuration and operator documentation: `docs/devops/configuration/` (added 20
 6. **Prometheus and Grafana also bind to `127.0.0.1`** on the host for on-VM validation (allowed by MASTER_PLAN §14). The NSG denies 9090/3000 regardless.
 7. **An extra short-lived Container Apps Job, `rt-netcheck-prod`** (apache/kafka image), proves Container Apps → Kafka/MySQL. It is not an application app.
 8. **The Gateway forwarded-header fix changes runtime behaviour on Test too**: per-client rate limiting behind NPM. No Test deployment files or config contracts changed.
+
+
+## Kafka observability implementation
+
+Locally implemented exporter, bounded GitHub/Jira worker metrics, cached outbox depths, 18-panel Kafka dashboard and ten Kafka alerts extend the existing platform. See [Kafka observability implementation](KAFKA_OBSERVABILITY.md) for architecture, exact queries, isolated tests, monitoring-only delivery, verification and rollback. Production verification is pending; no deployment or production failure simulation was performed. See the [local task audit](KAFKA_OBSERVABILITY_TASK_REPORT.md) for executed results and the seven-item Definition of Done.

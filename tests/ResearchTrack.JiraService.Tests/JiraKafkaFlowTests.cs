@@ -1,3 +1,4 @@
+using Prometheus;
 using System.Net;
 using System.Text;
 using Confluent.Kafka;
@@ -25,6 +26,10 @@ public sealed class JiraKafkaFlowTests
     {
         using var database = new KafkaTestDatabase<JiraDbContext>(options => new(options), IsolatedKafkaFixture.DatabaseConnection("jira"));
         var options = IsolatedKafkaFixture.Options("jira");
+        var registry = Metrics.NewCustomRegistry();
+        var metrics = new KafkaMetrics("jira", true, registry);
+        await KafkaMetricSnapshot.SaveIsolatedAsync("jira", registry, Ct);
+        await IsolatedKafkaFixture.WaitForMetricAsync("researchtrack_kafka_enabled{service=\"jira\"}", x => x == 1, Ct);
         var projectId = await KafkaMessagingTests.SeedAsync(database, Ct);
         var jiraOptions = KafkaMessagingTests.JiraOptions;
         using var http = new HttpClient(new SnapshotHttpHandler());
@@ -33,7 +38,7 @@ public sealed class JiraKafkaFlowTests
         var scheduler = new JiraSyncScheduler(database);
         var webhook = new JiraWebhookService(database, client, protector, jiraOptions, scheduler, NullLogger<JiraWebhookService>.Instance, options);
         Assert.True(await webhook.ReceiveAsync(KafkaMessagingTests.Bearer(), "synthetic-delivery", KafkaMessagingTests.Payload, Ct));
-        var services = new ServiceCollection().AddLogging().AddSingleton<IDbContextFactory<JiraDbContext>>(database)
+        var services = new ServiceCollection().AddLogging().AddSingleton(metrics).AddSingleton<IDbContextFactory<JiraDbContext>>(database)
             .AddSingleton(jiraOptions).AddSingleton(client).AddSingleton<IJiraTokenProtector>(protector)
             .AddSingleton<IJiraSyncScheduler>(scheduler).AddSingleton<IJiraWebhookService>(webhook)
             .AddSingleton<IJiraKafkaScheduleLease, JiraKafkaScheduleLease>()
@@ -43,7 +48,7 @@ public sealed class JiraKafkaFlowTests
         var row = await db.Set<KafkaOutboxMessage>().SingleAsync(Ct);
         var factory = IsolatedKafkaFixture.Factory(options);
         using (var publisher = new KafkaEventPublisher(factory, options))
-            Assert.True(await new KafkaOutboxWorker(new KafkaOutboxStore<JiraDbContext>(database), publisher, new(), NullLogger<KafkaOutboxWorker>.Instance).PublishOneAsync(Ct));
+            Assert.True(await new KafkaOutboxWorker(new KafkaOutboxStore<JiraDbContext>(database), publisher, new(), NullLogger<KafkaOutboxWorker>.Instance, metrics).PublishOneAsync(Ct));
         Assert.Equal("PUBLISHED", (await db.Set<KafkaOutboxMessage>().AsNoTracking().SingleAsync(Ct)).Status);
         // Simulate consumer restart with a fetched but uncommitted record.
         using (var consumer = factory.CreateConsumer())
@@ -52,7 +57,7 @@ public sealed class JiraKafkaFlowTests
             await IsolatedKafkaFixture.ReceiveAsync(consumer, row.EventId, Ct);
             consumer.Close();
         }
-        var consumerWorker = new KafkaConsumerWorker(factory, options, provider.GetRequiredService<IServiceScopeFactory>(), new(options), new(), NullLogger<KafkaConsumerWorker>.Instance);
+        var consumerWorker = new KafkaConsumerWorker(factory, options, provider.GetRequiredService<IServiceScopeFactory>(), new(options, metrics), new(null, metrics), NullLogger<KafkaConsumerWorker>.Instance, metrics);
         TopicPartitionOffset next;
         using (var consumer = factory.CreateConsumer())
         {
@@ -99,6 +104,13 @@ public sealed class JiraKafkaFlowTests
         Assert.Single(await db.Set<KafkaInboxReceipt>().ToListAsync(Ct));
         Assert.Single(await db.JiraSyncJobs.ToListAsync(Ct));
         Assert.Equal(revision, (await db.JiraConnections.AsNoTracking().SingleAsync(Ct)).SyncRevision);
+        await new KafkaOutboxMetricsWorker(new KafkaOutboxStore<JiraDbContext>(database), metrics, NullLogger<KafkaOutboxMetricsWorker>.Instance).SampleAsync(Ct);
+        var text = await KafkaMetricSnapshot.ExportAsync(registry, Ct);
+        Assert.Equal(1, KafkaMetricSnapshot.Value(text, "researchtrack_kafka_publish_total", ("outcome", "success")));
+        Assert.Equal(1, KafkaMetricSnapshot.Value(text, "researchtrack_kafka_consume_total", ("stage", "process"), ("outcome", "success")));
+        Assert.Equal(1, KafkaMetricSnapshot.Value(text, "researchtrack_kafka_consume_total", ("stage", "process"), ("outcome", "duplicate")));
+        await KafkaMetricSnapshot.SaveIsolatedAsync("jira", registry, Ct);
+        await IsolatedKafkaFixture.WaitForMetricAsync("researchtrack_kafka_consume_total{service=\"jira\",stage=\"process\",outcome=\"success\"}", x => x == 1, Ct);
         using var admin = new AdminClientBuilder(KafkaClientConfiguration.Producer(options)).Build();
         Assert.Equal(ErrorCode.NoError, Assert.Single(admin.GetMetadata(options.Topic, TimeSpan.FromSeconds(10)).Topics).Error.Code);
     }

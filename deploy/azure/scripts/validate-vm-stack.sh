@@ -40,7 +40,7 @@ for mount in / "$data"; do
 done
 
 echo "== Containers"
-for service in nginx mysql kafka prometheus grafana; do
+for service in nginx mysql kafka kafka-exporter prometheus grafana; do
   id="$("$compose" ps -q "$service" 2>/dev/null || true)"
   if [[ -z "$id" || "$(docker inspect --format '{{.State.Running}}' "$id")" != true ]]; then
     fail "$service is not running"
@@ -71,9 +71,15 @@ fi
 bound_only_to 9092 "$INFRA_PRIVATE_IP"
 bound_only_to 9090 127.0.0.1
 bound_only_to 3000 127.0.0.1
-for port in 29092 9093; do
+for port in 29092 9093 9308; do
   grep -Eq "(^|:)$port$" <<<"$listeners" && fail "Kafka port $port is published on the host" || ok "$port not published"
 done
+
+if docker inspect --format '{{json .HostConfig.PortBindings}}' "$("$compose" ps -q kafka-exporter)" | jq -e '. == null or . == {}' >/dev/null; then
+  ok "Kafka exporter has no host port bindings"
+else
+  fail "Kafka exporter exposes a host port"
+fi
 
 echo "== MySQL (TLS over the private IP)"
 # Every service account must authenticate over TLS to the address Container Apps use.
@@ -95,6 +101,7 @@ else
   ok "non-TLS TCP connections are rejected"
 fi
 
+if [[ "${MONITORING_ONLY:-false}" != true ]]; then
 echo "== Kafka (TLS listener on the private IP)"
 # Deterministic and idempotent: record the partition end offset, produce one
 # unique token synchronously (acks=all) through the TLS listener that Container
@@ -114,6 +121,8 @@ else
 fi
 rm -f "$kafka_log"
 
+fi
+
 echo "== Prometheus"
 if retry 20 3 curl -fsS http://127.0.0.1:9090/-/ready; then
   rules="$(curl -fsS http://127.0.0.1:9090/api/v1/rules)"
@@ -124,10 +133,33 @@ if retry 20 3 curl -fsS http://127.0.0.1:9090/-/ready; then
       ResearchTrackGitHubSyncQueueBacklog ResearchTrackJiraSyncFailures \
       ResearchTrackJiraWebhookFailures ResearchTrackJiraWebhookRegistrationDegraded \
       ResearchTrackJiraReconciliationFailures ResearchTrackJiraReconciliationMissed \
-      ResearchTrackJiraSyncQueueBacklog ResearchTrackJiraAtlassianApiFailures; do
+      ResearchTrackJiraSyncQueueBacklog ResearchTrackJiraAtlassianApiFailures       researchtrack-kafka researchtrack_kafka_broker_healthy       ResearchTrackKafkaExporterUnavailable ResearchTrackKafkaBrokerUnavailable       ResearchTrackKafkaPublishingFailures ResearchTrackKafkaEventProcessingFailures       ResearchTrackKafkaOffsetCommitFailures ResearchTrackKafkaConsumerHeld       ResearchTrackKafkaConsumerLagHigh ResearchTrackKafkaOutboxBacklog       ResearchTrackKafkaOutboxFailed ResearchTrackKafkaOutboxMetricsUnavailable; do
     [[ "$rules" == *"\"$expected\""* ]] || fail "rule/alert '$expected' not loaded"
   done
   ok "alert rules loaded"
+
+  exporter_up() {
+    curl -fsS http://127.0.0.1:9090/api/v1/targets | jq -e '
+      [.data.activeTargets[] | select(.labels.job == "researchtrack-kafka")] as $t
+      | ($t | length) == 1 and all($t[]; .health == "up" and
+          .labels.service == "kafka" and .labels.environment == "production")' >/dev/null
+  }
+  if retry 18 5 exporter_up; then ok "private Kafka exporter target UP"; else fail "Kafka exporter target missing/down/mislabeled"; fi
+  broker_metrics_healthy() {
+    curl -fsSG --data-urlencode 'query=researchtrack_kafka_broker_healthy{job="researchtrack-kafka",environment="production"}' \
+      http://127.0.0.1:9090/api/v1/query | jq -e '
+      .status == "success" and (.data.result | length) == 1 and .data.result[0].value[1] == "1"' >/dev/null
+  }
+  if retry 18 5 broker_metrics_healthy; then
+    ok "broker count and live deployment-smoke offset are available (not just HTTP UP)"
+  else
+    fail "broker health evidence missing/unhealthy; inspect Kafka exporter logs and smoke topic"
+  fi
+  if "$compose" exec -T prometheus promtool check config /etc/prometheus/prometheus.yml; then
+    ok "deployed Prometheus configuration/rules valid"
+  else
+    fail "deployed Prometheus configuration invalid"
+  fi
 
   if [[ "$expect_apps" == true ]]; then
     targets_up() {
@@ -156,7 +188,7 @@ if retry 20 3 curl -fsS http://127.0.0.1:3000/api/health; then
   grafana_auth="$(set -a; . "$opt/runtime/grafana.env"; printf '%s:%s' "$GF_SECURITY_ADMIN_USER" "$GF_SECURITY_ADMIN_PASSWORD")"
   curl -fsS -u "$grafana_auth" http://127.0.0.1:3000/api/datasources/uid/prometheus >/dev/null \
     && ok "Prometheus datasource" || fail "Grafana Prometheus datasource missing"
-  for uid in researchtrack-overview github-sync-operations jira-integration-operations; do
+  for uid in researchtrack-overview github-sync-operations jira-integration-operations researchtrack-kafka-observability; do
     curl -fsS -u "$grafana_auth" "http://127.0.0.1:3000/api/dashboards/uid/$uid" >/dev/null \
       && ok "dashboard $uid" || fail "Grafana dashboard '$uid' missing"
   done

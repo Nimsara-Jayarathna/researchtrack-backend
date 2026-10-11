@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
+using Prometheus;
 using ResearchTrack.BuildingBlocks.Kafka;
 using ResearchTrack.JiraService.Configuration;
 using ResearchTrack.JiraService.Domain;
@@ -58,12 +59,12 @@ public sealed class KafkaMessagingTests
         await db.SaveChangesAsync(ct);
         return projectId;
     }
-    private static JiraKafkaEventHandler Handler(KafkaTestDatabase<JiraDbContext> database)
+    private static JiraKafkaEventHandler Handler(KafkaTestDatabase<JiraDbContext> database, KafkaMetrics? metrics = null)
     {
         var lease = Substitute.For<IJiraKafkaScheduleLease>();
         lease.AcquireAsync(Arg.Any<JiraDbContext>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IAsyncDisposable>(new KafkaTestLease()));
-        return new(database, lease);
+        return new(database, lease, metrics);
     }
 
     [Fact]
@@ -78,14 +79,20 @@ public sealed class KafkaMessagingTests
         Assert.DoesNotContain("synthetic-token", row.PayloadJson);
         Assert.Equal(project.ToString("D"), row.MessageKey);
         var value = KafkaWebhookContract.Parse(row.PayloadJson, row.MessageKey, "jira", "1");
-        await Handler(database).HandleAsync(value, Ct);
+        var registry = Metrics.NewCustomRegistry();
+        var metrics = new KafkaMetrics("jira", true, registry);
+        await Handler(database, metrics).HandleAsync(value, Ct);
         var job = await db.JiraSyncJobs.SingleAsync(Ct);
         Assert.Equal(project, job.ResearchProjectId);
         Assert.Equal("PENDING", job.Status);
         Assert.Equal("WEBHOOK", job.Reason);
         Assert.Equal("durable_sync_job", (await db.Set<KafkaInboxReceipt>().SingleAsync(Ct)).Outcome);
         // Restart/replay must not enqueue another job or receipt.
-        await Handler(database).HandleAsync(value, Ct);
+        await Handler(database, metrics).HandleAsync(value, Ct);
+        var metricText = await KafkaMetricSnapshot.ExportAsync(registry, Ct);
+        Assert.Equal(1, KafkaMetricSnapshot.Value(metricText, "researchtrack_kafka_consume_total", ("service", "jira"), ("stage", "process"), ("outcome", "success")));
+        Assert.Equal(1, KafkaMetricSnapshot.Value(metricText, "researchtrack_kafka_consume_total", ("service", "jira"), ("stage", "process"), ("outcome", "duplicate")));
+        KafkaMetricSnapshot.AssertBoundedLabels(metricText, "jira");
         Assert.Single(await db.JiraSyncJobs.ToListAsync(Ct));
         Assert.Single(await db.Set<KafkaInboxReceipt>().ToListAsync(Ct));
     }
