@@ -16,6 +16,26 @@ LEGACY_RULES_HASH = "40ed077298465a0567e0dba338ca1552993b603fda9bbd8d4a2e8056f8a
 LEGACY_VM_COMPOSE_HASH = "7715d23df5df3d6378ae7adf503df24f09371c43fb241722a73cd062d0dd42a9"
 IMAGE = "prom/prometheus:v3.15.0"
 
+def render_vm_compose(source, env):
+    # Some Compose versions stat required env_file paths even when
+    # --no-env-resolution is set. Keep production env files required and replace
+    # only their references in a disposable copy, never touching /opt/researchtrack.
+    with tempfile.TemporaryDirectory(prefix='rt-monitoring-compose-') as directory:
+        work = Path(directory)
+        for name in ['mysql', 'grafana']:
+            reference = f'      - /opt/researchtrack/runtime/{name}.env\n'
+            if source.count(reference) != 1:
+                raise ValueError(f'Expected exactly one required {name} env_file reference')
+            fixture = work / f'{name}.env'
+            fixture.write_text('# Synthetic offline validation only; no credentials.\n')
+            source = source.replace(reference, f'      - {json.dumps(str(fixture))}\n')
+        compose_file = work / 'compose.yml'
+        compose_file.write_text(source)
+        return json.loads(subprocess.check_output([
+            'docker', 'compose', '--env-file', '/dev/null', '-f', str(compose_file),
+            'config', '--no-env-resolution', '--no-path-resolution', '--format', 'json',
+        ], env=env))
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--promtool")
@@ -72,9 +92,10 @@ def main():
     vm_source = (ROOT / 'deploy/azure/vm/compose.yml').read_text()
     original_vm = re.sub(r'(?ms)^  kafka-exporter:\n.*?(?=^  prometheus:\n)', '', vm_source)
     check(hashlib.sha256(original_vm.encode()).hexdigest() == LEGACY_VM_COMPOSE_HASH, "all existing VM services, storage and network definitions preserved")
-    # Compose rendering does not contact Docker daemon or resolve any real env_file.
+    # Render all VM services without contacting Docker or using real env files.
     env = dict(os.environ, INFRA_PRIVATE_IP="10.20.10.4")
-    compose = json.loads(subprocess.check_output(['docker', 'compose', '--env-file', '/dev/null', '-f', str(ROOT / 'deploy/azure/vm/compose.yml'), 'config', '--no-env-resolution', '--no-path-resolution', '--format', 'json'], env=env))
+    compose = render_vm_compose(vm_source, env)
+    check(set(compose['services']) == {'nginx', 'mysql', 'kafka', 'kafka-exporter', 'prometheus', 'grafana'}, "all VM services validated with synthetic env files")
     exporter = compose['services']['kafka-exporter']
     check(not exporter.get('ports'), "exporter has no host port")
     check(not exporter.get('volumes'), "exporter mounts no TLS keys or socket")
@@ -91,7 +112,12 @@ def main():
         shutil.copytree(ROOT / 'deploy/monitoring/tests', work / 'tests')
         target_root = '/work' if args.docker else str(work)
         def promtool(*command):
-            prefix = ['docker', 'run', '--rm', '--network', 'none', '--read-only', '-v', f'{work}:/work:ro', '-w', '/work', '--entrypoint', '/bin/promtool', IMAGE] if args.docker else [args.promtool]
+            # Rule tests create a disposable TSDB in /tmp. Keep the root and
+            # validation inputs read-only; permit only bounded scratch storage.
+            prefix = ['docker', 'run', '--rm', '--network', 'none', '--read-only',
+                      '--tmpfs', '/tmp:rw,noexec,nosuid,nodev,size=64m,mode=1777',
+                      '-v', f'{work}:/work:ro', '-w', '/work',
+                      '--entrypoint', '/bin/promtool', IMAGE] if args.docker else [args.promtool]
             subprocess.run(prefix + list(command), cwd=work, check=True, stdout=subprocess.DEVNULL)
         for name, source in [('azure', 'deploy/azure/vm/prometheus/prometheus.yml.template'), ('test', 'deploy/monitoring/prometheus.yml'), ('isolated', 'tests/Kafka/prometheus.yml')]:
             config = (ROOT / source).read_text().replace('__ACA_ENV_DOMAIN__', 'synthetic.internal.example.test').replace('__ACA_TLS_INSECURE__', 'false').replace('/etc/prometheus/rules/', target_root + '/rules/')
