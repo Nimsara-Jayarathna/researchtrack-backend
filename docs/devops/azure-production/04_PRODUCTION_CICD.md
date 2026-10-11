@@ -6,7 +6,9 @@
 
 ## Production
 
-`main` deploys Azure Production.
+`devops/sprint4-kafka-infrastructure-verification` is the production deployment branch.
+`main` remains the repository default branch. Production deployment jobs accept only
+that exact feature-branch ref, including manual and reusable workflow calls.
 
 ## Images
 

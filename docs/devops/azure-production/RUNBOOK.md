@@ -11,76 +11,62 @@ Operator steps for the implementation in `deploy/azure/`. The architecture is in
 
 Both workflows share the concurrency group `researchtrack-azure-production`, so they never overlap. Neither falls back to the VPS.
 
-## Production branch cutover (2026-10-10)
+## Production deployment branch (2026-10-11)
 
-Automatic Azure production source: `devops/sprint4-kafka-infrastructure-verification`.
-The repository's default branch remains `main`. Test still deploys on `develop`;
-Backend CI still runs for pull requests targeting `develop` or `main`. The reusable
-`backend-deploy-azure-production.yml` has only `workflow_call`; change the push filter
-in its caller, not by adding an independent deployment trigger.
+Automatic Azure production source: **`devops/sprint4-kafka-infrastructure-verification`**.
+This is the user's current deployment decision and supersedes the earlier main-only
+integration proposal. `main` remains the repository default branch. Test remains on
+`develop`; Backend CI remains PR-only for `develop` and `main`.
 
-**Pushing these reviewed changes to the target branch can immediately start production
-deployments.** Application deployment has no path filter. Infrastructure deployment keeps
-its existing filters, including its own workflow file, so the initial trigger-change push
-can start both workflows. Their shared concurrency serializes them. Preserve `group`,
-`cancel-in-progress: false` and `queue: max`, the What-If gate/default destructive-change
-refusal, environment/OIDC permissions, migrations, rollback, runtime restoration and
-verification. No pipeline or security setting was changed beyond the two push filters.
+Both production entrypoints use this exact push branch. Manual deployment and reusable
+Azure build/deploy jobs also require
+`refs/heads/devops/sprint4-kafka-infrastructure-verification`. The generic reusable
+workflow guards production while keeping Test calls available. Main, integration
+branches and tags cannot pass these updated production deployment guards.
 
-### Repository-wide cutover requirement
+The infrastructure path filters, secret delivery, environment/OIDC, concurrency,
+What-If refusal, migrations, image provenance, rollback, runtime restoration and TLS
+are unchanged. No commit, push, deployment or remote policy edit was performed.
 
-GitHub evaluates push workflows from the pushed ref. Changing files on the target branch
-does not change the copies on `main`. As inspected on 2026-10-10, `origin/main` still has
-both production push filters set to `main`. Until the owner separately publishes the same
-two filter changes on `main`, pushes there can still start the old production workflows.
-Updating `main`'s workflow definitions through a reviewed change is needed to stop those
-automatic workflow starts repository-wide; it does not require changing the default branch
-or merging all target-branch code. No merge, commit, push or remote edit was performed here.
+### Repository-wide cutover
 
-Restricting the `production` Environment to the target branch prevents `main`'s deployment
-jobs from accessing that environment, but it does not prevent workflow starts, validation
-or image-build jobs that run before the environment gate. Configure that policy before
-publishing the switch if the owner wants an immediate deployment boundary.
+GitHub reads push workflow definitions from the pushed ref. Updating this branch
+alone cannot stop main's old workflow from deploying. Before release, publish the
+reviewed trigger/guard policy on main as well, through the normal review process;
+the integration worktree contains the matching update for that purpose. Do not push
+any branch as part of this local task. Publishing feature-branch changes can
+immediately start both application and infrastructure production workflows.
 
-### GitHub Environment policy and approvals
+An owner should restrict the `production` Environment to exact **Branch
+`devops/sprint4-kafka-infrastructure-verification`**, preserving existing secrets,
+reviewers, OIDC and protection settings. Use **Settings → Environments → production
+→ Deployment branches and tags → Selected branches and tags**. This restriction
+blocks other refs at environment-bound deployment jobs; their old workflow copies
+may still start or build images before that gate. Review queued/running deployments
+before cutover. No environment policy or repository default branch was changed here.
 
-Read-only GitHub API inspection on 2026-10-10 found:
+See [GitHub deployment environment policies](https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments).
 
-- Repository default branch `main`; current account has no repository admin permission.
-- Environment `production`: `deployment_branch_policy: null` (no branch restriction),
-  `protection_rules: []` (no environment protection rules reported).
-- Target branch exists at `8890208e9a5e0fec80af30677df83f4b0d2c635d` and reports `protected: false`.
+### Source freshness and release order
 
-The current target branch is allowed by that unrestricted environment. Referencing an
-environment in YAML does not itself require reviewer approval. Existing workflow environment
-references remain intact; do not assume a required-reviewer gate exists from those references.
-No environment policy, reviewer, wait timer, branch protection or secret was changed.
+The separate integration worktree combines recent main fixes with Kafka. Those
+application changes must also reach the selected deployment branch through owner
+review before releasing that source. Changing its workflows alone does not import
+main's newer application fixes. Preserve all integrated migration, contract,
+monitoring and test changes when promoting code.
 
-Owner/admin setup:
-
-1. Open **Settings → Environments → production → Deployment branches and tags**.
-2. Choose **Selected branches and tags**, not **Protected branches only**: this target
-   currently reports unprotected. Select **Add deployment branch or tag rule**, choose
-   **Branch**, and enter the exact name `devops/sprint4-kafka-infrastructure-verification`.
-   Avoid a broad wildcard; exact naming also avoids slash-matching ambiguity.
-3. To make this the only production source, allow this exact branch. Preserve any other
-   deliberately authorized rules until their removal is approved. If a policy was already
-   changed since this inspection, review it rather than replacing it blindly.
-4. Preserve all existing reviewers, wait timers, administrator-bypass restrictions and
-   custom rules. If production approval is required, the owner must configure **Required
-   reviewers** where the repository plan supports it; none were reported during inspection.
-5. Leave production secrets and repository default branch unchanged. Recheck allowed refs
-   and reviewer rules before authorizing any push or manual deployment.
-
-See [GitHub deployment environment policies](https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments)
-for policy behavior and available protection features.
+Shared concurrency serializes application/infrastructure runs but does not establish
+infrastructure-first ordering. Verify infrastructure prerequisites before publishing
+or coordinate an owner-controlled release window. Preserve `queue: max` and
+`cancel-in-progress: false`; do not hold an application run awaiting approval while
+it occupies the concurrency group needed by infrastructure.
 
 ### OIDC compatibility and live trust check
 
 Both deploying jobs still use `environment: production`, `id-token: write` and
 `azure/login@v2`. Environment-based subjects identify the environment rather than the
 selected branch, so the branch switch itself does not require a branch-specific credential.
-However, live GitHub OIDC configuration reported `use_default: true`,
+A prior read-only inspection on 2026-10-10 reported GitHub OIDC configuration with `use_default: true`,
 `use_immutable_subject: true` and this subject prefix:
 
 ```text
@@ -117,102 +103,34 @@ and `production` environment. Also confirm the production identity/client ID and
 RBAC access. If trust differs, record the difference and obtain owner approval for a
 separate Azure security change. No Azure security change is authorized by this branch switch.
 
-### Branch freshness and rollout risks
-
-After read-only fetch on 2026-10-10, the target checkout and remote both point to
-`8890208e9a5e0fec80af30677df83f4b0d2c635d`. Compared with `origin/main` at
-`1fd42a3`, it has 5 target-only commits and lacks 11 main-only commits. The main-side
-changes include expanded unit tests, coverage tooling/thresholds, package/test-project
-updates and Backend CI changes. No merge or rebase was attempted.
-
-Before deployment, review this divergence. Deploying a feature branch releases that
-branch's source; it can omit newer fixes, tests and CI gates from `main`. Fingerprint
-selection correctly follows the selected source but is not a guarantee that this source
-is current with `main`; migration/application compatibility remains the owner's review.
-Avoid deleting/renaming the deployment branch without updating filters and environment
-rules. Restrict who can push to it through an owner-reviewed branch rule. Direct pushes
-to this branch do not trigger the unchanged PR-only Backend CI, and production deployment
-is not wired to wait for a CI run. Run/review the appropriate checks before pushing.
-
 ### Manual deployment and logs
 
-Only after owner authorization, open the repository **Actions** tab:
+After separate authorization, dispatch **Azure Infrastructure - Production** or
+**Backend Deploy - Production** on branch
+**`devops/sprint4-kafka-infrastructure-verification`**. Keep destructive inputs false.
+Dispatch the entrypoint, never the reusable workflow. Other refs are blocked by the
+new guards; old workflow copies still require the environment restriction.
 
-1. Choose **Azure Infrastructure - Production** or **Backend Deploy - Production**.
-2. Select **Run workflow** and choose branch
-   `devops/sprint4-kafka-infrastructure-verification` from the branch selector.
-3. Keep `allow_destructive`, `force_full_build` and `force_redeploy` at their existing
-   false defaults unless a reviewed operation requires them. Dispatch the entrypoint,
-   not the reusable `Backend Deploy Azure Production` workflow.
-4. Satisfy the configured environment approvals, then inspect the run summary/jobs.
-
-Manual dispatch remains available because both entrypoints retain `workflow_dispatch`
-and the workflow files already exist on the default branch. Selecting `main` manually
-uses its own workflow version and can be refused by the environment policy.
-
-For infrastructure logs, open the run → **Reconcile Azure Production infrastructure**.
-Inspect **What-If**, **Deploy Bicep**, **Configure VM (OS, Docker, data disk)**,
-**Reconcile VM stack (Nginx, MySQL, Kafka, Prometheus, Grafana)**, **Validate VM stack**,
-and both **Validate private networking** steps. The **Validate Bicep** job runs first.
-On Azure Portal, inspect subscription deployment `researchtrack-prod-infrastructure`
-and VM Run Command results for the corresponding run; prefer the GitHub step output
-and run summary when correlating failures. Do not expose env-file/credential values.
-
-Kafka verification appears in infrastructure **Validate VM stack** and **Validate private
-networking (Container Apps side)**, and application **Verify VM stack and monitoring**.
-The existing scripts run a bounded producer/consumer round trip against the operational
-smoke topic. Look for the named Kafka PASS/FAIL result and its failed step/token/offset
-diagnostic. Distinguish topic provisioning, producer, consumer, certificate/SAN and TCP
-errors; do not disable TLS checks or restart Kafka as an automatic remedy. A CLI token
-round trip does not demonstrate GitHub/Jira application event processing.
-
-Read-only CLI log retrieval for already-existing runs:
+Read-only log retrieval:
 
 ```bash
 gh run list --repo Nimsara-Jayarathna/researchtrack-backend \
-  --workflow azure-infrastructure.yml \
+  --workflow backend-deploy-production.yml \
   --branch devops/sprint4-kafka-infrastructure-verification --limit 10
 gh run view <run-id> --repo Nimsara-Jayarathna/researchtrack-backend --log-failed
-# Use --log instead of --log-failed to inspect successful verification output.
 ```
 
-These log commands do not dispatch workflows. No live deployment, Kafka restart or
-infrastructure recreation was performed while implementing this switch.
+Verify readiness, immutable image provenance, Kafka TLS, metrics, exporter,
+Prometheus/Grafana and durable webhook outcomes using `KAFKA_OBSERVABILITY.md`.
+Do not restart Kafka, weaken TLS or delete/recreate topics, databases or volumes
+as a branch-switch remedy. Keep additive migrations during image rollback.
 
-### Restore automatic production source to main
+### Local policy verification
 
-After owner review, change only `on.push.branches` back to `["main"]` in
-`azure-infrastructure.yml` and `backend-deploy-production.yml`, and update this runbook
-and the production branch decision. Keep infrastructure paths, manual inputs, reusable
-workflow, permissions, concurrency, approvals and all jobs unchanged.
-An admin must allow `main` in the production Environment policy, preserving other
-approved rules/security protections. Publish the reviewed trigger edits on every ref
-whose production source definition must change; changing only one branch does not rewrite
-others. Publishing the restoration may itself trigger production, especially when these
-edits reach `main`; coordinate it as a deployment-affecting change. Do not force-push,
-merge, modify credentials or run deployment automatically to perform this local task.
-
-### Local validation of this change
-
-- Ruby/Psych parsed every workflow YAML file successfully.
-- Semantic comparison with checkout HEAD confirmed that the only workflow changes are
-  the two push branch lists: infrastructure paths, manual inputs, permissions, concurrency,
-  jobs, reusable calls and verification remain identical.
-- Fifteen static event cases passed: target/main/develop push behavior, infrastructure
-  path filtering, Test/develop, CI PR targets and both manual-dispatch entrypoints.
-- Reusable Azure deployment, Backend CI, Test, image build, OIDC bootstrap and rollout
-  scripts were byte-for-byte unchanged. Exactly two workflows and two relevant docs changed;
-  nothing was staged. `git diff --check` passed.
-- Actionlint 1.7.12 reports the same baseline diagnostics before/after: unsupported
-  `concurrency.queue` in the two entrypoints, and ShellCheck SC2129 redirect style in
-  the unchanged reusable deployment workflow. It passes with only those known diagnostics
-  excluded. `queue: max` is supported by [GitHub concurrency](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)
-  and was deliberately preserved. No other diagnostics appeared.
-
-These checks evaluate the local workflow definitions, not unmodified remote branch copies.
-GitHub policy/OIDC metadata was inspected read-only; live Azure trust could not be checked
-because Azure CLI is unavailable. No workflow was dispatched, image published, Azure
-resource changed, Kafka restarted or production verification executed by this task.
+Run `python3 deploy/azure/validation/test_monitoring_reconciliation.py` to validate
+selected push branches, manual/reusable guards, Test/develop and monitoring-only safety.
+The existing queue syntax and SC2129 style findings remain baseline Actionlint
+limitations; no workflow runtime or security body was altered.
 
 ## 1. One-time manual bootstrap
 
