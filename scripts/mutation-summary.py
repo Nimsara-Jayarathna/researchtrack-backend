@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -134,6 +135,22 @@ def weighted(results: list[Result]):
     return ((100.0 * (killed + timeout) / denom) if denom else None, killed, survived, timeout, no_cov)
 
 
+DEFAULT_REGRESSION_POLICY = {
+    "version": 1,
+    "description": "Built-in fallback for the final hardened mutation baseline. The repository JSON policy remains the preferred source when present.",
+    "overallFloor": 65.0,
+    "serviceFloors": {
+        "auth": 70.0,
+        "project": 72.0,
+        "submission": 58.0,
+        "github": 60.0,
+        "jira": 62.0,
+        "gateway": 72.0,
+        "meeting": 68.0,
+    },
+}
+
+
 def default_policy_path(root: Path) -> Path:
     # Resolve from this script's repository location rather than from the artifact
     # path. This is robust under Windows Git Bash/MSYS, where an argument such as
@@ -143,12 +160,20 @@ def default_policy_path(root: Path) -> Path:
     return repo / "config" / "testing" / "mutation-policy.json"
 
 
-def load_policy(path: Path, *, required: bool = False) -> dict:
-    if not path.exists():
-        if required:
-            raise FileNotFoundError(f"Mutation regression policy not found: {path}")
-        return {"overallFloor": None, "serviceFloors": {}}
-    return json.loads(path.read_text(encoding="utf-8"))
+def load_policy(path: Path, *, required: bool = False) -> tuple[dict, str]:
+    if path.exists():
+        policy = json.loads(path.read_text(encoding="utf-8"))
+        return policy, str(path)
+
+    # The final CI gate must remain deterministic even if a branch accidentally
+    # omits the small JSON policy file. Keep the canonical hardened floors here
+    # as a fail-safe, while still preferring the repository policy when present.
+    print(
+        f"WARNING: Mutation regression policy not found at {path}; "
+        "using the built-in final hardened regression floors.",
+        file=sys.stderr,
+    )
+    return dict(DEFAULT_REGRESSION_POLICY), "built-in final hardened fallback"
 
 
 def gate(score: float | None, floor: float | None) -> str:
@@ -164,7 +189,7 @@ def main() -> int:
     root = Path(args.artifact_root)
     root.mkdir(parents=True, exist_ok=True)
     policy_path = Path(args.policy) if args.policy else default_policy_path(root)
-    policy = load_policy(policy_path, required=args.enforce)
+    policy, policy_source = load_policy(policy_path, required=args.enforce)
     service_floors: dict[str, float] = {k: float(v) for k, v in policy.get("serviceFloors", {}).items()}
     overall_floor = policy.get("overallFloor")
     overall_floor = float(overall_floor) if overall_floor is not None else None
@@ -178,7 +203,7 @@ def main() -> int:
         "# ResearchTrack Mutation Testing — Final Project-Wide Business-Logic Evidence",
         "",
         f"Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}",
-        f"Regression policy: `{policy_path}`",
+        f"Regression policy: `{policy_source}`",
         "",
         "Mutation testing is intentionally scoped to high-value validation, authorization, security, state-transition, workflow, synchronization, and orchestration logic. Controllers, DTO-only contracts, generated code, migrations, and routine persistence/transport plumbing are excluded from the mutation denominator.",
         "",

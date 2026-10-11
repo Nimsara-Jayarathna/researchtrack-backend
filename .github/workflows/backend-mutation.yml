@@ -58,6 +58,16 @@ jobs:
       - name: Verify normal unit/mock suite
         run: dotnet test ResearchTrack.sln -c Release --no-build --filter "Category!=DatabaseIntegration"
 
+      - name: Show mutation regression policy source
+        shell: bash
+        run: |
+          if [[ -f config/testing/mutation-policy.json ]]; then
+            echo "Using repository mutation policy: config/testing/mutation-policy.json"
+            cat config/testing/mutation-policy.json
+          else
+            echo "::warning::config/testing/mutation-policy.json is missing; mutation-summary.py will use the built-in final hardened regression floors."
+          fi
+
       - name: Run selected mutation scope
         run: bash ./scripts/mutation-baseline.sh "${{ inputs.scope }}"
 
