@@ -6,14 +6,126 @@ Operator steps for the implementation in `deploy/azure/`. The architecture is in
 
 | Workflow | Trigger | Does |
 |---|---|---|
-| `azure-infrastructure.yml` | manual; `main` pushes touching infrastructure paths | Bicep build → OIDC → What-If gate → Bicep deploy (subscription scope) → `configure-vm.sh` → VM stack reconcile → VM/network validation → Container Apps network probe |
-| `backend-deploy-production.yml` → `backend-deploy-azure-production.yml` | `main` pushes; manual | build changed images (GHCR, SHA tags) → validate env → OIDC → infrastructure preflight → per changed service: `dbcheck`/`migrate` job → Bicep app deployment → readiness → rollback on failure → full verification |
+| `azure-infrastructure.yml` | manual; `main` pushes touching the existing infrastructure path filters | Bicep build → OIDC → What-If gate → Bicep deploy (subscription scope) → `configure-vm.sh` → VM stack reconcile → VM/network validation → Container Apps network probe |
+| `backend-deploy-production.yml` → `backend-deploy-azure-production.yml` | `main` pushes; manual | build changed images (GHCR, immutable source images) → validate env → OIDC → capture/wake runtime → preflight → per changed service: `dbcheck`/`migrate` job → Bicep app deployment → readiness → rollback on failure → full verification → restore original runtime power states |
 
 Both workflows share the concurrency group `researchtrack-azure-production`, so they never overlap. Neither falls back to the VPS.
+
+## Production integration and branch policy (2026-10-11)
+
+Automatic Azure production source: **`main`**. The Kafka feature is integrated into
+main's current source in a separate local integration branch. Test remains on
+`develop`; Backend CI remains PR-only for `develop` and `main`. The application
+and infrastructure entrypoints retain manual dispatch but refuse deployment when
+`github.ref` is not `refs/heads/main`. Reusable Azure build/deploy jobs enforce the
+same guard; the legacy reusable workflow guards production while allowing Test.
+
+See [MAIN_KAFKA_INTEGRATION.md](MAIN_KAFKA_INTEGRATION.md) for exact source revisions,
+conflict resolutions, local test evidence, outstanding release prerequisites and the
+safe deployment/rollback sequence. No commit, push, PR merge or deployment was performed.
+
+### Repository-wide boundary and environment protection
+
+GitHub evaluates push workflows from the pushed ref. The original feature branch
+still contains its old deployment triggers; changing main does not rewrite them.
+Before publishing this integration, an owner must restrict the `production`
+Environment to the exact **Branch `main`**, preserving existing secrets, OIDC,
+reviewers, wait timers and other approved controls. Avoid permitting feature branches
+or tags. Stop feature-branch releases and review already queued deployment runs.
+This environment restriction blocks environment-bound deployments from other refs;
+it does not prevent their workflow starts or pre-environment image builds.
+
+Read-only API inspection on 2026-10-11 returned `deployment_branch_policy: null`
+and `protection_rules: []`. There is currently no branch restriction or reviewer
+protection reported by the API. An `environment: production` YAML reference does not
+create a reviewer gate. No environment setting or secret was modified locally.
+
+Owner/admin setup: **Settings → Environments → production → Deployment branches
+and tags → Selected branches and tags → Add deployment branch or tag rule → Branch
+→ main**. Recheck actual settings first and obtain approval before changing any
+existing rule. Configure required reviewers if the repository plan supports them
+and the owner requires a release approval boundary.
+
+See [GitHub deployment environment policies](https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments)
+and [GitHub push events](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#push).
+
+Publishing to main can immediately start both application and infrastructure runs.
+The shared concurrency group serializes them but does not guarantee infrastructure
+runs first. Verify infrastructure prerequisites before publishing; use the controlled
+release sequence in the integration report if infrastructure must be updated first.
+Preserve the What-If refusal, `queue: max`, environment/OIDC, migrations, immutable
+image selection, rollback, runtime-state restoration and TLS verification.
+
+### OIDC compatibility and live trust check
+
+Both deploying jobs still use `environment: production`, `id-token: write` and
+`azure/login@v2`. Environment-based subjects identify the environment rather than the
+selected branch, so the branch switch itself does not require a branch-specific credential.
+A prior read-only inspection on 2026-10-10 reported GitHub OIDC configuration with `use_default: true`,
+`use_immutable_subject: true` and this subject prefix:
+
+```text
+repo:Nimsara-Jayarathna@66525584/researchtrack-backend@1335622081
+```
+
+Combining that observed prefix with the unchanged `production` environment, the expected
+subject under the default template is inferred to be:
+
+```text
+repo:Nimsara-Jayarathna@66525584/researchtrack-backend@1335622081:environment:production
+```
+
+The existing bootstrap script instead describes the legacy name-only subject
+`repo:Nimsara-Jayarathna/researchtrack-backend:environment:production`. That source text is
+not proof of the live Azure credential. Azure CLI was unavailable here, so the current Azure
+issuer/subject/audience/RBAC could not be checked. An immutable-subject mismatch may block
+login regardless of branch. Confirm live trust before deployment; do not rerun bootstrap
+or create/change security credentials automatically. See [GitHub's OIDC reference](https://docs.github.com/en/actions/reference/security/oidc).
+
+An authorized Azure reader can inspect the existing credential without modifying it:
+
+```bash
+az identity federated-credential show \
+  --resource-group rg-researchtrack-bootstrap \
+  --identity-name id-researchtrack-github-prod \
+  --name github-production-environment \
+  --query '{issuer:issuer,subject:subject,audiences:audiences}' -o json
+```
+
+Expected issuer: `https://token.actions.githubusercontent.com`; audience:
+`api://AzureADTokenExchange`; subject must match this repository's actual emitted format
+and `production` environment. Also confirm the production identity/client ID and existing
+RBAC access. If trust differs, record the difference and obtain owner approval for a
+separate Azure security change. No Azure security change is authorized by this branch switch.
+
+### Manual deployment and logs
+
+After separate deployment authorization, dispatch **Azure Infrastructure - Production**
+or **Backend Deploy - Production** on branch **`main`**. Keep destructive-change inputs
+false. For the initial integration release, review the report's full-image-build plan.
+Dispatch the entrypoint, never the reusable workflow. A feature/tag dispatch cannot
+pass the new deployment guards; old branch copies require the environment restriction.
+
+Read-only log retrieval:
+
+```bash
+gh run list --repo Nimsara-Jayarathna/researchtrack-backend \
+  --workflow backend-deploy-production.yml --branch main --limit 10
+gh run view <run-id> --repo Nimsara-Jayarathna/researchtrack-backend --log-failed
+```
+
+Verify VM/broker health, application metrics, exporter health, Kafka lag and durable
+webhook outcomes according to [KAFKA_OBSERVABILITY.md](KAFKA_OBSERVABILITY.md).
+A smoke-topic round trip alone does not prove application event processing. Do not
+restart Kafka, weaken TLS, delete topics or recreate databases as a deployment remedy.
 
 ## 1. One-time manual bootstrap
 
 > The complete secret/variable inventory (sources, consumers, defaults, legacy values) is in [`../configuration/`](../configuration/README.md). The step-by-step first deployment is in [`../configuration/FIRST_DEPLOYMENT_CHECKLIST.md`](../configuration/FIRST_DEPLOYMENT_CHECKLIST.md).
+
+For the already deployed environment, do not bootstrap again to switch branches. Before
+any new bootstrap, resolve the immutable-subject compatibility check above: this existing
+script encodes the legacy subject, and any Azure security correction requires separate approval.
 
 ```bash
 AZURE_LOCATION=southeastasia ./deploy/azure/scripts/bootstrap-oidc.sh
@@ -139,3 +251,13 @@ Nginx (`proxy_ssl_verify`) and Prometheus (`insecure_skip_verify`) verify the ce
 If the first infrastructure/application run fails with certificate-verification errors on VM → app HTTPS:
 1. Set `ACA_TLS_VERIFY=off`. Traffic stays encrypted and VNet-private, but the server certificate is not verified.
 2. Record the change in `IMPLEMENTATION_STATUS.md` as a deviation.
+
+## Kafka-only operations
+
+Use [KAFKA_OPERATIONS.md](KAFKA_OPERATIONS.md) for read-only `verify-kafka.sh --check`,
+explicit smoke writes, topic management and approved independent restart verification.
+Do not run the infrastructure workflow merely to check Kafka: it reconciles the whole
+stack. Its existing OIDC, production environment, concurrency and What-If gate are preserved.
+`KAFKA_RETENTION_HOURS` is an optional production variable (default 72), applied during
+the next approved infrastructure reconciliation. See [KAFKA_TASK_REPORT.md](KAFKA_TASK_REPORT.md)
+for offline results and outstanding live evidence.

@@ -4,6 +4,7 @@ using ResearchTrack.BuildingBlocks.Api.Exceptions;
 using ResearchTrack.GitHubService.Configuration;
 using ResearchTrack.GitHubService.Domain;
 using ResearchTrack.GitHubService.Persistence;
+using ResearchTrack.BuildingBlocks.Kafka;
 
 namespace ResearchTrack.GitHubService.Features.Webhooks;
 
@@ -11,13 +12,15 @@ public sealed class GitHubWebhookDeliveryStore : IGitHubWebhookDeliveryStore
 {
     private readonly IDbContextFactory<GitHubDbContext> _dbContextFactory;
     private readonly GitHubWebhookOptions _options;
+    private readonly KafkaRuntimeOptions _kafka;
 
     public GitHubWebhookDeliveryStore(
         IDbContextFactory<GitHubDbContext> dbContextFactory,
-        GitHubWebhookOptions options)
+        GitHubWebhookOptions options, KafkaRuntimeOptions? kafka = null)
     {
         _dbContextFactory = dbContextFactory;
         _options = options;
+        _kafka = kafka ?? new();
     }
 
     public async Task<GitHubWebhookAcceptResult> AcceptAsync(
@@ -26,6 +29,7 @@ public sealed class GitHubWebhookDeliveryStore : IGitHubWebhookDeliveryStore
         CancellationToken cancellationToken)
     {
         await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+        now = KafkaWebhookContract.NormalizeUtc(new DateTimeOffset(DateTime.SpecifyKind(now, DateTimeKind.Utc))).UtcDateTime;
         var existing = await db.WebhookDeliveries.SingleOrDefaultAsync(
             item => item.DeliveryId == envelope.DeliveryId,
             cancellationToken);
@@ -57,6 +61,18 @@ public sealed class GitHubWebhookDeliveryStore : IGitHubWebhookDeliveryStore
             UpdatedAt = now
         };
         db.WebhookDeliveries.Add(delivery);
+        if (_kafka.Enabled && delivery.InstallationId is > 0 && KafkaWebhookContract.SupportsGitHub(delivery.EventType))
+        {
+            var value = new WebhookReadyEvent(delivery.Id, "github.webhook.ready", _kafka.ContractVersion,
+                new DateTimeOffset(DateTime.SpecifyKind(now, DateTimeKind.Utc)), delivery.Id, new()
+                {
+                    DeliveryRecordId = delivery.Id, DeliveryId = delivery.DeliveryId,
+                    InstallationId = delivery.InstallationId, RepositoryId = delivery.GitHubRepositoryId,
+                    EventType = delivery.EventType
+                });
+            // One SaveChanges transaction durably accepts both inbox and immutable outbox.
+            db.Set<KafkaOutboxMessage>().Add(KafkaOutboxMessage.Create(value, _kafka));
+        }
         try
         {
             await db.SaveChangesAsync(cancellationToken);

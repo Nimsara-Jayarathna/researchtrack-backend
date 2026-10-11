@@ -17,6 +17,7 @@ permissions:
 
 jobs:
   build:
+    if: ${{ inputs.environment_name != 'production' || github.ref == 'refs/heads/main' }}
     name: Build Changed Images
     uses: ./.github/workflows/backend-build-images.yml
     with:
@@ -27,6 +28,7 @@ jobs:
       packages: write
 
   deploy:
+    if: ${{ inputs.environment_name != 'production' || github.ref == 'refs/heads/main' }}
     name: Deploy ${{ inputs.environment_name }}
     needs: build
     runs-on: ubuntu-latest

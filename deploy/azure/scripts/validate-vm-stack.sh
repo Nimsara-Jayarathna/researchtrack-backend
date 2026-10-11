@@ -40,7 +40,7 @@ for mount in / "$data"; do
 done
 
 echo "== Containers"
-for service in nginx mysql kafka prometheus grafana; do
+for service in nginx mysql kafka kafka-exporter prometheus grafana; do
   id="$("$compose" ps -q "$service" 2>/dev/null || true)"
   if [[ -z "$id" || "$(docker inspect --format '{{.State.Running}}' "$id")" != true ]]; then
     fail "$service is not running"
@@ -61,10 +61,25 @@ bound_only_to() {
   [[ -z "$bad" ]] && ok "$port bound only to $allowed" || fail "port $port also bound on:$bad"
 }
 bound_only_to 3306 "$INFRA_PRIVATE_IP"
+if docker inspect --format '{{json .HostConfig.PortBindings}}' "$("$compose" ps -q kafka)" \
+    | jq -e --arg ip "$INFRA_PRIVATE_IP" 'keys == ["9092/tcp"] and
+      .["9092/tcp"] == [{HostIp: $ip, HostPort: "9092"}]' >/dev/null; then
+  ok "Kafka Docker binding is private-IP:9092 only"
+else
+  fail "Kafka Docker binding missing or exposes an unexpected address/port"
+fi
 bound_only_to 9092 "$INFRA_PRIVATE_IP"
 bound_only_to 9090 127.0.0.1
 bound_only_to 3000 127.0.0.1
-grep -Eq '(^|:)29092$' <<<"$listeners" && fail "Kafka INTERNAL listener 29092 is published on the host" || ok "29092 not published"
+for port in 29092 9093 9308; do
+  grep -Eq "(^|:)$port$" <<<"$listeners" && fail "Kafka port $port is published on the host" || ok "$port not published"
+done
+
+if docker inspect --format '{{json .HostConfig.PortBindings}}' "$("$compose" ps -q kafka-exporter)" | jq -e '. == null or . == {}' >/dev/null; then
+  ok "Kafka exporter has no host port bindings"
+else
+  fail "Kafka exporter exposes a host port"
+fi
 
 echo "== MySQL (TLS over the private IP)"
 # Every service account must authenticate over TLS to the address Container Apps use.
@@ -86,74 +101,16 @@ else
   ok "non-TLS TCP connections are rejected"
 fi
 
+if [[ "${MONITORING_ONLY:-false}" != true ]]; then
 echo "== Kafka (TLS listener on the private IP)"
 # Deterministic and idempotent: record the partition end offset, produce one
 # unique token synchronously (acks=all) through the TLS listener that Container
 # Apps use, then consume exactly one record from that offset through the same
 # listener and compare it byte-for-byte. The smoke topic is single-partition, so
 # the token is the next record regardless of earlier runs.
-kafka_smoke() {
-  local topic=researchtrack.deployment-smoke bin=/opt/kafka/bin tls="$INFRA_PRIVATE_IP:9092"
-  local token offset out err records
-  # The kafka container sets KAFKA_LOG4J_OPTS for the *broker* (console appender
-  # on stdout, INFO). CLI JVMs started with `exec` would inherit it and print
-  # INFO logs on stdout, mixed with the consumed record. Give the tools Kafka's
-  # own tools-log4j.properties (WARN, stderr) and a small heap instead.
-  local cli=("$compose" exec -T
-    -e "KAFKA_LOG4J_OPTS=-Dlog4j.configuration=file:/opt/kafka/config/tools-log4j.properties"
-    -e "KAFKA_HEAP_OPTS=-Xmx256m"
-    kafka)
-  token="smoke-$(date -u +%Y%m%dT%H%M%SZ)-$RANDOM$RANDOM"
-  kafka_log="$(mktemp)"
-  out="$(mktemp)"
-  err="$(mktemp)"
+# shellcheck source=../vm/scripts/kafka-common.sh
+. "$opt/scripts/kafka-common.sh"
 
-  # Runs one CLI step with stdout and stderr in separate files; stderr is kept
-  # in kafka_log for diagnostics.
-  step() {
-    local name="$1"
-    shift
-    : >"$out"
-    : >"$err"
-    "$@" >"$out" 2>"$err"
-    local status=$?
-    { echo "--- $name (exit $status) stderr:"; tail -n 15 "$err"; } >>"$kafka_log"
-    return "$status"
-  }
-
-  step topics "${cli[@]}" "$bin/kafka-topics.sh" --bootstrap-server localhost:29092 \
-    --create --if-not-exists --topic "$topic" --partitions 1 --replication-factor 1 \
-    --config retention.ms=86400000 </dev/null || { rm -f "$out" "$err"; return 1; }
-
-  step get-offsets "${cli[@]}" "$bin/kafka-get-offsets.sh" --bootstrap-server localhost:29092 \
-    --topic "$topic" --partitions 0 --time -1 </dev/null
-  offset="$(awk -F: -v t="$topic" '$1 == t && $2 == 0 {print $3}' "$out" | tr -d '\r')"
-  [[ "$offset" =~ ^[0-9]+$ ]] || { echo "could not read end offset; stdout was:" >>"$kafka_log"; cat "$out" >>"$kafka_log"; rm -f "$out" "$err"; return 1; }
-
-  step producer "${cli[@]}" "$bin/kafka-console-producer.sh" \
-    --bootstrap-server "$tls" --producer.config /etc/researchtrack/kafka/client-ssl.properties \
-    --topic "$topic" --sync --request-required-acks all <<<"$token" || { rm -f "$out" "$err"; return 1; }
-
-  # --max-messages 1 exits as soon as the record arrives. Its exit status is
-  # not trusted either way: only the record on stdout decides.
-  step consumer "${cli[@]}" "$bin/kafka-console-consumer.sh" \
-    --bootstrap-server "$tls" --consumer.config /etc/researchtrack/kafka/client-ssl.properties \
-    --topic "$topic" --partition 0 --offset "$offset" --max-messages 1 --timeout-ms 30000 </dev/null || true
-
-  # Normalize only line endings and blank lines; the record must then be
-  # exactly one line equal to the token.
-  records="$(tr -d '\r' <"$out" | sed '/^[[:space:]]*$/d')"
-  if [[ "$records" != "$token" ]]; then
-    {
-      echo "expected exactly one record '$token' at offset $offset; consumer stdout was:"
-      sed 's/^/  | /' "$out"
-    } >>"$kafka_log"
-    rm -f "$out" "$err"
-    return 1
-  fi
-  rm -f "$out" "$err"
-  kafka_detail="token at offset $offset"
-}
 kafka_log=""
 kafka_detail=""
 if kafka_smoke; then
@@ -163,6 +120,8 @@ else
   tail -n 60 "$kafka_log" | sed 's/^/       /' >&2
 fi
 rm -f "$kafka_log"
+
+fi
 
 echo "== Prometheus"
 if retry 20 3 curl -fsS http://127.0.0.1:9090/-/ready; then
@@ -174,10 +133,33 @@ if retry 20 3 curl -fsS http://127.0.0.1:9090/-/ready; then
       ResearchTrackGitHubSyncQueueBacklog ResearchTrackJiraSyncFailures \
       ResearchTrackJiraWebhookFailures ResearchTrackJiraWebhookRegistrationDegraded \
       ResearchTrackJiraReconciliationFailures ResearchTrackJiraReconciliationMissed \
-      ResearchTrackJiraSyncQueueBacklog ResearchTrackJiraAtlassianApiFailures; do
+      ResearchTrackJiraSyncQueueBacklog ResearchTrackJiraAtlassianApiFailures       researchtrack-kafka researchtrack_kafka_broker_healthy       ResearchTrackKafkaExporterUnavailable ResearchTrackKafkaBrokerUnavailable       ResearchTrackKafkaPublishingFailures ResearchTrackKafkaEventProcessingFailures       ResearchTrackKafkaOffsetCommitFailures ResearchTrackKafkaConsumerHeld       ResearchTrackKafkaConsumerLagHigh ResearchTrackKafkaOutboxBacklog       ResearchTrackKafkaOutboxFailed ResearchTrackKafkaOutboxMetricsUnavailable; do
     [[ "$rules" == *"\"$expected\""* ]] || fail "rule/alert '$expected' not loaded"
   done
   ok "alert rules loaded"
+
+  exporter_up() {
+    curl -fsS http://127.0.0.1:9090/api/v1/targets | jq -e '
+      [.data.activeTargets[] | select(.labels.job == "researchtrack-kafka")] as $t
+      | ($t | length) == 1 and all($t[]; .health == "up" and
+          .labels.service == "kafka" and .labels.environment == "production")' >/dev/null
+  }
+  if retry 18 5 exporter_up; then ok "private Kafka exporter target UP"; else fail "Kafka exporter target missing/down/mislabeled"; fi
+  broker_metrics_healthy() {
+    curl -fsSG --data-urlencode 'query=researchtrack_kafka_broker_healthy{job="researchtrack-kafka",environment="production"}' \
+      http://127.0.0.1:9090/api/v1/query | jq -e '
+      .status == "success" and (.data.result | length) == 1 and .data.result[0].value[1] == "1"' >/dev/null
+  }
+  if retry 18 5 broker_metrics_healthy; then
+    ok "broker count and live deployment-smoke offset are available (not just HTTP UP)"
+  else
+    fail "broker health evidence missing/unhealthy; inspect Kafka exporter logs and smoke topic"
+  fi
+  if "$compose" exec -T prometheus promtool check config /etc/prometheus/prometheus.yml; then
+    ok "deployed Prometheus configuration/rules valid"
+  else
+    fail "deployed Prometheus configuration invalid"
+  fi
 
   if [[ "$expect_apps" == true ]]; then
     targets_up() {
@@ -206,7 +188,7 @@ if retry 20 3 curl -fsS http://127.0.0.1:3000/api/health; then
   grafana_auth="$(set -a; . "$opt/runtime/grafana.env"; printf '%s:%s' "$GF_SECURITY_ADMIN_USER" "$GF_SECURITY_ADMIN_PASSWORD")"
   curl -fsS -u "$grafana_auth" http://127.0.0.1:3000/api/datasources/uid/prometheus >/dev/null \
     && ok "Prometheus datasource" || fail "Grafana Prometheus datasource missing"
-  for uid in researchtrack-overview github-sync-operations jira-integration-operations; do
+  for uid in researchtrack-overview github-sync-operations jira-integration-operations researchtrack-kafka-observability; do
     curl -fsS -u "$grafana_auth" "http://127.0.0.1:3000/api/dashboards/uid/$uid" >/dev/null \
       && ok "dashboard $uid" || fail "Grafana dashboard '$uid' missing"
   done

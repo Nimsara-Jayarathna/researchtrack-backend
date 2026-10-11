@@ -31,6 +31,7 @@ jobs:
   # Production runs on Azure Container Apps + an infrastructure VM. Test keeps
   # using the VPS/Compose path in backend-deploy-reusable.yml.
   deploy:
+    if: ${{ github.ref == 'refs/heads/main' }}
     name: Build and Deploy Azure Production
     uses: ./.github/workflows/backend-deploy-azure-production.yml
     with:

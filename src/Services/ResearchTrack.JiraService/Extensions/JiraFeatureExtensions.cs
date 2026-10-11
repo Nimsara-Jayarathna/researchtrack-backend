@@ -25,6 +25,7 @@ public static class JiraFeatureExtensions
         services.AddScoped<IJiraSyncStateQueryService, JiraSyncStateQueryService>();
         services.AddScoped<IJiraDashboardHealthService, JiraDashboardHealthService>();
         services.AddScoped<IJiraWebhookService, JiraWebhookService>();
+        services.AddSingleton<IJiraKafkaScheduleLease, JiraKafkaScheduleLease>();
         services.AddHostedService<JiraSyncWorker>();
 
         var projectUrl = configuration["Services:Project:BaseUrl"]!;

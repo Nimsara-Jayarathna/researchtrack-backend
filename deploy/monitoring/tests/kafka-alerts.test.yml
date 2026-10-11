@@ -1,0 +1,1927 @@
+---
+rule_files:
+- "../rules/researchtrack-alerts.yml"
+evaluation_interval: 30s
+tests:
+- name: healthy broker and enabled idle application
+  interval: 1m
+  input_series:
+  - series: up{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: 1x35
+  - series: kafka_brokers{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: 1x35
+  - series: kafka_topic_partition_current_offset{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production",topic="researchtrack.deployment-smoke",partition="0"}
+    values: '0x35'
+  - series: researchtrack_kafka_enabled{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_success{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_timestamp_seconds{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 0+60x35
+  alert_rule_test:
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaExporterUnavailable
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaBrokerUnavailable
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaPublishingFailures
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaEventProcessingFailures
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaOffsetCommitFailures
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaConsumerHeld
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaConsumerLagHigh
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaOutboxBacklog
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaOutboxFailed
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaOutboxMetricsUnavailable
+    exp_alerts: []
+- name: broker count zero
+  interval: 1m
+  input_series:
+  - series: up{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: 1x35
+  - series: kafka_brokers{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: '0x35'
+  - series: kafka_topic_partition_current_offset{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production",topic="researchtrack.deployment-smoke",partition="0"}
+    values: '0x35'
+  - series: researchtrack_kafka_enabled{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_success{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_timestamp_seconds{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 0+60x35
+  alert_rule_test:
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaExporterUnavailable
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaBrokerUnavailable
+    exp_alerts:
+    - exp_labels:
+        job: researchtrack-kafka
+        instance: kafka-exporter:9308
+        service: kafka
+        environment: production
+        severity: critical
+        category: kafka
+        component: broker
+      exp_annotations:
+        summary: Kafka broker connectivity or required metadata unavailable
+        description: Exporter is scrapeable but broker count or a live deployment-smoke
+          partition offset is missing/invalid. Inspect broker health, private listener
+          and existing smoke-topic metadata; never recreate data to repair monitoring.
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaPublishingFailures
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaEventProcessingFailures
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaOffsetCommitFailures
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaConsumerHeld
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaConsumerLagHigh
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaOutboxBacklog
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaOutboxFailed
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaOutboxMetricsUnavailable
+    exp_alerts: []
+- name: exporter scrape failure has distinct root cause
+  interval: 1m
+  input_series:
+  - series: up{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: '0x35'
+  - series: kafka_brokers{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: 1x35
+  - series: kafka_topic_partition_current_offset{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production",topic="researchtrack.deployment-smoke",partition="0"}
+    values: '0x35'
+  - series: researchtrack_kafka_enabled{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_success{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_timestamp_seconds{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 0+60x35
+  alert_rule_test:
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaExporterUnavailable
+    exp_alerts:
+    - exp_labels:
+        job: researchtrack-kafka
+        instance: kafka-exporter:9308
+        service: kafka
+        environment: production
+        severity: critical
+        category: kafka
+        component: exporter
+      exp_annotations:
+        summary: Kafka exporter unavailable; broker status unknown
+        description: Check the private exporter target, container and logs. Broker
+          connection failure can prevent exporter startup; do not infer broker health
+          from a missing scrape.
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaBrokerUnavailable
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaPublishingFailures
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaEventProcessingFailures
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaOffsetCommitFailures
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaConsumerHeld
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaConsumerLagHigh
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaOutboxBacklog
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaOutboxFailed
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaOutboxMetricsUnavailable
+    exp_alerts: []
+- name: entire exporter target absent
+  interval: 1m
+  input_series:
+  - series: researchtrack_kafka_enabled{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_success{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_timestamp_seconds{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 0+60x35
+  alert_rule_test:
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaExporterUnavailable
+    exp_alerts:
+    - exp_labels:
+        job: researchtrack-kafka
+        severity: critical
+        category: kafka
+        component: exporter
+      exp_annotations:
+        summary: Kafka exporter unavailable; broker status unknown
+        description: Check the private exporter target, container and logs. Broker
+          connection failure can prevent exporter startup; do not infer broker health
+          from a missing scrape.
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaBrokerUnavailable
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaPublishingFailures
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaEventProcessingFailures
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaOffsetCommitFailures
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaConsumerHeld
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaConsumerLagHigh
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaOutboxBacklog
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaOutboxFailed
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaOutboxMetricsUnavailable
+    exp_alerts: []
+- name: exporter alive but broker count absent
+  interval: 1m
+  input_series:
+  - series: up{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: 1x35
+  - series: kafka_topic_partition_current_offset{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production",topic="researchtrack.deployment-smoke",partition="0"}
+    values: '0x35'
+  - series: researchtrack_kafka_enabled{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_success{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_timestamp_seconds{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 0+60x35
+  alert_rule_test:
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaExporterUnavailable
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaBrokerUnavailable
+    exp_alerts:
+    - exp_labels:
+        job: researchtrack-kafka
+        instance: kafka-exporter:9308
+        service: kafka
+        environment: production
+        severity: critical
+        category: kafka
+        component: broker
+      exp_annotations:
+        summary: Kafka broker connectivity or required metadata unavailable
+        description: Exporter is scrapeable but broker count or a live deployment-smoke
+          partition offset is missing/invalid. Inspect broker health, private listener
+          and existing smoke-topic metadata; never recreate data to repair monitoring.
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaPublishingFailures
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaEventProcessingFailures
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaOffsetCommitFailures
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaConsumerHeld
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaConsumerLagHigh
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaOutboxBacklog
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaOutboxFailed
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaOutboxMetricsUnavailable
+    exp_alerts: []
+- name: cached broker count cannot hide missing live offset
+  interval: 1m
+  input_series:
+  - series: up{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: 1x35
+  - series: kafka_brokers{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: 1x35
+  - series: researchtrack_kafka_enabled{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_success{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_timestamp_seconds{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 0+60x35
+  alert_rule_test:
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaExporterUnavailable
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaBrokerUnavailable
+    exp_alerts:
+    - exp_labels:
+        job: researchtrack-kafka
+        instance: kafka-exporter:9308
+        service: kafka
+        environment: production
+        severity: critical
+        category: kafka
+        component: broker
+      exp_annotations:
+        summary: Kafka broker connectivity or required metadata unavailable
+        description: Exporter is scrapeable but broker count or a live deployment-smoke
+          partition offset is missing/invalid. Inspect broker health, private listener
+          and existing smoke-topic metadata; never recreate data to repair monitoring.
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaPublishingFailures
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaEventProcessingFailures
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaOffsetCommitFailures
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaConsumerHeld
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaConsumerLagHigh
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaOutboxBacklog
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaOutboxFailed
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaOutboxMetricsUnavailable
+    exp_alerts: []
+- name: negative smoke offset is not healthy
+  interval: 1m
+  input_series:
+  - series: up{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: 1x35
+  - series: kafka_brokers{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: 1x35
+  - series: kafka_topic_partition_current_offset{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production",topic="researchtrack.deployment-smoke",partition="0"}
+    values: "-1x35"
+  - series: researchtrack_kafka_enabled{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_success{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_timestamp_seconds{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 0+60x35
+  alert_rule_test:
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaExporterUnavailable
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaBrokerUnavailable
+    exp_alerts:
+    - exp_labels:
+        job: researchtrack-kafka
+        instance: kafka-exporter:9308
+        service: kafka
+        environment: production
+        severity: critical
+        category: kafka
+        component: broker
+      exp_annotations:
+        summary: Kafka broker connectivity or required metadata unavailable
+        description: Exporter is scrapeable but broker count or a live deployment-smoke
+          partition offset is missing/invalid. Inspect broker health, private listener
+          and existing smoke-topic metadata; never recreate data to repair monitoring.
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaPublishingFailures
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaEventProcessingFailures
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaOffsetCommitFailures
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaConsumerHeld
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaConsumerLagHigh
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaOutboxBacklog
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaOutboxFailed
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaOutboxMetricsUnavailable
+    exp_alerts: []
+- name: repeated publication failures
+  interval: 1m
+  input_series:
+  - series: up{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: 1x35
+  - series: kafka_brokers{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: 1x35
+  - series: kafka_topic_partition_current_offset{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production",topic="researchtrack.deployment-smoke",partition="0"}
+    values: '0x35'
+  - series: researchtrack_kafka_enabled{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_success{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_timestamp_seconds{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 0+60x35
+  - series: researchtrack_kafka_publish_total{job="researchtrack-services",service="github",environment="production",instance="github:8080",outcome="retryable_failure"}
+    values: 0+2x35
+  alert_rule_test:
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaExporterUnavailable
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaBrokerUnavailable
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaPublishingFailures
+    exp_alerts:
+    - exp_labels:
+        service: github
+        environment: production
+        severity: warning
+        category: kafka
+        component: application
+      exp_annotations:
+        summary: Repeated Kafka publication failures
+        description: At least three publication attempts failed within ten minutes.
+          Inspect TLS/private connectivity and retained outbox work; replay requires
+          review.
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaEventProcessingFailures
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaOffsetCommitFailures
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaConsumerHeld
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaConsumerLagHigh
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaOutboxBacklog
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaOutboxFailed
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaOutboxMetricsUnavailable
+    exp_alerts: []
+- name: repeated processing failures
+  interval: 1m
+  input_series:
+  - series: up{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: 1x35
+  - series: kafka_brokers{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: 1x35
+  - series: kafka_topic_partition_current_offset{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production",topic="researchtrack.deployment-smoke",partition="0"}
+    values: '0x35'
+  - series: researchtrack_kafka_enabled{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_success{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_timestamp_seconds{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 0+60x35
+  - series: researchtrack_kafka_consume_total{job="researchtrack-services",service="github",environment="production",instance="github:8080",stage="process",outcome="failed"}
+    values: 0+2x35
+  alert_rule_test:
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaExporterUnavailable
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaBrokerUnavailable
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaPublishingFailures
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaEventProcessingFailures
+    exp_alerts:
+    - exp_labels:
+        service: github
+        environment: production
+        severity: warning
+        category: kafka
+        component: application
+      exp_annotations:
+        summary: Repeated Kafka durable processing failures
+        description: At least three handoff/validation attempts failed within ten
+          minutes. Inspect safe consumer error codes, schema and database state. Successful
+          retries are separate from a held consumer.
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaOffsetCommitFailures
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaConsumerHeld
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaConsumerLagHigh
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaOutboxBacklog
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaOutboxFailed
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaOutboxMetricsUnavailable
+    exp_alerts: []
+- name: offset commit failures separate from processing
+  interval: 1m
+  input_series:
+  - series: up{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: 1x35
+  - series: kafka_brokers{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: 1x35
+  - series: kafka_topic_partition_current_offset{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production",topic="researchtrack.deployment-smoke",partition="0"}
+    values: '0x35'
+  - series: researchtrack_kafka_enabled{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_success{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_timestamp_seconds{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 0+60x35
+  - series: researchtrack_kafka_consume_total{job="researchtrack-services",service="github",environment="production",instance="github:8080",stage="commit",outcome="failed"}
+    values: 0+2x35
+  alert_rule_test:
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaExporterUnavailable
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaBrokerUnavailable
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaPublishingFailures
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaEventProcessingFailures
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaOffsetCommitFailures
+    exp_alerts:
+    - exp_labels:
+        service: github
+        environment: production
+        severity: warning
+        category: kafka
+        component: application
+      exp_annotations:
+        summary: Repeated Kafka offset-commit failures
+        description: Durable handoff succeeded but at least three offset commits failed
+          within ten minutes. Inspect broker/group health and rejoin logs; replay
+          is deduplicated, never skip offsets.
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaConsumerHeld
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaConsumerLagHigh
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaOutboxBacklog
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaOutboxFailed
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaOutboxMetricsUnavailable
+    exp_alerts: []
+- name: one harmless temporary failure does not alert
+  interval: 1m
+  input_series:
+  - series: up{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: 1x35
+  - series: kafka_brokers{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: 1x35
+  - series: kafka_topic_partition_current_offset{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production",topic="researchtrack.deployment-smoke",partition="0"}
+    values: '0x35'
+  - series: researchtrack_kafka_enabled{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_success{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_timestamp_seconds{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 0+60x35
+  - series: researchtrack_kafka_consume_total{job="researchtrack-services",service="github",environment="production",instance="github:8080",stage="process",outcome="failed"}
+    values: 0 1x34
+  alert_rule_test:
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaExporterUnavailable
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaBrokerUnavailable
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaPublishingFailures
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaEventProcessingFailures
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaOffsetCommitFailures
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaConsumerHeld
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaConsumerLagHigh
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaOutboxBacklog
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaOutboxFailed
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaOutboxMetricsUnavailable
+    exp_alerts: []
+- name: consumer held
+  interval: 1m
+  input_series:
+  - series: up{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: 1x35
+  - series: kafka_brokers{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: 1x35
+  - series: kafka_topic_partition_current_offset{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production",topic="researchtrack.deployment-smoke",partition="0"}
+    values: '0x35'
+  - series: researchtrack_kafka_enabled{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_success{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_timestamp_seconds{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 0+60x35
+  - series: researchtrack_kafka_consumer_held{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  alert_rule_test:
+  - eval_time: 2m
+    alertname: ResearchTrackKafkaExporterUnavailable
+    exp_alerts: []
+  - eval_time: 2m
+    alertname: ResearchTrackKafkaBrokerUnavailable
+    exp_alerts: []
+  - eval_time: 2m
+    alertname: ResearchTrackKafkaPublishingFailures
+    exp_alerts: []
+  - eval_time: 2m
+    alertname: ResearchTrackKafkaEventProcessingFailures
+    exp_alerts: []
+  - eval_time: 2m
+    alertname: ResearchTrackKafkaOffsetCommitFailures
+    exp_alerts: []
+  - eval_time: 2m
+    alertname: ResearchTrackKafkaConsumerHeld
+    exp_alerts:
+    - exp_labels:
+        service: github
+        environment: production
+        job: researchtrack-services
+        instance: github:8080
+        severity: critical
+        category: kafka
+        component: application
+      exp_annotations:
+        summary: Kafka consumer held without offset progress
+        description: Review the uncommitted record, strict contract and safe error
+          code, repair the cause and authorize an application restart. Do not reset
+          offsets or delete retained work.
+  - eval_time: 2m
+    alertname: ResearchTrackKafkaConsumerLagHigh
+    exp_alerts: []
+  - eval_time: 2m
+    alertname: ResearchTrackKafkaOutboxBacklog
+    exp_alerts: []
+  - eval_time: 2m
+    alertname: ResearchTrackKafkaOutboxFailed
+    exp_alerts: []
+  - eval_time: 2m
+    alertname: ResearchTrackKafkaOutboxMetricsUnavailable
+    exp_alerts: []
+- name: measured sustained approved group lag
+  interval: 1m
+  input_series:
+  - series: up{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: 1x35
+  - series: kafka_brokers{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: 1x35
+  - series: kafka_topic_partition_current_offset{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production",topic="researchtrack.deployment-smoke",partition="0"}
+    values: '0x35'
+  - series: researchtrack_kafka_enabled{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_success{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_timestamp_seconds{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 0+60x35
+  - series: kafka_consumergroup_lag{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production",consumergroup="researchtrack-github-webhook-v1",topic="researchtrack.github.events.v1",partition="0"}
+    values: 200x35
+  - series: kafka_consumergroup_current_offset{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production",consumergroup="researchtrack-github-webhook-v1",topic="researchtrack.github.events.v1",partition="0"}
+    values: 1x35
+  alert_rule_test:
+  - eval_time: 11m
+    alertname: ResearchTrackKafkaExporterUnavailable
+    exp_alerts: []
+  - eval_time: 11m
+    alertname: ResearchTrackKafkaBrokerUnavailable
+    exp_alerts: []
+  - eval_time: 11m
+    alertname: ResearchTrackKafkaPublishingFailures
+    exp_alerts: []
+  - eval_time: 11m
+    alertname: ResearchTrackKafkaEventProcessingFailures
+    exp_alerts: []
+  - eval_time: 11m
+    alertname: ResearchTrackKafkaOffsetCommitFailures
+    exp_alerts: []
+  - eval_time: 11m
+    alertname: ResearchTrackKafkaConsumerHeld
+    exp_alerts: []
+  - eval_time: 11m
+    alertname: ResearchTrackKafkaConsumerLagHigh
+    exp_alerts:
+    - exp_labels:
+        consumergroup: researchtrack-github-webhook-v1
+        environment: production
+        severity: warning
+        category: kafka
+        component: consumer
+      exp_annotations:
+        summary: Approved Kafka consumer group lag sustained
+        description: Measured lag exceeds 100 records for ten minutes in an enabled
+          service with committed offsets. Inspect consumer/DB capacity and held state.
+          Missing groups or unknown offsets are not zero lag.
+  - eval_time: 11m
+    alertname: ResearchTrackKafkaOutboxBacklog
+    exp_alerts: []
+  - eval_time: 11m
+    alertname: ResearchTrackKafkaOutboxFailed
+    exp_alerts: []
+  - eval_time: 11m
+    alertname: ResearchTrackKafkaOutboxMetricsUnavailable
+    exp_alerts: []
+- name: unknown group offset never treated as measured lag
+  interval: 1m
+  input_series:
+  - series: up{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: 1x35
+  - series: kafka_brokers{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: 1x35
+  - series: kafka_topic_partition_current_offset{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production",topic="researchtrack.deployment-smoke",partition="0"}
+    values: '0x35'
+  - series: researchtrack_kafka_enabled{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_success{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_timestamp_seconds{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 0+60x35
+  - series: kafka_consumergroup_lag{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production",consumergroup="researchtrack-github-webhook-v1",topic="researchtrack.github.events.v1",partition="0"}
+    values: 999x35
+  - series: kafka_consumergroup_current_offset{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production",consumergroup="researchtrack-github-webhook-v1",topic="researchtrack.github.events.v1",partition="0"}
+    values: "-1x35"
+  alert_rule_test:
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaExporterUnavailable
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaBrokerUnavailable
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaPublishingFailures
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaEventProcessingFailures
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaOffsetCommitFailures
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaConsumerHeld
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaConsumerLagHigh
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaOutboxBacklog
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaOutboxFailed
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaOutboxMetricsUnavailable
+    exp_alerts: []
+- name: absent groups are not zero lag
+  interval: 1m
+  input_series:
+  - series: up{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: 1x35
+  - series: kafka_brokers{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: 1x35
+  - series: kafka_topic_partition_current_offset{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production",topic="researchtrack.deployment-smoke",partition="0"}
+    values: '0x35'
+  - series: researchtrack_kafka_enabled{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_success{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_timestamp_seconds{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 0+60x35
+  alert_rule_test:
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaExporterUnavailable
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaBrokerUnavailable
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaPublishingFailures
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaEventProcessingFailures
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaOffsetCommitFailures
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaConsumerHeld
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaConsumerLagHigh
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaOutboxBacklog
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaOutboxFailed
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaOutboxMetricsUnavailable
+    exp_alerts: []
+- name: sustained reliable backlog
+  interval: 1m
+  input_series:
+  - series: up{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: 1x35
+  - series: kafka_brokers{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: 1x35
+  - series: kafka_topic_partition_current_offset{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production",topic="researchtrack.deployment-smoke",partition="0"}
+    values: '0x35'
+  - series: researchtrack_kafka_enabled{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_success{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_timestamp_seconds{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 0+60x35
+  - series: researchtrack_kafka_outbox_messages{job="researchtrack-services",service="github",environment="production",instance="github:8080",status="pending"}
+    values: 100x35
+  alert_rule_test:
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaExporterUnavailable
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaBrokerUnavailable
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaPublishingFailures
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaEventProcessingFailures
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaOffsetCommitFailures
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaConsumerHeld
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaConsumerLagHigh
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaOutboxBacklog
+    exp_alerts:
+    - exp_labels:
+        service: github
+        environment: production
+        job: researchtrack-services
+        instance: github:8080
+        status: pending
+        severity: warning
+        category: kafka
+        component: outbox
+      exp_annotations:
+        summary: Durable Kafka outbox backlog sustained
+        description: At least 100 pending/publishing messages persisted for five minutes
+          in fresh database samples. Inspect producer connectivity and blocked message-key
+          ordering; accepted work is retained.
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaOutboxFailed
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaOutboxMetricsUnavailable
+    exp_alerts: []
+- name: permanent outbox failure retained
+  interval: 1m
+  input_series:
+  - series: up{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: 1x35
+  - series: kafka_brokers{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: 1x35
+  - series: kafka_topic_partition_current_offset{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production",topic="researchtrack.deployment-smoke",partition="0"}
+    values: '0x35'
+  - series: researchtrack_kafka_enabled{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_success{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_timestamp_seconds{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 0+60x35
+  - series: researchtrack_kafka_outbox_messages{job="researchtrack-services",service="github",environment="production",instance="github:8080",status="failed"}
+    values: 1x35
+  alert_rule_test:
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaExporterUnavailable
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaBrokerUnavailable
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaPublishingFailures
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaEventProcessingFailures
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaOffsetCommitFailures
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaConsumerHeld
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaConsumerLagHigh
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaOutboxBacklog
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaOutboxFailed
+    exp_alerts:
+    - exp_labels:
+        service: github
+        environment: production
+        job: researchtrack-services
+        instance: github:8080
+        status: failed
+        severity: warning
+        category: kafka
+        component: outbox
+      exp_annotations:
+        summary: Kafka outbox retains permanently failed work
+        description: One or more events exhausted publication attempts or failed permanently.
+          Diagnose before approved replay; failed rows block later events with the
+          same key.
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaOutboxMetricsUnavailable
+    exp_alerts: []
+- name: failed sampler masks false healthy depths
+  interval: 1m
+  input_series:
+  - series: up{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: 1x35
+  - series: kafka_brokers{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: 1x35
+  - series: kafka_topic_partition_current_offset{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production",topic="researchtrack.deployment-smoke",partition="0"}
+    values: '0x35'
+  - series: researchtrack_kafka_enabled{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_success{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: '0x35'
+  - series: researchtrack_kafka_outbox_sample_timestamp_seconds{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 0+60x35
+  - series: researchtrack_kafka_outbox_messages{job="researchtrack-services",service="github",environment="production",instance="github:8080",status="pending"}
+    values: 999x35
+  - series: researchtrack_kafka_outbox_messages{job="researchtrack-services",service="github",environment="production",instance="github:8080",status="failed"}
+    values: 99x35
+  alert_rule_test:
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaExporterUnavailable
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaBrokerUnavailable
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaPublishingFailures
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaEventProcessingFailures
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaOffsetCommitFailures
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaConsumerHeld
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaConsumerLagHigh
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaOutboxBacklog
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaOutboxFailed
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaOutboxMetricsUnavailable
+    exp_alerts:
+    - exp_labels:
+        service: github
+        environment: production
+        job: researchtrack-services
+        instance: github:8080
+        severity: warning
+        category: kafka
+        component: outbox
+      exp_annotations:
+        summary: Kafka outbox monitoring unavailable or stale
+        description: Bounded database sampling has failed or become stale. Backlog
+          depth is unknown, not healthy zero. Check application sampler/database availability
+          without querying the database on each scrape.
+- name: stale sampler masks false backlog
+  interval: 1m
+  input_series:
+  - series: up{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: 1x35
+  - series: kafka_brokers{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: 1x35
+  - series: kafka_topic_partition_current_offset{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production",topic="researchtrack.deployment-smoke",partition="0"}
+    values: '0x35'
+  - series: researchtrack_kafka_enabled{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_success{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_timestamp_seconds{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: '0x35'
+  - series: researchtrack_kafka_outbox_messages{job="researchtrack-services",service="github",environment="production",instance="github:8080",status="pending"}
+    values: 999x35
+  alert_rule_test:
+  - eval_time: 9m
+    alertname: ResearchTrackKafkaExporterUnavailable
+    exp_alerts: []
+  - eval_time: 9m
+    alertname: ResearchTrackKafkaBrokerUnavailable
+    exp_alerts: []
+  - eval_time: 9m
+    alertname: ResearchTrackKafkaPublishingFailures
+    exp_alerts: []
+  - eval_time: 9m
+    alertname: ResearchTrackKafkaEventProcessingFailures
+    exp_alerts: []
+  - eval_time: 9m
+    alertname: ResearchTrackKafkaOffsetCommitFailures
+    exp_alerts: []
+  - eval_time: 9m
+    alertname: ResearchTrackKafkaConsumerHeld
+    exp_alerts: []
+  - eval_time: 9m
+    alertname: ResearchTrackKafkaConsumerLagHigh
+    exp_alerts: []
+  - eval_time: 9m
+    alertname: ResearchTrackKafkaOutboxBacklog
+    exp_alerts: []
+  - eval_time: 9m
+    alertname: ResearchTrackKafkaOutboxFailed
+    exp_alerts: []
+  - eval_time: 9m
+    alertname: ResearchTrackKafkaOutboxMetricsUnavailable
+    exp_alerts:
+    - exp_labels:
+        service: github
+        environment: production
+        job: researchtrack-services
+        instance: github:8080
+        severity: warning
+        category: kafka
+        component: outbox
+      exp_annotations:
+        summary: Kafka outbox monitoring unavailable or stale
+        description: Bounded database sampling has failed or become stale. Backlog
+          depth is unknown, not healthy zero. Check application sampler/database availability
+          without querying the database on each scrape.
+- name: missing sampler with enabled application
+  interval: 1m
+  input_series:
+  - series: up{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: 1x35
+  - series: kafka_brokers{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: 1x35
+  - series: kafka_topic_partition_current_offset{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production",topic="researchtrack.deployment-smoke",partition="0"}
+    values: '0x35'
+  - series: researchtrack_kafka_enabled{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  alert_rule_test:
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaExporterUnavailable
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaBrokerUnavailable
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaPublishingFailures
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaEventProcessingFailures
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaOffsetCommitFailures
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaConsumerHeld
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaConsumerLagHigh
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaOutboxBacklog
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaOutboxFailed
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaOutboxMetricsUnavailable
+    exp_alerts:
+    - exp_labels:
+        service: github
+        environment: production
+        job: researchtrack-services
+        instance: github:8080
+        severity: warning
+        category: kafka
+        component: outbox
+      exp_annotations:
+        summary: Kafka outbox monitoring unavailable or stale
+        description: Bounded database sampling has failed or become stale. Backlog
+          depth is unknown, not healthy zero. Check application sampler/database availability
+          without querying the database on each scrape.
+- name: intentionally disabled app suppresses every app alert
+  interval: 1m
+  input_series:
+  - series: up{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: 1x35
+  - series: kafka_brokers{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: 1x35
+  - series: kafka_topic_partition_current_offset{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production",topic="researchtrack.deployment-smoke",partition="0"}
+    values: '0x35'
+  - series: researchtrack_kafka_enabled{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: '0x35'
+  - series: researchtrack_kafka_outbox_sample_success{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: '0x35'
+  - series: researchtrack_kafka_outbox_sample_timestamp_seconds{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 0+60x35
+  - series: researchtrack_kafka_publish_total{job="researchtrack-services",service="github",environment="production",instance="github:8080",outcome="retryable_failure"}
+    values: 0+5x35
+  - series: researchtrack_kafka_consume_total{job="researchtrack-services",service="github",environment="production",instance="github:8080",stage="process",outcome="failed"}
+    values: 0+5x35
+  - series: researchtrack_kafka_consume_total{job="researchtrack-services",service="github",environment="production",instance="github:8080",stage="commit",outcome="failed"}
+    values: 0+5x35
+  - series: researchtrack_kafka_consumer_held{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_messages{job="researchtrack-services",service="github",environment="production",instance="github:8080",status="pending"}
+    values: 999x35
+  - series: researchtrack_kafka_outbox_messages{job="researchtrack-services",service="github",environment="production",instance="github:8080",status="failed"}
+    values: 99x35
+  - series: kafka_consumergroup_lag{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production",consumergroup="researchtrack-github-webhook-v1",topic="researchtrack.github.events.v1",partition="0"}
+    values: 999x35
+  - series: kafka_consumergroup_current_offset{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production",consumergroup="researchtrack-github-webhook-v1",topic="researchtrack.github.events.v1",partition="0"}
+    values: 1x35
+  alert_rule_test:
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaExporterUnavailable
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaBrokerUnavailable
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaPublishingFailures
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaEventProcessingFailures
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaOffsetCommitFailures
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaConsumerHeld
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaConsumerLagHigh
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaOutboxBacklog
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaOutboxFailed
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaOutboxMetricsUnavailable
+    exp_alerts: []
+- name: disabled applications do not suppress broker alerts
+  interval: 1m
+  input_series:
+  - series: up{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: 1x35
+  - series: kafka_brokers{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: '0x35'
+  - series: kafka_topic_partition_current_offset{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production",topic="researchtrack.deployment-smoke",partition="0"}
+    values: '0x35'
+  - series: researchtrack_kafka_enabled{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: '0x35'
+  - series: researchtrack_kafka_outbox_sample_success{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_timestamp_seconds{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 0+60x35
+  alert_rule_test:
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaExporterUnavailable
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaBrokerUnavailable
+    exp_alerts:
+    - exp_labels:
+        job: researchtrack-kafka
+        instance: kafka-exporter:9308
+        service: kafka
+        environment: production
+        severity: critical
+        category: kafka
+        component: broker
+      exp_annotations:
+        summary: Kafka broker connectivity or required metadata unavailable
+        description: Exporter is scrapeable but broker count or a live deployment-smoke
+          partition offset is missing/invalid. Inspect broker health, private listener
+          and existing smoke-topic metadata; never recreate data to repair monitoring.
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaPublishingFailures
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaEventProcessingFailures
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaOffsetCommitFailures
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaConsumerHeld
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaConsumerLagHigh
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaOutboxBacklog
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaOutboxFailed
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaOutboxMetricsUnavailable
+    exp_alerts: []
+- name: broker recovery
+  interval: 1m
+  input_series:
+  - series: up{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: 1x35
+  - series: kafka_brokers{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: 0x4 1x30
+  - series: kafka_topic_partition_current_offset{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production",topic="researchtrack.deployment-smoke",partition="0"}
+    values: '0x35'
+  - series: researchtrack_kafka_enabled{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_success{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_timestamp_seconds{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 0+60x35
+  alert_rule_test:
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaExporterUnavailable
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaExporterUnavailable
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaBrokerUnavailable
+    exp_alerts:
+    - exp_labels:
+        job: researchtrack-kafka
+        instance: kafka-exporter:9308
+        service: kafka
+        environment: production
+        severity: critical
+        category: kafka
+        component: broker
+      exp_annotations:
+        summary: Kafka broker connectivity or required metadata unavailable
+        description: Exporter is scrapeable but broker count or a live deployment-smoke
+          partition offset is missing/invalid. Inspect broker health, private listener
+          and existing smoke-topic metadata; never recreate data to repair monitoring.
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaBrokerUnavailable
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaPublishingFailures
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaPublishingFailures
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaEventProcessingFailures
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaEventProcessingFailures
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaOffsetCommitFailures
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaOffsetCommitFailures
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaConsumerHeld
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaConsumerHeld
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaConsumerLagHigh
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaConsumerLagHigh
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaOutboxBacklog
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaOutboxBacklog
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaOutboxFailed
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaOutboxFailed
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaOutboxMetricsUnavailable
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaOutboxMetricsUnavailable
+    exp_alerts: []
+- name: exporter recovery
+  interval: 1m
+  input_series:
+  - series: up{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: 0x4 1x30
+  - series: kafka_brokers{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: 1x35
+  - series: kafka_topic_partition_current_offset{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production",topic="researchtrack.deployment-smoke",partition="0"}
+    values: '0x35'
+  - series: researchtrack_kafka_enabled{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_success{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_timestamp_seconds{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 0+60x35
+  alert_rule_test:
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaExporterUnavailable
+    exp_alerts:
+    - exp_labels:
+        job: researchtrack-kafka
+        instance: kafka-exporter:9308
+        service: kafka
+        environment: production
+        severity: critical
+        category: kafka
+        component: exporter
+      exp_annotations:
+        summary: Kafka exporter unavailable; broker status unknown
+        description: Check the private exporter target, container and logs. Broker
+          connection failure can prevent exporter startup; do not infer broker health
+          from a missing scrape.
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaExporterUnavailable
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaBrokerUnavailable
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaBrokerUnavailable
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaPublishingFailures
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaPublishingFailures
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaEventProcessingFailures
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaEventProcessingFailures
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaOffsetCommitFailures
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaOffsetCommitFailures
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaConsumerHeld
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaConsumerHeld
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaConsumerLagHigh
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaConsumerLagHigh
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaOutboxBacklog
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaOutboxBacklog
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaOutboxFailed
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaOutboxFailed
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaOutboxMetricsUnavailable
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaOutboxMetricsUnavailable
+    exp_alerts: []
+- name: consumer held recovery
+  interval: 1m
+  input_series:
+  - series: up{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: 1x35
+  - series: kafka_brokers{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: 1x35
+  - series: kafka_topic_partition_current_offset{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production",topic="researchtrack.deployment-smoke",partition="0"}
+    values: '0x35'
+  - series: researchtrack_kafka_enabled{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_success{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_timestamp_seconds{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 0+60x35
+  - series: researchtrack_kafka_consumer_held{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x3 0x31
+  alert_rule_test:
+  - eval_time: 2m
+    alertname: ResearchTrackKafkaExporterUnavailable
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaExporterUnavailable
+    exp_alerts: []
+  - eval_time: 2m
+    alertname: ResearchTrackKafkaBrokerUnavailable
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaBrokerUnavailable
+    exp_alerts: []
+  - eval_time: 2m
+    alertname: ResearchTrackKafkaPublishingFailures
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaPublishingFailures
+    exp_alerts: []
+  - eval_time: 2m
+    alertname: ResearchTrackKafkaEventProcessingFailures
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaEventProcessingFailures
+    exp_alerts: []
+  - eval_time: 2m
+    alertname: ResearchTrackKafkaOffsetCommitFailures
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaOffsetCommitFailures
+    exp_alerts: []
+  - eval_time: 2m
+    alertname: ResearchTrackKafkaConsumerHeld
+    exp_alerts:
+    - exp_labels:
+        service: github
+        environment: production
+        job: researchtrack-services
+        instance: github:8080
+        severity: critical
+        category: kafka
+        component: application
+      exp_annotations:
+        summary: Kafka consumer held without offset progress
+        description: Review the uncommitted record, strict contract and safe error
+          code, repair the cause and authorize an application restart. Do not reset
+          offsets or delete retained work.
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaConsumerHeld
+    exp_alerts: []
+  - eval_time: 2m
+    alertname: ResearchTrackKafkaConsumerLagHigh
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaConsumerLagHigh
+    exp_alerts: []
+  - eval_time: 2m
+    alertname: ResearchTrackKafkaOutboxBacklog
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaOutboxBacklog
+    exp_alerts: []
+  - eval_time: 2m
+    alertname: ResearchTrackKafkaOutboxFailed
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaOutboxFailed
+    exp_alerts: []
+  - eval_time: 2m
+    alertname: ResearchTrackKafkaOutboxMetricsUnavailable
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaOutboxMetricsUnavailable
+    exp_alerts: []
+- name: consumer lag recovery
+  interval: 1m
+  input_series:
+  - series: up{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: 1x35
+  - series: kafka_brokers{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: 1x35
+  - series: kafka_topic_partition_current_offset{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production",topic="researchtrack.deployment-smoke",partition="0"}
+    values: '0x35'
+  - series: researchtrack_kafka_enabled{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_success{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_timestamp_seconds{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 0+60x35
+  - series: kafka_consumergroup_lag{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production",consumergroup="researchtrack-github-webhook-v1",topic="researchtrack.github.events.v1",partition="0"}
+    values: 200x11 0x23
+  - series: kafka_consumergroup_current_offset{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production",consumergroup="researchtrack-github-webhook-v1",topic="researchtrack.github.events.v1",partition="0"}
+    values: 1x35
+  alert_rule_test:
+  - eval_time: 11m
+    alertname: ResearchTrackKafkaExporterUnavailable
+    exp_alerts: []
+  - eval_time: 15m
+    alertname: ResearchTrackKafkaExporterUnavailable
+    exp_alerts: []
+  - eval_time: 11m
+    alertname: ResearchTrackKafkaBrokerUnavailable
+    exp_alerts: []
+  - eval_time: 15m
+    alertname: ResearchTrackKafkaBrokerUnavailable
+    exp_alerts: []
+  - eval_time: 11m
+    alertname: ResearchTrackKafkaPublishingFailures
+    exp_alerts: []
+  - eval_time: 15m
+    alertname: ResearchTrackKafkaPublishingFailures
+    exp_alerts: []
+  - eval_time: 11m
+    alertname: ResearchTrackKafkaEventProcessingFailures
+    exp_alerts: []
+  - eval_time: 15m
+    alertname: ResearchTrackKafkaEventProcessingFailures
+    exp_alerts: []
+  - eval_time: 11m
+    alertname: ResearchTrackKafkaOffsetCommitFailures
+    exp_alerts: []
+  - eval_time: 15m
+    alertname: ResearchTrackKafkaOffsetCommitFailures
+    exp_alerts: []
+  - eval_time: 11m
+    alertname: ResearchTrackKafkaConsumerHeld
+    exp_alerts: []
+  - eval_time: 15m
+    alertname: ResearchTrackKafkaConsumerHeld
+    exp_alerts: []
+  - eval_time: 11m
+    alertname: ResearchTrackKafkaConsumerLagHigh
+    exp_alerts:
+    - exp_labels:
+        consumergroup: researchtrack-github-webhook-v1
+        environment: production
+        severity: warning
+        category: kafka
+        component: consumer
+      exp_annotations:
+        summary: Approved Kafka consumer group lag sustained
+        description: Measured lag exceeds 100 records for ten minutes in an enabled
+          service with committed offsets. Inspect consumer/DB capacity and held state.
+          Missing groups or unknown offsets are not zero lag.
+  - eval_time: 15m
+    alertname: ResearchTrackKafkaConsumerLagHigh
+    exp_alerts: []
+  - eval_time: 11m
+    alertname: ResearchTrackKafkaOutboxBacklog
+    exp_alerts: []
+  - eval_time: 15m
+    alertname: ResearchTrackKafkaOutboxBacklog
+    exp_alerts: []
+  - eval_time: 11m
+    alertname: ResearchTrackKafkaOutboxFailed
+    exp_alerts: []
+  - eval_time: 15m
+    alertname: ResearchTrackKafkaOutboxFailed
+    exp_alerts: []
+  - eval_time: 11m
+    alertname: ResearchTrackKafkaOutboxMetricsUnavailable
+    exp_alerts: []
+  - eval_time: 15m
+    alertname: ResearchTrackKafkaOutboxMetricsUnavailable
+    exp_alerts: []
+- name: publication counter reset and rolling window recovery
+  interval: 1m
+  input_series:
+  - series: up{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: 1x35
+  - series: kafka_brokers{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: 1x35
+  - series: kafka_topic_partition_current_offset{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production",topic="researchtrack.deployment-smoke",partition="0"}
+    values: '0x35'
+  - series: researchtrack_kafka_enabled{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_success{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_timestamp_seconds{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 0+60x35
+  - series: researchtrack_kafka_publish_total{job="researchtrack-services",service="github",environment="production",instance="github:8080",outcome="retryable_failure"}
+    values: 0+2x5 0x29
+  alert_rule_test:
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaExporterUnavailable
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaExporterUnavailable
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaBrokerUnavailable
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaBrokerUnavailable
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaPublishingFailures
+    exp_alerts:
+    - exp_labels:
+        service: github
+        environment: production
+        severity: warning
+        category: kafka
+        component: application
+      exp_annotations:
+        summary: Repeated Kafka publication failures
+        description: At least three publication attempts failed within ten minutes.
+          Inspect TLS/private connectivity and retained outbox work; replay requires
+          review.
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaPublishingFailures
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaEventProcessingFailures
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaEventProcessingFailures
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaOffsetCommitFailures
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaOffsetCommitFailures
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaConsumerHeld
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaConsumerHeld
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaConsumerLagHigh
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaConsumerLagHigh
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaOutboxBacklog
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaOutboxBacklog
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaOutboxFailed
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaOutboxFailed
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaOutboxMetricsUnavailable
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaOutboxMetricsUnavailable
+    exp_alerts: []
+- name: processing rolling window recovery
+  interval: 1m
+  input_series:
+  - series: up{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: 1x35
+  - series: kafka_brokers{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: 1x35
+  - series: kafka_topic_partition_current_offset{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production",topic="researchtrack.deployment-smoke",partition="0"}
+    values: '0x35'
+  - series: researchtrack_kafka_enabled{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_success{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_timestamp_seconds{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 0+60x35
+  - series: researchtrack_kafka_consume_total{job="researchtrack-services",service="github",environment="production",instance="github:8080",stage="process",outcome="failed"}
+    values: 0+2x5 0x29
+  alert_rule_test:
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaExporterUnavailable
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaExporterUnavailable
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaBrokerUnavailable
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaBrokerUnavailable
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaPublishingFailures
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaPublishingFailures
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaEventProcessingFailures
+    exp_alerts:
+    - exp_labels:
+        service: github
+        environment: production
+        severity: warning
+        category: kafka
+        component: application
+      exp_annotations:
+        summary: Repeated Kafka durable processing failures
+        description: At least three handoff/validation attempts failed within ten
+          minutes. Inspect safe consumer error codes, schema and database state. Successful
+          retries are separate from a held consumer.
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaEventProcessingFailures
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaOffsetCommitFailures
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaOffsetCommitFailures
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaConsumerHeld
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaConsumerHeld
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaConsumerLagHigh
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaConsumerLagHigh
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaOutboxBacklog
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaOutboxBacklog
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaOutboxFailed
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaOutboxFailed
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaOutboxMetricsUnavailable
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaOutboxMetricsUnavailable
+    exp_alerts: []
+- name: backlog recovery
+  interval: 1m
+  input_series:
+  - series: up{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: 1x35
+  - series: kafka_brokers{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production"}
+    values: 1x35
+  - series: kafka_topic_partition_current_offset{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="production",topic="researchtrack.deployment-smoke",partition="0"}
+    values: '0x35'
+  - series: researchtrack_kafka_enabled{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_success{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_timestamp_seconds{job="researchtrack-services",service="github",environment="production",instance="github:8080"}
+    values: 0+60x35
+  - series: researchtrack_kafka_outbox_messages{job="researchtrack-services",service="github",environment="production",instance="github:8080",status="pending"}
+    values: 100x6 0x28
+  alert_rule_test:
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaExporterUnavailable
+    exp_alerts: []
+  - eval_time: 8m
+    alertname: ResearchTrackKafkaExporterUnavailable
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaBrokerUnavailable
+    exp_alerts: []
+  - eval_time: 8m
+    alertname: ResearchTrackKafkaBrokerUnavailable
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaPublishingFailures
+    exp_alerts: []
+  - eval_time: 8m
+    alertname: ResearchTrackKafkaPublishingFailures
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaEventProcessingFailures
+    exp_alerts: []
+  - eval_time: 8m
+    alertname: ResearchTrackKafkaEventProcessingFailures
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaOffsetCommitFailures
+    exp_alerts: []
+  - eval_time: 8m
+    alertname: ResearchTrackKafkaOffsetCommitFailures
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaConsumerHeld
+    exp_alerts: []
+  - eval_time: 8m
+    alertname: ResearchTrackKafkaConsumerHeld
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaConsumerLagHigh
+    exp_alerts: []
+  - eval_time: 8m
+    alertname: ResearchTrackKafkaConsumerLagHigh
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaOutboxBacklog
+    exp_alerts:
+    - exp_labels:
+        service: github
+        environment: production
+        job: researchtrack-services
+        instance: github:8080
+        status: pending
+        severity: warning
+        category: kafka
+        component: outbox
+      exp_annotations:
+        summary: Durable Kafka outbox backlog sustained
+        description: At least 100 pending/publishing messages persisted for five minutes
+          in fresh database samples. Inspect producer connectivity and blocked message-key
+          ordering; accepted work is retained.
+  - eval_time: 8m
+    alertname: ResearchTrackKafkaOutboxBacklog
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaOutboxFailed
+    exp_alerts: []
+  - eval_time: 8m
+    alertname: ResearchTrackKafkaOutboxFailed
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaOutboxMetricsUnavailable
+    exp_alerts: []
+  - eval_time: 8m
+    alertname: ResearchTrackKafkaOutboxMetricsUnavailable
+    exp_alerts: []
+- name: legacy Test has no provisioned Kafka exporter and no enabled app
+  interval: 1m
+  input_series:
+  - series: up{job="researchtrack-kafka",instance="kafka-exporter:9308",service="kafka",environment="test",kafka_monitoring="optional"}
+    values: 0x35
+  - series: researchtrack_kafka_enabled{job="researchtrack-services",service="github",environment="test",instance="github:8080"}
+    values: 0x35
+  alert_rule_test:
+  - eval_time: 30m
+    alertname: ResearchTrackKafkaExporterUnavailable
+    exp_alerts: []
+  - eval_time: 30m
+    alertname: ResearchTrackKafkaBrokerUnavailable
+    exp_alerts: []
+  - eval_time: 30m
+    alertname: ResearchTrackKafkaPublishingFailures
+    exp_alerts: []
+  - eval_time: 30m
+    alertname: ResearchTrackKafkaEventProcessingFailures
+    exp_alerts: []
+  - eval_time: 30m
+    alertname: ResearchTrackKafkaOffsetCommitFailures
+    exp_alerts: []
+  - eval_time: 30m
+    alertname: ResearchTrackKafkaConsumerHeld
+    exp_alerts: []
+  - eval_time: 30m
+    alertname: ResearchTrackKafkaConsumerLagHigh
+    exp_alerts: []
+  - eval_time: 30m
+    alertname: ResearchTrackKafkaOutboxBacklog
+    exp_alerts: []
+  - eval_time: 30m
+    alertname: ResearchTrackKafkaOutboxFailed
+    exp_alerts: []
+  - eval_time: 30m
+    alertname: ResearchTrackKafkaOutboxMetricsUnavailable
+    exp_alerts: []

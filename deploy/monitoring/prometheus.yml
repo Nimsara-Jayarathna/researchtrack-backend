@@ -5,6 +5,18 @@ rule_files:
   - /etc/prometheus/rules/*.yml
 
 scrape_configs:
+  - job_name: 'researchtrack-kafka'
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    static_configs:
+      - targets: ['kafka-exporter:9308']
+        # The legacy Test stack has no broker/exporter. Remove optional only when supplied.
+        labels: { service: 'kafka', environment: 'test', kafka_monitoring: 'optional' }
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: kafka_broker_info
+        action: drop
+
   - job_name: 'researchtrack-services'
     metrics_path: /metrics
     static_configs:
@@ -16,3 +28,11 @@ scrape_configs:
           - 'jira:8080'
           - 'meeting:8080'
           - 'submission:8080'
+    # Keep existing instance labels; add the same bounded service/environment labels as Azure.
+    relabel_configs:
+      - source_labels: [__address__]
+        regex: '(gateway|auth|project|github|jira|meeting|submission):[0-9]+'
+        target_label: service
+        replacement: '$1'
+      - target_label: environment
+        replacement: test

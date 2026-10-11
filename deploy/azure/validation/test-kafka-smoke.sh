@@ -7,7 +7,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-validator="$repo_root/deploy/azure/scripts/validate-vm-stack.sh"
+validator="$repo_root/deploy/azure/vm/scripts/kafka-common.sh"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
@@ -36,11 +36,14 @@ log() {
 
 case "$tool" in
   kafka-topics.sh)
+    [[ "$MODE" != topics-fails ]] || { echo "topic provisioning failed" >&2; exit 1; }
     log "Created admin client"
     ;;
   kafka-get-offsets.sh)
     log "Kafka version: 3.9.1"
+    [[ "$MODE" != topics-fails ]] || exit 1
     echo "researchtrack.deployment-smoke:0:41"
+    [[ "$MODE" != offsets-fails ]] || exit 1
     ;;
   kafka-console-producer.sh)
     if [[ "$MODE" == producer-fails ]]; then
@@ -68,13 +71,22 @@ case "$tool" in
 esac
 STUB
 chmod +x "$work/compose"
+# Ubuntu provides GNU timeout; stub its deadline contract for offline macOS tests.
+cat > "$work/timeout" <<'STUB'
+#!/usr/bin/env bash
+[[ "$1" == 60 ]] || exit 9
+shift
+[[ "$MODE" != deadline ]] || { echo 'Kafka CLI deadline exceeded' >&2; exit 124; }
+exec "$@"
+STUB
+chmod +x "$work/timeout"
 
 failures=0
 run_case() {
   local mode="$1" expect="$2" must_log="${3:-}" output
   mkdir -p "$work/$mode"
   set +e
-  output="$(MODE="$mode" STATE="$work/$mode" bash -c "
+  output="$(PATH="$work:$PATH" MODE="$mode" STATE="$work/$mode" bash -c "
     compose='$work/compose'
     INFRA_PRIVATE_IP=10.20.10.4
     kafka_log=''
@@ -102,6 +114,9 @@ run_case wrong fail "consumer stdout was"
 run_case extra fail "unexpected-second-record"
 run_case empty fail "expected exactly one record"
 run_case producer-fails fail "AccessDeniedException"
+run_case topics-fails fail "topic provisioning failed"
+run_case offsets-fails fail "get-offsets (exit 1)"
+run_case deadline fail "Kafka CLI deadline exceeded"
 
 if ((failures > 0)); then
   echo "$failures Kafka smoke-test case(s) failed." >&2
