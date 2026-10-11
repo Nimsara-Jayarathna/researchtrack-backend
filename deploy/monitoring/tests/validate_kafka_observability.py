@@ -119,9 +119,18 @@ def main():
                       '-v', f'{work}:/work:ro', '-w', '/work',
                       '--entrypoint', '/bin/promtool', IMAGE] if args.docker else [args.promtool]
             subprocess.run(prefix + list(command), cwd=work, check=True, stdout=subprocess.DEVNULL)
+        configs = []
         for name, source in [('azure', 'deploy/azure/vm/prometheus/prometheus.yml.template'), ('test', 'deploy/monitoring/prometheus.yml'), ('isolated', 'tests/Kafka/prometheus.yml')]:
             config = (ROOT / source).read_text().replace('__ACA_ENV_DOMAIN__', 'synthetic.internal.example.test').replace('__ACA_TLS_INSECURE__', 'false').replace('/etc/prometheus/rules/', target_root + '/rules/')
             (work / (name + '.yml')).write_text(config)
+            configs.append(name)
+        if args.docker:
+            # TemporaryDirectory is 0700 and the image runs as nobody. Normalize
+            # only these synthetic inputs so Linux bind mounts remain readable,
+            # including files created under a restrictive runner umask.
+            for path in [work, *work.rglob('*')]:
+                path.chmod(0o755 if path.is_dir() else 0o644)
+        for name in configs:
             promtool('check', 'config', target_root + '/' + name + '.yml')
             checks += 1
         promtool('check', 'rules', target_root + '/rules/researchtrack-alerts.yml')
