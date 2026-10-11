@@ -1,5 +1,14 @@
 # Sprint 4 Kafka topics and GitHub/Jira end-to-end integration — task report
 
+## Current status — 2026-10-11 final audit
+
+This report preserves historical findings and prior-session actions. Current branch
+comparison, same-SHA CI gating, five executed isolated Kafka/MySQL recovery/upgrade tests,
+refreshed local validation and live acceptance gaps are consolidated in the
+[final Sprint 1–4 audit](../FINAL_DEVOPS_SPRINTS_1_TO_4_AUDIT.md). Earlier Docker-unavailable
+notes and conditional-test skip counts describe those sessions. No commit, push, merge,
+deployment, workflow dispatch or remote settings change occurred in this audit.
+
 2026-10-10. **Approved application implementation is complete locally. Actual broker,
 Azure application flow and application restart acceptance remain unverified.**
 Real producers/consumers replace the previous configuration-only readiness implementation.

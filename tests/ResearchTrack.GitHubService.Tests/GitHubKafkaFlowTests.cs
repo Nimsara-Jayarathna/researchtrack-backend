@@ -25,6 +25,35 @@ public sealed class GitHubKafkaFlowTests
     private const string Sha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
     [Fact]
+    public async Task FreshConsumerMetadataRetriesUnknownPartitionWithoutChangingOffsets()
+    {
+        var calls = 0;
+        var offset = await IsolatedKafkaFixture.ReadBrokerAsync(() =>
+        {
+            if (++calls == 1) throw new KafkaException(new Error(ErrorCode.Local_UnknownPartition));
+            return new Offset(42);
+        }, Ct);
+        Assert.Equal(new Offset(42), offset);
+        Assert.Equal(2, calls);
+    }
+
+    [Fact]
+    public async Task BrokerReadRejectsAuthorizationErrorsAndRespectsCancellation()
+    {
+        var calls = 0;
+        await Assert.ThrowsAsync<KafkaException>(() => IsolatedKafkaFixture.ReadBrokerAsync<int>(() =>
+        {
+            calls++;
+            throw new KafkaException(new Error(ErrorCode.TopicAuthorizationFailed));
+        }, Ct));
+        Assert.Equal(1, calls);
+        using var cancelled = new CancellationTokenSource();
+        cancelled.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            IsolatedKafkaFixture.ReadBrokerAsync(() => 42, cancelled.Token));
+    }
+
+    [Fact]
     public async Task DurableHandoffRunsExistingWorkerAndActualRepositorySnapshotProcessing()
     {
         using var database = new KafkaTestDatabase<GitHubDbContext>(options => new(options));
@@ -195,7 +224,13 @@ public sealed class GitHubKafkaFlowTests
         Assert.Single(await db.Set<KafkaInboxReceipt>().ToListAsync(Ct));
     }
 
-    private static async Task<(ServiceProvider Provider, Guid DeliveryId)> SetupAsync(KafkaTestDatabase<GitHubDbContext> database, KafkaRuntimeOptions options, KafkaMetrics? metrics = null)
+    [Fact(Skip = "Requires isolated loopback MySQL.", SkipUnless = nameof(IsolatedKafkaAvailable))]
+    [Trait("Category", "KafkaIntegration")]
+    public Task HistoricalSchemaUpgradePreservesRepositoryRecordsAndAddsKafkaPersistence() =>
+        KafkaMigrationUpgrade.VerifyAsync<GitHubDbContext>("github", "20260923043000_AddGitHubSyncRevision",
+            options => new(options), SeedRepositoryAsync, Ct);
+
+    private static async Task SeedRepositoryAsync(KafkaTestDatabase<GitHubDbContext> database)
     {
         var sourceId = Guid.NewGuid(); var repoId = Guid.NewGuid(); var linkId = Guid.NewGuid();
         await using (var db = database.CreateDbContext())
@@ -205,6 +240,11 @@ public sealed class GitHubKafkaFlowTests
             db.ProjectRepositoryLinks.Add(new() { Id = linkId, ProjectId = Guid.NewGuid(), SourceId = sourceId, GitHubRepositoryId = repoId, GitHubRepoId = 99, AccessType = "INSTALLATION_DIRECT", FullName = "fixture/synthetic", Name = "synthetic", OwnerLogin = "fixture", DefaultBranch = "main", Url = "https://github.example.test/fixture/synthetic", Active = true, Enabled = true, SyncStatus = "PENDING", LinkedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow });
             await db.SaveChangesAsync(Ct);
         }
+    }
+
+    private static async Task<(ServiceProvider Provider, Guid DeliveryId)> SetupAsync(KafkaTestDatabase<GitHubDbContext> database, KafkaRuntimeOptions options, KafkaMetrics? metrics = null)
+    {
+        await SeedRepositoryAsync(database);
         var repository = new GitHubSyncRepository(99, "fixture", "synthetic", "fixture/synthetic", "https://github.example.test/fixture/synthetic", "main", false, false, false, null, null, null, null);
         var commit = new GitHubSyncCommit(Sha, "Synthetic Kafka integration commit", null, "fixture", "fixture", null, null, null, DateTime.UtcNow, DateTime.UtcNow, "https://github.example.test/commit", 1, 1, 0, 1);
         var client = Substitute.For<IGitHubRepositorySyncClient>();

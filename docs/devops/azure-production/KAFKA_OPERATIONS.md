@@ -1,5 +1,14 @@
 # Kafka operations — ResearchTrack Azure Production
 
+## Current verification — 2026-10-11
+
+The [final audit](../FINAL_DEVOPS_SPRINTS_1_TO_4_AUDIT.md) records the five-test isolated
+recovery/upgrade run, all passed with zero skips. The existing mount verifier enforces
+all five exact binds and accepts only the two narrowly validated image-created anonymous
+volumes; operational regressions pass without weakening it. No live mount correction
+was performed. Production diagnostic output is still required to attribute the historical
+assertion failure. Live commands below require the owner's authorized operational context.
+
 Kafka is already deployed according to the team. This guide describes the repository implementation and how to collect fresh evidence. No live Azure check or restart was performed during this work. Run live commands only after the owner approves them. Run restart commands in a maintenance window: the single broker is temporarily unavailable, and clients must retry.
 
 ## A. Architecture

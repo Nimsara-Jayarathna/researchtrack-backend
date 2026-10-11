@@ -22,6 +22,24 @@ public sealed class JiraKafkaFlowTests
     public static bool IsolatedKafkaAvailable => IsolatedKafkaFixture.Enabled;
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
+    [Fact(Skip = "Requires isolated loopback MySQL.", SkipUnless = nameof(IsolatedKafkaAvailable))]
+    [Trait("Category", "KafkaIntegration")]
+    public Task HistoricalSchemaUpgradePreservesJiraRecordsAndAddsKafkaPersistence() =>
+        KafkaMigrationUpgrade.VerifyAsync<JiraDbContext>("jira", "20260923043100_AddJiraSyncRevision",
+            options => new(options), async database =>
+            {
+                var project = await KafkaMessagingTests.SeedAsync(database, Ct);
+                await using var db = database.CreateDbContext();
+                var connection = await db.JiraConnections.SingleAsync(Ct);
+                db.JiraIssues.Add(new()
+                {
+                    Id = Guid.NewGuid(), JiraConnectionId = connection.Id, ResearchProjectId = project,
+                    JiraIssueId = "123", IssueKey = "RT-42", Summary = "Synthetic historical issue",
+                    DescriptionJson = "{\"type\":\"doc\",\"version\":1}", SyncedAt = DateTimeOffset.UtcNow
+                });
+                await db.SaveChangesAsync(Ct);
+            }, Ct);
+
     [Fact(Skip = "Requires the isolated Docker TLS Kafka/MySQL fixture.", SkipUnless = nameof(IsolatedKafkaAvailable))]
     [Trait("Category", "KafkaIntegration")]
     public async Task AuthenticatedJiraWebhookBrokerOutageRetryCommitRecoveryAndActualSnapshot()

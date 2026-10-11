@@ -33,6 +33,12 @@ args="$*"
 case "$args" in
   "containerapp env show"*"--query id"*) echo "$STUB_ENV_ID" ;;
   "containerapp env show"*"--query location"*) echo "$STUB_LOCATION" ;;
+  "account show --query id"*) echo synthetic-subscription ;;
+  "rest --method put"*)
+    echo 'Synthetic migration provisioning failure' >&2
+    touch "$STUB_DIR/migration-attempted"
+    exit 1 ;;
+  "deployment group create"*) touch "$STUB_DIR/rollout-attempted"; exit 99 ;;
   "containerapp show"*)
     while [[ $# -gt 0 && "$1" != "-n" ]]; do shift; done
     [[ -f "$STUB_DIR/apps/$2.json" ]] || { echo "ResourceNotFound" >&2; exit 3; }
@@ -147,11 +153,17 @@ for service in "${services[@]}"; do
 done
 run_deployer env IMAGE_TAGS="$(image_tags)" || fail "unchanged plan exited non-zero"
 grep -q 'Nothing to deploy' "$work/out" || fail "expected nothing to deploy"
+grep -q 'PLAN ONLY; no migrations or rollouts executed' "$work/summary.md" || fail "plan claimed a deployment"
+[[ "$(grep -c '| NOT EXECUTED | - | - | - |' "$work/summary.md")" == 7 ]] || fail "plan timing fabricated executed migrations"
 for service in "${services[@]}"; do
   grep -q "^| $service | unchanged | running image already matches current source | feedfacefeed |" "$work/summary.md" \
     || fail "summary row for unchanged $service missing"
 done
 pass "current apps are unchanged and every service appears in the summary"
+
+run_deployer env IMAGE_TAGS="$(image_tags)" PLAN_ONLY=false || fail "unchanged execution exited non-zero"
+grep -q 'UNCHANGED; no new version, migrations or rollouts' "$work/summary.md" || fail "no-op claimed a new version"
+pass "no-op execution reports no new version and no fabricated durations"
 
 # 3. force_redeploy rolls out unchanged apps with an explicit reason.
 run_deployer env IMAGE_TAGS="$(image_tags)" FORCE_REDEPLOY=true || fail "force plan exited non-zero"
@@ -206,6 +218,17 @@ grep -q 'rt-auth-prod: required configuration missing or empty in composed env f
 grep -q 'PLAN_ONLY=true: stopping' "$work/out" && fail "planning continued after missing shared key"
 cp "$work/shared-auth.env.bak" "$work/env/shared-auth.env"
 pass "missing shared-auth key fails during planning, before any Azure change"
+
+# A real execution path with a stubbed migration PUT failure must abort before
+# any application rollout, retain a FAIL status and record the attempted duration.
+reset_state
+publish single
+if run_deployer env IMAGE_TAGS="$(image_tags)" PLAN_ONLY=false; then fail "failed migration was accepted"; fi
+[[ -f "$work/migration-attempted" ]] || fail "migration failure was not exercised"
+[[ ! -f "$work/rollout-attempted" ]] || fail "rollout proceeded after migration failure"
+grep -Eq '^\| auth \| FAIL \| [0-9]+ \| - \| - \|' "$work/summary.md" || fail "failed migration status/duration missing"
+grep -q 'Application deployment: FAIL' "$work/summary.md" || fail "failed migration claimed deployment success"
+pass "migration failure stops rollout and is reported with an actual duration"
 
 # 10. Rollback is idempotent: an already-active previous revision is success.
 rollback_fns="$(sed -n '/^revision_active() {/,/^}/p; /^set_revision_active() {/,/^}/p; /^rollback() {/,/^}/p' "$deployer")"

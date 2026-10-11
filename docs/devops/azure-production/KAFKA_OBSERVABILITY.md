@@ -1,5 +1,14 @@
 # Kafka observability and event processing
 
+## Current verification — 2026-10-11
+
+The [final audit](../FINAL_DEVOPS_SPRINTS_1_TO_4_AUDIT.md) records 159 configuration checks,
+30 Prometheus rule scenarios and 55 parsed dashboard expressions, plus isolated
+failure/recovery metrics and alert transitions. The current synthetic Compose env files,
+readable synthetic directories and bounded Docker tmpfs work with non-root promtool
+without production grafana.env. Recovery/upgrades are required CI; manual execution is
+preserved. Azure metrics scraping and rendered Grafana panels remain owner evidence.
+
 Status: locally implemented; production verification pending. No deployment was performed. The broker remains Apache Kafka 3.9.1; approved v1 topics, consumer groups, KRaft identity, retention, TLS configuration, certificates, database migrations and webhook contracts are unchanged.
 
 ## Architecture and gap analysis

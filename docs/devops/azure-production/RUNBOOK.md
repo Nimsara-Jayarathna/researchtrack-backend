@@ -7,7 +7,7 @@ Operator steps for the implementation in `deploy/azure/`. The architecture is in
 | Workflow | Trigger | Does |
 |---|---|---|
 | `azure-infrastructure.yml` | manual; `integration/main-kafka-production-20261011` pushes touching the existing infrastructure path filters | Bicep build → OIDC → What-If gate → Bicep deploy (subscription scope) → `configure-vm.sh` → VM stack reconcile → VM/network validation → Container Apps network probe |
-| `backend-deploy-production.yml` → `backend-deploy-azure-production.yml` | `integration/main-kafka-production-20261011` pushes; manual | build changed images (GHCR, immutable source images) → validate env → OIDC → capture/wake runtime → preflight → per changed service: `dbcheck`/`migrate` job → Bicep app deployment → readiness → rollback on failure → full verification → restore original runtime power states |
+| `backend-deploy-production.yml` → `backend-deploy-azure-production.yml` | `integration/main-kafka-production-20261011` pushes; manual | required static/.NET/coverage + isolated Kafka/upgrades CI → exact trusted SHA/current branch check → build changed images (GHCR, immutable source images) → recheck SHA → validate env → OIDC → capture/wake runtime → preflight → per changed service: `dbcheck`/`migrate` job → Bicep app deployment → readiness → rollback on failure → full verification → restore original runtime power states |
 
 Both workflows share the concurrency group `researchtrack-azure-production`, so they never overlap. Neither falls back to the VPS.
 
@@ -18,8 +18,10 @@ This is the user's current deployment decision and supersedes both the earlier
 main-only proposal and the feature-branch deployment policy. The integration branch
 serves as the production source without renaming `main` or changing the repository
 default branch. Test remains on `develop`. Backend CI runs on integration-branch
-pushes and PRs targeting `develop`, `main` or the integration branch. Existing CI
-build, coverage, regression and observability checks are retained.
+pushes through the production workflow’s reusable validation job, and independently on
+PRs targeting `develop`, `main` or the integration branch. Existing CI build, coverage,
+regression and observability checks are retained; isolated Kafka recovery and real
+historical MySQL upgrades are required jobs, not ordinary conditional-test skips.
 
 Both production entrypoints use this exact push branch. Manual deployment and reusable
 Azure build/deploy jobs also require
@@ -30,21 +32,48 @@ mutation, runtime and manual performance workflows can be run with this branch
 selected; their manual triggers and inputs are retained. Post-deployment k6 smoke
 still follows a successful production deployment when enabled.
 
-CI and production deployment start independently on a push; CI is not a deployment
-dependency. Require reviewed, successful CI before publishing a production release.
+### Required same-commit release gate (2026-10-11)
+
+The former independent CI/CD push behavior is corrected locally. The production
+entrypoint calls `backend-release-validation.yml`, which runs the shared Backend CI
+and isolated Kafka suite before any image builds. Manual production requests run the
+same validation. CI has contents-read permission without production secrets/OIDC.
+Every release checkout is pinned to the immutable `github.sha`. PR/fork/tag/other-ref
+sources are rejected, and the read-only source check requires the approved branch’s
+current SHA after CI and again before production credential use. Failed, cancelled,
+missing or inconclusive required CI cannot deploy. There is no `workflow_run` or
+untrusted artifact handoff. GitHub loads same-repository reusable workflows from the
+[caller’s same commit](https://docs.github.com/en/actions/how-tos/reuse-automations/reuse-workflows).
+
+`release-summary` uses only read-only run/job metadata and reports CI, queue/build,
+infrastructure, public HTTP and k6 status/durations. The application table records
+immutable images, original image-source commits, changed/unchanged applications,
+executed migrations and separate migration/rollout/readiness timings. No-op releases
+explicitly report no new application version. Disabled public HTTP or k6 checks are
+SKIPPED/NOT EXECUTED rather than PASS. CI occupies the existing production concurrency
+lock before builds; this adds required recovery-test time while retaining parallel
+image builds and preventing overlapping deployment/runtime operations.
+
+A failed k6 smoke fails the workflow. Existing per-app rollout rollback remains
+automatic; a cross-service rollback after k6 failure requires the owner-reviewed
+revision plan below. Do not roll back additive Kafka migrations or clear outboxes.
+Set `K6_AUTO_SMOKE_ENABLED=true` and review `PRODUCTION_VERIFY_PUBLIC_ENDPOINT=true`
+for final public release acceptance; neither setting was changed here.
 
 The infrastructure path filters, secret delivery, environment/OIDC, concurrency,
 What-If refusal, migrations, image provenance, rollback, runtime restoration and TLS
 are unchanged. No commit, push, deployment or remote policy edit was performed.
 
-Local validation for this branch-policy change (2026-10-11): 12 monitoring/branch/CI
-regression tests passed; 74 deployment/runner scripts passed Bash syntax checks;
-`git diff --check` passed. Comparison with HEAD confirmed all four deployment
-workflow bodies are unchanged after normalizing branch names, and all CI checks
-are retained. Raw actionlint 1.7.12 still fails on the same ten existing findings
-(five unsupported `concurrency.queue` keys and five SC2129 style findings); it passes
-with only those two diagnostic categories excluded. No .NET/Kafka suite or live
-workflow was run again for this workflow/documentation-only change.
+Current local evidence, exact tests and pending live acceptance are recorded in
+[the final Sprint 1–4 audit](../FINAL_DEVOPS_SPRINTS_1_TO_4_AUDIT.md). Earlier branch-policy
+validation counts describe the historical change only. No current-task commit, push,
+deployment, workflow dispatch or remote settings change was performed.
+
+Historical branch-policy-only verification earlier on 2026-10-11: twelve monitoring/
+branch tests, 74 shell syntax checks and diff checks passed. Raw actionlint had the same
+ten queue/style findings. That earlier workflow/documentation-only change did not rerun
+.NET/Kafka; the later final audit did. The earlier branch-normalization comparison applies
+to that snapshot, before the current CI dependency/source-gate changes.
 
 ### Repository-wide cutover
 

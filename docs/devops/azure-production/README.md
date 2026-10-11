@@ -1,5 +1,9 @@
 # Azure Production Documentation Index
 
+Current evidence and final acceptance gaps: [Sprint 1–4 audit](../FINAL_DEVOPS_SPRINTS_1_TO_4_AUDIT.md)
+(2026-10-11). Production application releases require same-SHA CI, including isolated
+Kafka recovery and historical MySQL upgrades, before builds; see the updated runbook.
+
 This directory is designed so an implementation agent does **not** need to reread one enormous plan for every task.
 
 ## First read

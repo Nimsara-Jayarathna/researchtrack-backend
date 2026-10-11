@@ -126,18 +126,19 @@ fi
         self.assertIn('  deploy:\n' + guard, application)
         azure = (paths / 'backend-deploy-azure-production.yml').read_text()
         legacy = (paths / 'backend-deploy-reusable.yml').read_text()
-        legacy_guard = "    if: ${{ inputs.environment_name != 'production' || github.ref == 'refs/heads/" + branch + "' }}\n"
+        legacy_guard = "    if: ${{ !cancelled() && (inputs.environment_name != 'production' || (github.ref == 'refs/heads/" + branch + "' && needs.validate-production.result == 'success')) }}\n"
         for name in ['build', 'deploy']:
-            self.assertIn('  ' + name + ':\n' + guard, azure)
-            self.assertIn('  ' + name + ':\n' + legacy_guard, legacy)
+            self.assertIn(guard, azure.split('  ' + name + ':\n', 1)[1].split('    name:', 1)[0])
+            expected = legacy_guard if name == 'build' else legacy_guard.replace("!cancelled() &&", "!cancelled() && needs.build.result == 'success' &&")
+            self.assertIn(expected, legacy.split('  ' + name + ':\n', 1)[1].split('    name:', 1)[0])
         self.assertIn('branches: ["develop"]', (paths / 'backend-deploy-test.yml').read_text())
 
-    def test_ci_covers_deployment_branch_pushes_and_pull_requests(self):
+    def test_ci_is_reused_by_production_and_preserves_pull_request_checks(self):
         workflow = (ROOT / '.github/workflows/backend-ci.yml').read_text()
-        push = workflow.split('  push:', 1)[1].split('  pull_request:', 1)[0]
-        self.assertEqual('\n    branches: ["' + DEPLOYMENT_BRANCH + '"]\n', push)
-        pull_request = workflow.split('  pull_request:', 1)[1].split('\npermissions:', 1)[0]
-        self.assertIn('branches: ["develop", "main", "' + DEPLOYMENT_BRANCH + '"]', pull_request)
+        self.assertNotIn('  push:', workflow)
+        self.assertIn('  workflow_call:', workflow)
+        self.assertIn('branches: ["develop", "main", "' + DEPLOYMENT_BRANCH + '"]', workflow)
+        self.assertIn('backend-release-validation.yml', (ROOT / '.github/workflows/backend-deploy-azure-production.yml').read_text())
 
     def test_workflow_reads_outputs_without_deploying_bicep_in_monitoring_mode(self):
         self.check_workflow_output_step('true', 'show')

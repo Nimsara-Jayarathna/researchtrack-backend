@@ -1,5 +1,23 @@
 # Azure Production Implementation Status
 
+## Current audit — 2026-10-11
+
+The [final Sprint 1–4 audit](../FINAL_DEVOPS_SPRINTS_1_TO_4_AUDIT.md) supersedes earlier
+local test/tool availability and independent CI/CD notes below. Branch `integration/main-kafka-production-20261011`
+is 15 commits ahead of fetched main, zero behind. Local fixes require shared same-SHA
+static/.NET/coverage and isolated Kafka/upgrades CI before production builds, with an
+exact trusted-source recheck before production access. Manual workflows and deployment
+safeguards are preserved. No remote changes or workflow dispatches were performed.
+
+Final disposable suite: GitHub 3/3, Jira 2/2, zero skips; both historical MySQL upgrades
+preserve existing tables/records and verify Kafka indexes. Unit/coverage, observability,
+operations and Bicep checks executed; exact commands/counts are in the audit.
+Production branch/reviewer protection is absent in read-only GitHub evidence; owner action
+and live provider/metrics/dashboard/mount/migration acceptance remain pending.
+
+Entries below are historical snapshots. Earlier Docker/tool limitations, unit counts,
+branch decisions and unexecuted local upgrades refer to those sessions.
+
 Update this file after each meaningful implementation session.
 
 This is intentionally short so the next agent does not re-audit everything.

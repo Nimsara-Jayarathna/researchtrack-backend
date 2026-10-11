@@ -1,5 +1,16 @@
 # DEVOPS-4.4 — Kafka failure recovery validation
 
+## Current verification — 2026-10-11 final audit
+
+The earlier three-test recovery evidence below is preserved. The expanded final suite
+executes five tests (GitHub 3, Jira 2), including real historical MySQL upgrades and
+identity/retry index verification, all passing with zero skips. A first rerun exposed a
+fresh-client `Local_UnknownPartition` metadata race; the fixture now retries that transient
+error within its existing 60-second bound while rejecting authorization failures/cancellation.
+Production client retry/security settings are unchanged. Failed and successful runs are retained.
+See [the final audit](../FINAL_DEVOPS_SPRINTS_1_TO_4_AUDIT.md) for current artifacts,
+same-SHA CI gating, production gaps and acceptance checklist. No production action occurred.
+
 Date: 2026-10-11. Worktree: `researchtrack-backend-integration-main-kafka`.
 Branch: `integration/main-kafka-production-20261011`.
 Scope: local test infrastructure, regression coverage, runbook and proposed verifier correction.

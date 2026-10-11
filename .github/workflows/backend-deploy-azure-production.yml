@@ -26,7 +26,15 @@ permissions:
   packages: read
 
 jobs:
+  validate:
+    if: ${{ github.ref == 'refs/heads/integration/main-kafka-production-20261011' }}
+    name: Required CI and trusted source eligibility
+    uses: ./.github/workflows/backend-release-validation.yml
+    permissions:
+      contents: read
+
   build:
+    needs: validate
     if: ${{ github.ref == 'refs/heads/integration/main-kafka-production-20261011' }}
     name: Build Changed Images
     uses: ./.github/workflows/backend-build-images.yml
@@ -44,7 +52,7 @@ jobs:
   deploy:
     if: ${{ github.ref == 'refs/heads/integration/main-kafka-production-20261011' }}
     name: Deploy Azure Production
-    needs: build
+    needs: [build, validate]
     runs-on: ubuntu-latest
     environment: production
 
@@ -66,10 +74,23 @@ jobs:
       - name: Checkout deployment files
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
           sparse-checkout: |
             deploy
             config/env
           sparse-checkout-cone-mode: false
+
+      - name: Recheck exact validated source before production access
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_RESULT: ${{ needs.validate.result }}
+          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_REF: ${{ github.ref }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
+          SOURCE_EVENT: ${{ github.event_name }}
+        run: python3 deploy/azure/scripts/release-policy.py
 
       - name: Validate workflow configuration
         shell: bash

@@ -1,5 +1,14 @@
 # Sprint 4 Kafka observability — local implementation audit
 
+## Current status — 2026-10-11 final audit
+
+This report preserves historical findings and prior-session actions. Current branch
+comparison, same-SHA CI gating, five executed isolated Kafka/MySQL recovery/upgrade tests,
+refreshed local validation and live acceptance gaps are consolidated in the
+[final Sprint 1–4 audit](../FINAL_DEVOPS_SPRINTS_1_TO_4_AUDIT.md). Earlier Docker-unavailable
+notes and conditional-test skip counts describe those sessions. No commit, push, merge,
+deployment, workflow dispatch or remote settings change occurred in this audit.
+
 2026-10-11, branch `devops/sprint4-kafka-infrastructure-verification`, unchanged HEAD `6911df78db0533ac6bea2387f9363e1d46d0def4`. Scope: local code/configuration/documentation and offline tests. Production visibility and alert transitions are not verified. No actual environment credentials were inspected or inserted.
 
 ## A. Existing architecture

@@ -1,5 +1,14 @@
 # Main / Kafka production integration review
 
+## Current status — 2026-10-11 final audit
+
+This report preserves historical findings and prior-session actions. Current branch
+comparison, same-SHA CI gating, five executed isolated Kafka/MySQL recovery/upgrade tests,
+refreshed local validation and live acceptance gaps are consolidated in the
+[final Sprint 1–4 audit](../FINAL_DEVOPS_SPRINTS_1_TO_4_AUDIT.md). Earlier Docker-unavailable
+notes and conditional-test skip counts describe those sessions. No commit, push, merge,
+deployment, workflow dispatch or remote settings change occurred in this audit.
+
 > Historical integration review. The user subsequently selected
 > `integration/main-kafka-production-20261011` as the production deployment source.
 > Its push filters, manual/reusable guards and CI triggers now supersede the main-only

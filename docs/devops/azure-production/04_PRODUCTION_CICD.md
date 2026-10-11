@@ -12,7 +12,12 @@ manual and reusable workflow calls. Backend CI runs on pushes to this branch and
 PRs targeting it, while retaining PR checks for `main` and `develop`. The repository
 default branch setting is unchanged. Existing manual test/operations workflows
 remain available with the integration branch selected. See `RUNBOOK.md` for the
-cutover procedure and the independent CI/deployment trigger behavior.
+cutover procedure and required same-SHA CI/source eligibility gate. Production pushes
+reuse Backend CI before image builds; manual production requests run the same checks.
+The isolated Kafka/recovery/MySQL-upgrade job is required. PR CI remains unprivileged.
+All release checkouts use `github.sha`; source eligibility is checked after CI and again
+before production access. See the [current audit](../FINAL_DEVOPS_SPRINTS_1_TO_4_AUDIT.md)
+for executed local tests and pending live acceptance.
 
 ## Images
 

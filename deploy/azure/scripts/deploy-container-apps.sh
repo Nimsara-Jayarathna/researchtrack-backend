@@ -52,7 +52,35 @@ db_services=" auth project github jira meeting submission "
 mkdir -p "$WORK_DIR"
 chmod 700 "$WORK_DIR"
 # Rendered specs contain secret values; never leave them behind.
-trap 'rm -rf "$WORK_DIR"' EXIT
+declare -A migration_status=() migration_seconds=() rollout_seconds=() health_seconds=()
+deployment_timing_summary() {
+  local result=$? service
+  if [[ -n "${migration_service:-}" && "${migration_status[$migration_service]:-}" == FAIL ]]; then
+    migration_seconds[$migration_service]=$((SECONDS - migration_started))
+  fi
+  {
+    echo
+    echo "| Service | Migration | Migration seconds | Rollout seconds | Revision health seconds |"
+    echo "|---|---|---:|---:|---:|"
+    for service in "${services[@]}"; do
+      echo "| $service | ${migration_status[$service]:-NOT EXECUTED} | ${migration_seconds[$service]:--} | ${rollout_seconds[$service]:--} | ${health_seconds[$service]:--} |"
+    done
+    echo
+    if ((result != 0)); then
+      echo "Application deployment: FAIL (exit $result); see the failed phase and rollback rows above."
+    elif [[ "$PLAN_ONLY" == true ]]; then
+      echo "Application deployment: PLAN ONLY; no migrations or rollouts executed."
+    elif ((${#planned[@]} == 0)); then
+      echo "Application deployment: UNCHANGED; no new version, migrations or rollouts."
+    else
+      echo "Application deployment: PASS; ${#planned[@]} changed applications."
+    fi
+  } >> "$summary"
+  rm -rf "$WORK_DIR"
+  return "$result"
+}
+planned=()
+trap deployment_timing_summary EXIT
 
 env_id="$(az containerapp env show -g "$RESOURCE_GROUP" -n "$ACA_ENVIRONMENT" --query id -o tsv)"
 location="$(az containerapp env show -g "$RESOURCE_GROUP" -n "$ACA_ENVIRONMENT" --query location -o tsv)"
@@ -130,7 +158,6 @@ render() {
 # Plan
 # ---------------------------------------------------------------------------
 declare -A target_image=() previous_revision=() source_commit=() deploy_reason=()
-planned=()
 
 {
   echo "### Azure Container Apps deployment"
@@ -241,7 +268,14 @@ run_migration() {
 echo "== Database checks and migrations"
 for service in "${planned[@]}"; do
   [[ "$db_services" == *" $service "* ]] || continue
+  migration_status[$service]=FAIL
+  migration_service=$service
+  migration_started=$SECONDS
+  # Keep the command outside an if/|| conditional so its internal errexit
+  # behavior and the migration-before-rollout safety gate remain unchanged.
   run_migration "$service"
+  migration_seconds[$service]=$((SECONDS - migration_started))
+  migration_status[$service]=PASS
 done
 
 # ---------------------------------------------------------------------------
@@ -324,6 +358,7 @@ for service in "${planned[@]}"; do
 
   # Create and update are the same declarative Bicep deployment. A failed
   # deployment still goes through revision checks and rollback below.
+  rollout_started=$SECONDS
   if ! az deployment group create \
       -g "$RESOURCE_GROUP" \
       -n "$app-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-0}" \
@@ -332,12 +367,16 @@ for service in "${planned[@]}"; do
       -o none; then
     echo "Bicep deployment of $app reported a failure." >&2
   fi
+  rollout_seconds[$service]=$((SECONDS - rollout_started))
   rm -f "$spec"
 
+  health_started=$SECONDS
   if new_revision="$(wait_for_revision "$service" "$app" "${target_image[$service]}")"; then
+    health_seconds[$service]=$((SECONDS - health_started))
     echo "   $app ready on $new_revision"
     summary_row "$service" deployed "${deploy_reason[$service]}" "$new_revision"
   else
+    health_seconds[$service]=$((SECONDS - health_started))
     az containerapp logs show -g "$RESOURCE_GROUP" -n "$app" --revision "$new_revision" --tail 100 2>/dev/null || true
     rollback "$service" "$app" "$new_revision"
     exit 1

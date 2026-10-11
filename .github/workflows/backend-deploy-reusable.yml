@@ -16,8 +16,15 @@ permissions:
   packages: read
 
 jobs:
+  validate-production:
+    if: ${{ inputs.environment_name == 'production' && github.ref == 'refs/heads/integration/main-kafka-production-20261011' }}
+    uses: ./.github/workflows/backend-release-validation.yml
+    permissions:
+      contents: read
+
   build:
-    if: ${{ inputs.environment_name != 'production' || github.ref == 'refs/heads/integration/main-kafka-production-20261011' }}
+    needs: validate-production
+    if: ${{ !cancelled() && (inputs.environment_name != 'production' || (github.ref == 'refs/heads/integration/main-kafka-production-20261011' && needs.validate-production.result == 'success')) }}
     name: Build Changed Images
     uses: ./.github/workflows/backend-build-images.yml
     with:
@@ -28,9 +35,9 @@ jobs:
       packages: write
 
   deploy:
-    if: ${{ inputs.environment_name != 'production' || github.ref == 'refs/heads/integration/main-kafka-production-20261011' }}
+    if: ${{ !cancelled() && needs.build.result == 'success' && (inputs.environment_name != 'production' || (github.ref == 'refs/heads/integration/main-kafka-production-20261011' && needs.validate-production.result == 'success')) }}
     name: Deploy ${{ inputs.environment_name }}
-    needs: build
+    needs: [build, validate-production]
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment_name }}
 
@@ -52,10 +59,23 @@ jobs:
       - name: Checkout deployment files
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
           sparse-checkout: |
             deploy
             config/env
           sparse-checkout-cone-mode: false
+
+      - name: Recheck production source before SSH access
+        if: ${{ inputs.environment_name == 'production' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_RESULT: ${{ needs.validate-production.result }}
+          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_REF: ${{ github.ref }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
+          SOURCE_EVENT: ${{ github.event_name }}
+        run: python3 deploy/azure/scripts/release-policy.py
 
       - name: Validate deployment configuration
         shell: bash

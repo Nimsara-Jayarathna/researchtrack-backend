@@ -3,7 +3,9 @@
 Updated 2026-10-11. Local contract/implementation approval does not authorize production
 writes, workflow dispatch, synthetic provider activity, secrets, deployment or restart.
 This guide prepares reviewable actions; no Azure production steps below ran in this session.
-The executed isolated recovery results are in [DEVOPS_4_4_REPORT.md](DEVOPS_4_4_REPORT.md).
+Current executed results and upgrade evidence are in the
+[final Sprint 1–4 audit](../FINAL_DEVOPS_SPRINTS_1_TO_4_AUDIT.md); the earlier
+[DEVOPS-4.4 report](DEVOPS_4_4_REPORT.md) remains historical evidence.
 
 ## Available local checks
 
@@ -49,12 +51,12 @@ key remains outside mounts. Application clients retain certificate and endpoint 
 Disposable MySQL uses loopback-only access and synthetic credentials; it is not the
 production TLS policy. No real env files or provider credentials are read.
 
-Only the two approved application topics are explicitly created, with one partition,
+The approved deployment-smoke topic and two application topics are explicitly created, with one partition,
 RF1 and 72h retention; auto-create is disabled. The fixture endpoint/database guard refuses
 Azure endpoints. The trap stops only its unique project and retains containers, messages, databases, volumes and temporary files for inspection. Nothing is deleted automatically.
 If startup/test fails, results must be FAIL or NOT EXECUTED, never a mocked fallback pass.
 
-Three conditional tests run with `Category=KafkaIntegration`:
+Five conditional tests run with `Category=KafkaIntegration`:
 
 - GitHub: two controlled broker outages surround publication and durable handoff/commit,
   followed by scheduled retry and automatic consumer rejoin. Signed ingress → actual MySQL inbox/outbox → real TLS producer acknowledgement →
@@ -69,16 +71,25 @@ Three conditional tests run with `Category=KafkaIntegration`:
   transaction → existing JiraSyncWorker and JiraSyncService → snapshot issue/revision.
   Duplicate replay and new clients verify receipt/job deduplication and broker offsets.
 
-Provider HTTP/client responses are stubbed, while the Kafka transport and business
-processing code are real. MySQL databases start fresh using EnsureCreated: this is not a
-migration-upgrade test. The fixture exercises the real broker stop/start, publisher reconnect and production consumer
+- GitHub historical migration upgrade: apply the real migration chain through
+  `20260923043000_AddGitHubSyncRevision`, seed repository/source/link records, then
+  upgrade to `20261010151156_AddKafkaWebhookMessaging`.
+- Jira historical migration upgrade: apply the real chain through
+  `20260923043100_AddJiraSyncRevision`, seed connection/issue records, then apply Kafka.
+  Both upgrades use separate loopback-only `_upgrade` databases, compare every existing
+  table’s schema/record hash, verify the receipt primary key and all three outbox
+  indexes, round-trip durable Kafka rows and prove migration reapplication is a no-op.
+
+Provider HTTP/client responses are stubbed, while Kafka transport and business
+processing are real. Flow databases use EnsureCreated; upgrade databases never do. The fixture exercises the real broker stop/start, publisher reconnect and production consumer
 worker rejoin boundaries. It does not restart a full Container Apps revision. Pending outbox crash-lease recovery is
 covered locally; production process restart still requires the separate evidence below.
 
-The manual-only workflow `.github/workflows/kafka-integration-tests.yml` runs the same
+The manual/reusable workflow `.github/workflows/kafka-integration-tests.yml` runs the same
 script on Ubuntu with Docker and uploads `artifacts/kafka-integration/` for 14 days.
 It has contents-read permission, no production environment/secrets/OIDC or deployment
-permission. It was not dispatched. GitHub requires a workflow to be published appropriately
+permission. It is also a required Backend CI job through a same-commit reusable call. No workflow
+was dispatched during this audit. GitHub requires a workflow to be published appropriately
 (on the default branch for workflow_dispatch UI discovery); arrange a reviewed publishing
 plan because pushing this task branch can trigger production CD. This isolated workflow
 is not an Azure integration success report.
@@ -94,7 +105,7 @@ is not an Azure integration success report.
 2. With deployment separately authorized, deploy application code/additive migrations using
    existing production CD while `Kafka__Enabled=false`. Migration Up adds only the outbox
    and receipt tables/indexes in each service database. Review schema state and backup policy
-   with database owners; no schema or data was changed in this session.
+   with database owners; no production schema or data was changed in this session.
 3. Review topic reconciliation dry run/check through an authorized Actions VM Run Command
    step using the existing production resource group and VM context. These commands are
    VM-side command text, not instructions to SSH:
@@ -228,7 +239,7 @@ in [operations](KAFKA_OPERATIONS.md) and requires separate approval.
    loopback databases; stops/restarts only its labelled Kafka container; preserves
    production TLS/client timeout/retry settings. MySQL uses required TLS in the fixture.
    Do not manually invoke the broker control script or supply Azure endpoints.
-3. A complete success requires **GitHub 2/2 and Jira 1/1 executed, zero skips**, the
+3. A complete success requires **GitHub 3/3 and Jira 2/2 executed, zero skips**, the
    final isolated health/smoke PASS and exit 0. Startup missing prerequisites return
    NOT EXECUTED/exit 2; assertions return FAIL. Look in the printed project's directory:
 
@@ -239,6 +250,7 @@ in [operations](KAFKA_OPERATIONS.md) and requires separate approval.
      group-github.txt, group-jira.txt
      healthy-<timestamp>.json
      metrics/*-business.json, *-offset-recovered.json
+     metrics/github-migration-upgrade.json, jira-migration-upgrade.json
      metrics/*-http-healthy.json, *-http-degraded.json
      metrics/*-outbox-pending.json, *-outbox-published.json
      metrics/*-outage.evidence, *-recovered.evidence, *-alerts.json
@@ -272,5 +284,5 @@ in [operations](KAFKA_OPERATIONS.md) and requires separate approval.
    Do not count the excluded categories as passed. Logs contain synthetic data only;
    retained fixture TLS/config/init files contain disposable secrets and must not be
    published. Disk usage grows on repeated runs: no cleanup/delete command is part
-   of this task. Container Apps revision restarts and migration upgrades are separate
-   evidence requirements.
+   of this task. Historical migration upgrades are included locally; production migration
+   history and Container Apps revision restarts remain separate evidence requirements.

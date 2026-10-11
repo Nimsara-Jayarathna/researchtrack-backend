@@ -1,5 +1,14 @@
 # Sprint 4 — Deploy and Configure Kafka Infrastructure
 
+## Current status — 2026-10-11 final audit
+
+This report preserves historical findings and prior-session actions. Current branch
+comparison, same-SHA CI gating, five executed isolated Kafka/MySQL recovery/upgrade tests,
+refreshed local validation and live acceptance gaps are consolidated in the
+[final Sprint 1–4 audit](../FINAL_DEVOPS_SPRINTS_1_TO_4_AUDIT.md). Earlier Docker-unavailable
+notes and conditional-test skip counts describe those sessions. No commit, push, merge,
+deployment, workflow dispatch or remote settings change occurred in this audit.
+
 Objective: complete Kafka operational verification while preserving the existing Azure deployment.
 
 Current application integration follow-up (2026-10-10): owner-approved same-service

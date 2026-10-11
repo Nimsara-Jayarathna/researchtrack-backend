@@ -85,9 +85,13 @@ EOF
 cat > "$RT_KAFKA_TEST_WORK/mysql-init/01-fixture.sql" <<EOF
 CREATE DATABASE researchtrack_kafka_github;
 CREATE DATABASE researchtrack_kafka_jira;
+CREATE DATABASE researchtrack_kafka_github_upgrade;
+CREATE DATABASE researchtrack_kafka_jira_upgrade;
 CREATE USER 'fixture'@'%' IDENTIFIED BY '$RT_KAFKA_TEST_PASSWORD';
 GRANT ALL ON researchtrack_kafka_github.* TO 'fixture'@'%';
 GRANT ALL ON researchtrack_kafka_jira.* TO 'fixture'@'%';
+GRANT ALL ON researchtrack_kafka_github_upgrade.* TO 'fixture'@'%';
+GRANT ALL ON researchtrack_kafka_jira_upgrade.* TO 'fixture'@'%';
 EOF
 # The MySQL entrypoint runs as its own UID; the isolated init SQL contains only disposable credentials.
 chmod 644 "$RT_KAFKA_TEST_WORK/mysql-init/01-fixture.sql"
@@ -134,11 +138,11 @@ import sys
 from pathlib import Path
 from xml.etree import ElementTree as ET
 ns={'t':'http://microsoft.com/schemas/VisualStudio/TeamTest/2010'}
-for service, count in [('GitHub',2),('Jira',1)]:
+for service, count in [('GitHub',3),('Jira',2)]:
     counters=ET.parse(Path(sys.argv[1],f'kafka-{service}.trx')).find('.//t:Counters',ns)
     assert counters is not None and int(counters.get('total')) == count
     assert int(counters.get('passed')) == count and int(counters.get('executed')) == count, 'Skipped or failed isolated test'
-print('PASS: all three isolated tests executed; no skips.')
+print('PASS: all five isolated tests executed; no skips.')
 PYTRX
 # Application tests already exercised outages through the guarded control bridge.
 # This final smoke covers recovered exporter health and existing topic state.

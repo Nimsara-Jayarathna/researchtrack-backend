@@ -1,8 +1,7 @@
 name: Backend CI
 
 on:
-  push:
-    branches: ["integration/main-kafka-production-20261011"]
+  workflow_call:
   pull_request:
     branches: ["develop", "main", "integration/main-kafka-production-20261011"]
 
@@ -17,6 +16,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
 
       - name: Validate deployment scripts and dashboard JSON
         shell: bash
@@ -93,6 +95,9 @@ jobs:
       - name: Test Kafka monitoring configuration, dashboards and Prometheus scenarios
         run: ./scripts/test-kafka-observability.sh
 
+      - name: Test production release trust and exact-commit policy (offline)
+        run: python3 deploy/azure/validation/test_release_policy.py
+
       - name: Test monitoring-only VM reconciliation (mocked Docker)
         run: python3 deploy/azure/validation/test_monitoring_reconciliation.py
 
@@ -156,3 +161,9 @@ jobs:
             artifacts/test-results/unit/
           if-no-files-found: warn
           retention-days: 14
+
+  kafka-integration:
+    name: Required isolated Kafka recovery and migration upgrades
+    uses: ./.github/workflows/kafka-integration-tests.yml
+    permissions:
+      contents: read

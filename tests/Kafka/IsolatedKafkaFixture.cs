@@ -273,7 +273,7 @@ public static class IsolatedKafkaFixture
         }
     }
 
-    private static async Task<T> ReadBrokerAsync<T>(Func<T> read, CancellationToken ct)
+    internal static async Task<T> ReadBrokerAsync<T>(Func<T> read, CancellationToken ct)
     {
         var deadline = DateTime.UtcNow.AddSeconds(60);
         while (true)
@@ -281,7 +281,7 @@ public static class IsolatedKafkaFixture
             ct.ThrowIfCancellationRequested();
             try { return read(); }
             catch (KafkaException ex) when (DateTime.UtcNow < deadline && ex.Error.Code is
-                ErrorCode.Local_DestroyBroker or ErrorCode.Local_Transport or ErrorCode.Local_TimedOut or
+                ErrorCode.Local_DestroyBroker or ErrorCode.Local_Transport or ErrorCode.Local_TimedOut or ErrorCode.Local_UnknownPartition or
                 ErrorCode.GroupLoadInProgress or ErrorCode.GroupCoordinatorNotAvailable or ErrorCode.NotCoordinatorForGroup)
             { await Task.Delay(250, ct); }
         }
