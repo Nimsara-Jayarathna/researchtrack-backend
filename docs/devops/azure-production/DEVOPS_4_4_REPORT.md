@@ -1,5 +1,17 @@
 # DEVOPS-4.4 — Kafka failure recovery validation
 
+## Current deployment evidence — 2026-10-11 hardening review
+
+The owner-published baseline `a26cfd2` passed required isolated GitHub 3/3, Jira 2/2,
+zero-skips coverage in [production run 38147705025](https://github.com/Nimsara-Jayarathna/researchtrack-backend/actions/runs/38147705025)
+and [PR CI 38149500022](https://github.com/Nimsara-Jayarathna/researchtrack-backend/actions/runs/38149500022).
+Historical MySQL upgrade coverage is included. Production deployment/migration/monitoring
+steps succeeded, but live provider-chain/metrics/panel/offset acceptance is still pending.
+No live outage or event injection occurred in this task. New local infrastructure gating
+and failure-path changes are documented in [FINAL_DEVOPS_HARDENING.md](../FINAL_DEVOPS_HARDENING.md).
+Earlier unexecuted tests and three-test counts below are historical, superseded by the
+five-test evidence; no old failure history is erased.
+
 ## Current verification — 2026-10-11 final audit
 
 The earlier three-test recovery evidence below is preserved. The expanded final suite

@@ -319,12 +319,15 @@ wait_for_revision() {
   local service="$1" app="$2" image="$3" app_json="" revision="" revision_json=""
   local provisioning="" health="" running="" ready="" running_image=""
   for _ in $(seq 1 60); do
-    app_json="$(az containerapp show -g "$RESOURCE_GROUP" -n "$app" -o json)"
-    revision="$(jq -r '.properties.latestRevisionName // ""' <<<"$app_json")"
-    ready="$(jq -r '.properties.latestReadyRevisionName // ""' <<<"$app_json")"
+    # Called from an if/command substitution: Bash disables implicit errexit
+    # inside this function. Fail explicitly on CLI or malformed response errors.
+    app_json="$(az containerapp show -g "$RESOURCE_GROUP" -n "$app" -o json)" || return 1
+    revision="$(jq -er '.properties.latestRevisionName // ""' <<<"$app_json")" || return 1
+    ready="$(jq -r '.properties.latestReadyRevisionName // ""' <<<"$app_json")" || return 1
     [[ -n "$revision" ]] || { sleep 10; continue; }
 
-    revision_json="$(az containerapp revision show -g "$RESOURCE_GROUP" -n "$app" --revision "$revision" -o json)"
+    revision_json="$(az containerapp revision show -g "$RESOURCE_GROUP" -n "$app" --revision "$revision" -o json)" || { echo "$revision"; return 1; }
+    jq -e '.properties | type == "object"' <<<"$revision_json" >/dev/null || { echo "$revision"; return 1; }
     provisioning="$(jq -r '.properties.provisioningState // ""' <<<"$revision_json")"
     health="$(jq -r '.properties.healthState // ""' <<<"$revision_json")"
     running="$(jq -r '.properties.runningState // ""' <<<"$revision_json")"
@@ -359,6 +362,7 @@ for service in "${planned[@]}"; do
   # Create and update are the same declarative Bicep deployment. A failed
   # deployment still goes through revision checks and rollback below.
   rollout_started=$SECONDS
+  rollout_failed=false
   if ! az deployment group create \
       -g "$RESOURCE_GROUP" \
       -n "$app-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-0}" \
@@ -366,12 +370,13 @@ for service in "${planned[@]}"; do
       -p @"$spec" \
       -o none; then
     echo "Bicep deployment of $app reported a failure." >&2
+    rollout_failed=true
   fi
   rollout_seconds[$service]=$((SECONDS - rollout_started))
   rm -f "$spec"
 
   health_started=$SECONDS
-  if new_revision="$(wait_for_revision "$service" "$app" "${target_image[$service]}")"; then
+  if new_revision="$(wait_for_revision "$service" "$app" "${target_image[$service]}")" && [[ "$rollout_failed" == false ]]; then
     health_seconds[$service]=$((SECONDS - health_started))
     echo "   $app ready on $new_revision"
     summary_row "$service" deployed "${deploy_reason[$service]}" "$new_revision"

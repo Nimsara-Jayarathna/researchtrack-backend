@@ -49,8 +49,23 @@ def render(run, jobs, sha, deploy_result, smoke_result):
                                 'Verify VM stack and monitoring', 'Verify private networking and Nginx -> Gateway')
     health = step_phase('Migrate databases and deploy changed Container Apps')
     public = step_phase('Verify public API endpoint')
+    restoration = step_phase('Restore exact pre-deployment runtime state',
+                             'Final Gateway configuration restoration safeguard',
+                             'Final restoration safeguard')
     smoke = {'success': 'PASS', 'failure': 'FAIL', 'cancelled': 'CANCELLED', 'skipped': 'SKIPPED'}.get(smoke_result, 'INCOMPLETE')
-    final = ('FAIL' if deploy_result != 'success' or ci_result != 'PASS' or smoke in ('FAIL', 'CANCELLED', 'INCOMPLETE')
+    # Aggregate caller results are authoritative, but inconsistent/missing job
+    # metadata must never conceal a readiness, restoration or unrelated failure.
+    failed_evidence = any(row.get('conclusion') in ('failure', 'cancelled', 'timed_out', 'action_required', 'startup_failure', 'stale')
+                          for row in jobs + steps)
+    required_names = ['Static Azure infrastructure preflight', 'Runtime deployment preflight',
+                      'Verify VM stack and monitoring', 'Verify private networking and Nginx -> Gateway',
+                      'Migrate databases and deploy changed Container Apps', 'Restore exact pre-deployment runtime state']
+    if smoke == 'PASS':
+        required_names += ['Start Azure → optional Gateway allowance → VPS k6 → restore Gateway and Azure',
+                          'Final Gateway configuration restoration safeguard', 'Final restoration safeguard']
+    complete = all(len([step for step in steps if step.get('name') == name and step.get('conclusion') == 'success']) == 1
+                   for name in required_names)
+    final = ('FAIL' if deploy_result != 'success' or ci_result != 'PASS' or failed_evidence or not complete or smoke in ('FAIL', 'CANCELLED', 'INCOMPLETE')
              else 'PASS' if smoke == 'PASS' else 'DEPLOYMENT PASSED; SMOKE SKIPPED — FINAL ACCEPTANCE PENDING')
     # created_at refers to the original run; it cannot measure a rerun's queue.
     queue = elapsed(run.get('created_at'), run.get('run_started_at')) if run.get('run_attempt') == 1 else None
@@ -67,9 +82,11 @@ def render(run, jobs, sha, deploy_result, smoke_result):
              f'| Infrastructure verification | {infrastructure[0]} | {infrastructure[1]} |',
              f'| Migration/rollout/revision health step | {health[0]} | {health[1]} |',
              f'| Optional public HTTP readiness | {public[0]} | {public[1]} |',
-             f'| k6 smoke runtime session (includes acquire/restore) | {smoke} | {smoke_phase[1]} |', '',
+             f'| k6 smoke runtime session (includes acquire/restore) | {smoke} | {smoke_phase[1]} |',
+             f'| Runtime/Gateway restoration safeguards | {restoration[0]} | {restoration[1]} |', '',
              'Individual migration, rollout and revision-health timings appear in the deployment table. Parallel durations are wall intervals, not summed worker time.',
-             'k6-only timing and thresholds appear in its existing performance reports. A failed k6 smoke fails the release; use the reviewed revision rollback plan.', '']
+             'k6-only timing and thresholds appear in its existing performance reports. A failed k6 smoke fails the release; use the reviewed revision rollback plan.',
+             'On failure: retain run logs, image digests, migration/revision tables and Azure/Gateway snapshot artifacts. Check restoration first; then diagnose readiness, networking and k6 thresholds. Multi-service/schema rollback requires operator review; never reset Kafka offsets or remove durable pending events.', '']
     return '\n'.join(lines)
 
 

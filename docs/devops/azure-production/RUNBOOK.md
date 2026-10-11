@@ -6,7 +6,7 @@ Operator steps for the implementation in `deploy/azure/`. The architecture is in
 
 | Workflow | Trigger | Does |
 |---|---|---|
-| `azure-infrastructure.yml` | manual; `integration/main-kafka-production-20261011` pushes touching the existing infrastructure path filters | Bicep build → OIDC → What-If gate → Bicep deploy (subscription scope) → `configure-vm.sh` → VM stack reconcile → VM/network validation → Container Apps network probe |
+| `azure-infrastructure.yml` | manual; `integration/main-kafka-production-20261011` pushes touching the existing infrastructure path filters | required CI/Kafka → trusted exact SHA → Bicep build → production Environment → recheck SHA → OIDC → What-If gate → Bicep deploy (subscription scope) → `configure-vm.sh` → VM stack reconcile → VM/network validation → Container Apps network probe |
 | `backend-deploy-production.yml` → `backend-deploy-azure-production.yml` | `integration/main-kafka-production-20261011` pushes; manual | required static/.NET/coverage + isolated Kafka/upgrades CI → exact trusted SHA/current branch check → build changed images (GHCR, immutable source images) → recheck SHA → validate env → OIDC → capture/wake runtime → preflight → per changed service: `dbcheck`/`migrate` job → Bicep app deployment → readiness → rollback on failure → full verification → restore original runtime power states |
 
 Both workflows share the concurrency group `researchtrack-azure-production`, so they never overlap. Neither falls back to the VPS.
@@ -34,7 +34,7 @@ still follows a successful production deployment when enabled.
 
 ### Required same-commit release gate (2026-10-11)
 
-The former independent CI/CD push behavior is corrected locally. The production
+The former independent application CI/CD push behavior is corrected and demonstrated in run 38147705025 at a26cfd2. The production
 entrypoint calls `backend-release-validation.yml`, which runs the shared Backend CI
 and isolated Kafka suite before any image builds. Manual production requests run the
 same validation. CI has contents-read permission without production secrets/OIDC.
@@ -60,7 +60,8 @@ revision plan below. Do not roll back additive Kafka migrations or clear outboxe
 Set `K6_AUTO_SMOKE_ENABLED=true` and review `PRODUCTION_VERIFY_PUBLIC_ENDPOINT=true`
 for final public release acceptance; neither setting was changed here.
 
-The infrastructure path filters, secret delivery, environment/OIDC, concurrency,
+The new local infrastructure gate uses the same reusable validation before Bicep and
+rechecks the source before credentials. The infrastructure path filters, secret delivery, environment/OIDC, concurrency,
 What-If refusal, migrations, image provenance, rollback, runtime restoration and TLS
 are unchanged. No commit, push, deployment or remote policy edit was performed.
 
@@ -324,3 +325,74 @@ stack. Its existing OIDC, production environment, concurrency and What-If gate a
 `KAFKA_RETENTION_HOURS` is an optional production variable (default 72), applied during
 the next approved infrastructure reconciliation. See [KAFKA_TASK_REPORT.md](KAFKA_TASK_REPORT.md)
 for offline results and outstanding live evidence.
+
+## Final hardening operator checklist — 2026-10-11
+
+Application gating is demonstrated in [38147705025](https://github.com/Nimsara-Jayarathna/researchtrack-backend/actions/runs/38147705025).
+New infrastructure gating, ARM-failure handling and summary regressions are local only.
+Follow [the exact GitHub UI checklist](../configuration/GITHUB_ENVIRONMENTS.md#owner-protection-checklist--verified-2026-10-11)
+before publishing: target only the integration branch, require the observed PR checks,
+restrict production Environment branches, and preserve reviewers/secrets/OIDC.
+The branch and Environment still lack protection in current read-only evidence.
+
+Public endpoint verification is optional and was SKIPPED in the confirmed deployment.
+Before enabling Environment variable `PRODUCTION_VERIFY_PUBLIC_ENDPOINT=true`, inspect
+`PRODUCTION_API_HOSTNAME` and confirm DNS, trusted TLS, edge routing and unauthenticated
+GET `/health/ready` returns HTTP 200 while runtime is already available. The local check
+requires exactly 200, has ten bounded attempts and uses normal certificate verification;
+it rejects redirects, uses no credentials, and performs no write. Existing Degraded/200
+readiness policy is retained; use Kafka/Prometheus evidence for messaging health.
+
+### Failed release decision path
+
+1. Preserve the run/attempt SHA, CI results, immutable image digests, migration/rollout
+   table, previous/new revision names, k6 report/thresholds and snapshot artifacts.
+2. If deployment, readiness, infrastructure verification, k6 or restoration failed or
+   was cancelled, treat the release as failed. A successful reporting job cannot override
+   those required jobs. A skipped optional k6 is final acceptance pending, never PASS.
+3. Check **Restore exact pre-deployment runtime state**, **Final restoration safeguard**
+   and **Final Gateway configuration restoration safeguard** first. Failure is fatal;
+   use the captured `azure-production-runtime-before-deploy-<run>-<attempt>` or
+   `azure-k6-runtime-state-<run>-<attempt>` and, when present,
+   `azure-k6-gateway-state-<run>-<attempt>` artifacts. Confirm current state/ownership and
+   absence of another active release before authorizing restoration. Do not overwrite
+   a newer operator change or infer original state from an incomplete snapshot.
+4. ARM/Bicep reconciliation errors remain deployment failures even if an existing
+   revision is healthy on the target image. Per-app rollback keeps/reactivates the
+   captured previous healthy revision; inspect rollback warnings for manual attention.
+5. Inspect failed readiness/private-network/monitoring checks and k6 failed thresholds
+   independently. An unrelated infrastructure error is not evidence of a Kafka defect.
+6. Before any cross-service revision rollback, review all six applied migration results,
+   mixed-service compatibility and Kafka consumers' compatibility with durable pending
+   work. Choose previous healthy Kafka-capable images/revisions by recorded digest.
+   Use the existing separately approved revision process; do not invent an automatic
+   cross-service/schema rollback after k6 failure. Do not run migration Down, offset
+   reset, topic recreation or outbox/receipt deletion.
+7. Repeat read-only health/scrape/business-result/offset verification and capture evidence
+   after approved recovery. A green workflow alone does not complete live event acceptance.
+
+### Monitoring version capture (read-only; owner access)
+
+On the already-running VM through an approved existing access context:
+
+```bash
+for service in prometheus grafana; do
+  id="$(/opt/researchtrack/scripts/compose.sh ps -q "$service")"
+  test -n "$id" || { echo "$service missing"; continue; }
+  image="$(docker inspect --format '{{.Image}}' "$id")"
+  docker inspect --format '{{.Name}} {{.Config.Image}} {{.Image}}' "$id"
+  docker image inspect --format '{{json .RepoDigests}}' "$image"
+  docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "$image"
+done
+```
+
+Capture IDs/RepoDigests/version labels, not `.Config.Env` or runtime files. Empty digest
+or version metadata requires further owner verification, never a guessed replacement.
+Declared references remain `prom/prometheus:latest`, `grafana/grafana:latest`; no live
+version/digest was obtained here. After evidence, backup/restore compatibility review and
+owner approval, pin exactly the deployed compatible version/digest in Compose through a
+reviewed change. Do not pull/recreate containers, change Grafana database format or
+Prometheus storage version during this read-only task.
+
+See [hardening test results](../FINAL_DEVOPS_HARDENING.md) and
+[Kafka acceptance procedure](KAFKA_OPERATIONS.md#final-production-acceptance--operator-controlled).

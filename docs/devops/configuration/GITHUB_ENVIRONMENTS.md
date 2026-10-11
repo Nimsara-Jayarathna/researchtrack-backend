@@ -12,7 +12,7 @@ This is the authoritative inventory, derived from `secrets.*` and `vars.*` refer
 
 > Both Production workflows select `integration/main-kafka-production-20261011` (see `../azure-production/DECISIONS.md`). The OIDC federated credential is bound to the `production` Environment, not a branch. An owner should restrict the Environment's deployment branches to that exact branch, preserving secrets, reviewers and OIDC; remote settings were not changed. See the runbook for other branches' old workflow copies.
 
-`backend-ci.yml` (integration-branch pushes and pull requests) and `backend-build-images.yml` use no environment secrets. Image pushes use the automatic `GITHUB_TOKEN`.
+`backend-ci.yml` (reused by production entrypoints; independently on pull requests) and `backend-build-images.yml` use no environment secrets. Image pushes use the automatic `GITHUB_TOKEN`.
 
 Production **never** falls back to the VPS. `backend-deploy-reusable.yml` is only called by the Test workflow.
 
@@ -113,3 +113,88 @@ These are no longer read by any Production workflow. They were used by the old V
 | `ACA_ENV_DOMAIN`, `ACA_ENV_STATIC_IP`, `INFRA_PRIVATE_IP`, resource names | Bicep outputs, read by `azure-infrastructure.yml` | Azure |
 | Kafka CA, broker certificate, keystore password, cluster ID | VM `/data/researchtrack/kafka/` | Generated on the VM by `reconcile-stack.sh`; never in GitHub |
 | `RT_BOOTSTRAP_RESOURCE_GROUP`, `RT_DEPLOY_IDENTITY_NAME` | Local shell when running `bootstrap-oidc.sh` | Optional overrides of `rg-researchtrack-bootstrap` and `id-researchtrack-github-prod` |
+
+## Owner protection checklist — verified 2026-10-11
+
+Read-only GitHub evidence at `a26cfd2b2b2093a8be45ef4a80c493af3d29958e` still shows
+integration `protected:false` and production `deployment_branch_policy:null`,
+`protection_rules:[]`. Active rulesets target main/develop. No setting was edited.
+The application gate is demonstrated in [run 38147705025](https://github.com/Nimsara-Jayarathna/researchtrack-backend/actions/runs/38147705025).
+The new infrastructure gate remains local until owner review/publication.
+
+### A. Exact production branch ruleset
+
+1. Open repository **Settings → Rules → Rulesets → New ruleset → New branch ruleset**.
+2. Name it `Protect production integration`; set **Enforcement status: Active**.
+3. Under **Target branches → Add target → Include by pattern**, enter exactly
+   `integration/main-kafka-production-20261011`. Review the matching-branches preview.
+4. Enable **Require a pull request before merging**, at least one independent approval,
+   dismiss stale approvals and require approval of the latest reviewable push. Enable
+   Code Owner review where a maintained CODEOWNERS policy exists; do not invent owners.
+5. Enable **Require status checks to pass**, choose GitHub Actions as the expected source,
+   and select these actual PR check-run names observed in [CI run 38149500022](https://github.com/Nimsara-Jayarathna/researchtrack-backend/actions/runs/38149500022):
+   - `Restore, Build and Test`
+   - `Required isolated Kafka recovery and migration upgrades / kafka-integration`
+6. Review **Require branches to be up to date before merging**, **Block force pushes**,
+   **Restrict deletions**, and required conversation resolution. Use an empty bypass list
+   unless a narrowly scoped emergency owner/team is explicitly approved and audited.
+7. Save, inspect the effective rule preview, and confirm a normal PR requires both checks.
+   Capture settings and successful/blocked PR evidence without bypassing the rules.
+
+Reusable job names include caller prefixes. Do not select a reusable workflow filename or
+production deployment check as a PR status requirement; deployment checks do not run on
+PRs and would create an impossible approval path. Check names must be copied from the
+current PR check-runs again if job names change. The release gate reruns required CI for
+the exact release SHA and requires strict success even if GitHub branch rules accept
+neutral/skipped conclusions. No merge queue is enabled here; introducing one requires
+reviewing the existing PR workflow's `merge_group` support first.
+
+### B. Exact production Environment restriction
+
+1. Open **Settings → Environments → production → Deployment branches and tags**.
+2. Choose **Selected branches and tags**. Add a **Branch** rule matching exactly
+   `integration/main-kafka-production-20261011`. Remove broader production allow patterns
+   only after checking all approved consumers. Add no tag or `refs/pull/*` rule.
+3. Under protection rules, configure independent **Required reviewers**, enable
+   **Prevent self-review** where supported, and review/disallow administrator bypass where
+   supported by the repository plan. Record any plan limitation as unresolved acceptance.
+4. Preserve all existing Environment secrets/variables and the Azure OIDC subject
+   `repo:Nimsara-Jayarathna/researchtrack-backend:environment:production`; do not recreate
+   credentials or replace it with a branch subject.
+5. Save and inspect the effective restrictions; retain evidence that main, develop,
+   feature branches, tags and PR refs are excluded. Do not dispatch a deployment to test
+   the restriction during this local task.
+
+**Protected branches only** is unsuitable for this single approved source: main/develop
+also have protection. Use the exact selected Branch rule. Environment rules control jobs
+referencing production; they do not secure repository-level SSH secrets or old jobs that
+omit the Environment. Inventory those separately before retiring a legacy path.
+
+### C. Legacy paths and safe transition
+
+Workflow definitions are read from each pushed ref. Editing the integration worktree
+cannot remove main's or `devops/sprint4-kafka-infrastructure-verification`'s old deployment
+copies. First apply the reviewed Environment restriction, audit Azure federated subjects
+and privileges and check queued/running releases. Then, through reviewed PRs on each
+previously deploying branch, remove/guard only their production trigger while preserving
+Test/manual operations. Older builds can still publish mutable tags before an Environment
+gate; production must retain immutable source fingerprints/digest/OCI checks. Never rely
+on renaming a branch or changing the repository default as a credential boundary.
+
+### D. Optional public verification
+
+Verify the existing Environment variable `PRODUCTION_API_HOSTNAME`, DNS/valid certificate,
+Nginx routing and anonymous `GET https://<hostname>/health/ready` contract while runtime is
+already available through an approved access context. Expected HTTP 200; redirects, TLS
+errors and 4xx/5xx must fail. Readiness may report Degraded with 200 under the existing
+policy; this check does not establish healthy Kafka processing. Then set the production
+Environment variable **PRODUCTION_VERIFY_PUBLIC_ENDPOINT=true** through the UI. The exact
+string `true` enables it; unset/false disables it. No variable was changed here.
+
+The reusable caller's `K6_AUTO_SMOKE_ENABLED` job condition is evaluated before its callee
+enters production: keep that flag in repository/organization variable scope if required
+there. k6 endpoint thresholds remain unchanged; do not invent a Jira passing target.
+
+Official references: [rulesets](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets),
+[reusable check naming](https://docs.github.com/en/enterprise-cloud@latest/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/troubleshooting-rules),
+[Environment rules and plan availability](https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments).

@@ -49,12 +49,22 @@ permissions:
   contents: read
 
 jobs:
+  eligibility:
+    if: ${{ github.ref == 'refs/heads/integration/main-kafka-production-20261011' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+    name: Required CI and infrastructure source eligibility
+    uses: ./.github/workflows/backend-release-validation.yml
+    permissions:
+      contents: read
+
   validate:
     name: Validate Bicep
+    needs: eligibility
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
           sparse-checkout: deploy/azure
       - name: Build Bicep
         run: |
@@ -64,7 +74,7 @@ jobs:
   deploy:
     if: ${{ github.ref == 'refs/heads/integration/main-kafka-production-20261011' }}
     name: Reconcile Azure Production infrastructure
-    needs: validate
+    needs: [eligibility, validate]
     runs-on: ubuntu-latest
     environment: production
     permissions:
@@ -87,10 +97,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
           sparse-checkout: |
             deploy
             config/env
           sparse-checkout-cone-mode: false
+
+      - name: Recheck exact validated infrastructure source before production access
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_RESULT: ${{ needs.eligibility.result }}
+          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_REF: ${{ github.ref }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
+          SOURCE_EVENT: ${{ github.event_name }}
+        run: python3 deploy/azure/scripts/release-policy.py
 
       - name: Validate workflow configuration
         shell: bash

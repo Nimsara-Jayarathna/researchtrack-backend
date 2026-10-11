@@ -93,6 +93,13 @@ class ReleaseSummary(unittest.TestCase):
         run = dict(run_attempt=attempt, created_at='2026-10-11T09:59:00Z', run_started_at='2026-10-11T10:00:00Z')
         if jobs is None:
             jobs = [self.job('validate / ci / Restore, Build and Test'), self.job('validate / ci / kafka-integration')]
+            required = ['Static Azure infrastructure preflight', 'Runtime deployment preflight',
+                        'Verify VM stack and monitoring', 'Verify private networking and Nginx -> Gateway',
+                        'Migrate databases and deploy changed Container Apps', 'Restore exact pre-deployment runtime state']
+            if smoke == 'success':
+                required += ['Start Azure → optional Gateway allowance → VPS k6 → restore Gateway and Azure',
+                             'Final Gateway configuration restoration safeguard', 'Final restoration safeguard']
+            jobs.append(dict(self.job('Deploy/Smoke evidence'), steps=[self.job(name) for name in required]))
         return summary.render(run, jobs, 'a' * 40, deploy, smoke)
 
     def test_success_requires_both_ci_jobs_and_smoke(self):
@@ -122,6 +129,43 @@ class ReleaseSummary(unittest.TestCase):
     def test_rerun_cannot_claim_original_run_queue_duration(self):
         self.assertIn('| Workflow queue | MEASURED | 60 |', self.render())
         self.assertIn('| Workflow queue | NOT AVAILABLE (rerun/missing timestamp) | - |', self.render(attempt=2))
+
+    def test_smoke_cancelled_missing_or_inconclusive_fails_and_skipped_stays_pending(self):
+        for result in ['cancelled', '', 'neutral', None]:
+            with self.subTest(result=result):
+                self.assertIn('**FAIL**', self.render(smoke=result))
+        self.assertIn('FINAL ACCEPTANCE PENDING', self.render(smoke='skipped'))
+
+    def test_failed_deploy_restoration_readiness_or_infrastructure_is_visible(self):
+        # Start with realistic successful metadata, then inject each failure even
+        # if caller aggregate results incorrectly claim success.
+        names = ['Static Azure infrastructure preflight', 'Runtime deployment preflight',
+                 'Verify VM stack and monitoring', 'Verify private networking and Nginx -> Gateway',
+                 'Migrate databases and deploy changed Container Apps', 'Restore exact pre-deployment runtime state',
+                 'Start Azure → optional Gateway allowance → VPS k6 → restore Gateway and Azure',
+                 'Final Gateway configuration restoration safeguard', 'Final restoration safeguard']
+        for failed in names + ['Unrelated infrastructure error']:
+            with self.subTest(failed=failed):
+                steps = [self.job(name, 'failure' if name == failed else 'success') for name in names]
+                if failed not in names:
+                    steps.append(self.job(failed, 'failure'))
+                jobs = [self.job('Restore, Build and Test'), self.job('kafka-integration'),
+                        dict(self.job('Deploy'), steps=steps)]
+                result = self.render(jobs=jobs)
+                self.assertIn('**FAIL**', result)
+                self.assertIn('Check restoration first', result)
+                self.assertIn('| Runtime/Gateway restoration safeguards |', result)
+
+    def test_missing_readiness_or_restoration_evidence_cannot_claim_pass(self):
+        self.assertIn('**FAIL**', self.render(jobs=[self.job('Restore, Build and Test'), self.job('kafka-integration')]))
+
+    def test_reporting_cannot_override_failed_required_jobs(self):
+        entry = (ROOT / '.github/workflows/backend-deploy-production.yml').read_text()
+        self.assertIn('needs: [deploy, performance_smoke]', entry)
+        self.assertIn('DEPLOY_RESULT: ${{ needs.deploy.result }}', entry)
+        self.assertIn('SMOKE_RESULT: ${{ needs.performance_smoke.result }}', entry)
+        for path in ['backend-deploy-production.yml', 'backend-deploy-azure-production.yml', 'azure-performance-k6-reusable.yml']:
+            self.assertNotIn('continue-on-error:', (ROOT / '.github/workflows' / path).read_text())
 
 
 if __name__ == '__main__':

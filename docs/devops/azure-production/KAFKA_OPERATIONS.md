@@ -367,3 +367,111 @@ compares exact timestamp identity in SQL. If a previously held consumer hit this
 verify the deployed image contains the correction, then use the separately approved
 application rollout/restart process. Preserve the original outbox, receipt state and offsets;
 never round/repair stored timestamps, republish forged events or skip the held record.
+
+## Final production acceptance — operator controlled
+
+The existing isolated five-test suite exercises recovery, real GitHub/Jira business
+processing and both historical MySQL upgrades. The owner-published application gate ran
+it successfully at `a26cfd2` in [38147705025](https://github.com/Nimsara-Jayarathna/researchtrack-backend/actions/runs/38147705025).
+This is separate from live provider-chain acceptance. Single-node KRaft/RF1 remains a
+VM/disk-loss and broker-availability limitation; no production outage test is authorized.
+
+### Read-only collection
+
+Use an already-approved access context while runtime is already running; this procedure
+does not start it. Azure Run Command submission itself is an operational action needing
+separate authorization. Check deployed script availability before use. As the authorized
+VM operator:
+
+```bash
+/opt/researchtrack/scripts/verify-kafka.sh --check
+/opt/researchtrack/scripts/kafka-topics.sh reconcile --check
+/opt/researchtrack/scripts/kafka-topics.sh describe researchtrack.github.events.v1
+/opt/researchtrack/scripts/kafka-topics.sh config researchtrack.github.events.v1
+/opt/researchtrack/scripts/kafka-topics.sh describe researchtrack.jira.events.v1
+/opt/researchtrack/scripts/kafka-topics.sh config researchtrack.jira.events.v1
+/opt/researchtrack/scripts/diagnose-kafka-mounts.sh
+sha256sum /data/researchtrack/kafka/cluster-id /data/researchtrack/kafka/data/meta.properties
+/opt/researchtrack/scripts/compose.sh exec -T kafka /opt/kafka/bin/kafka-consumer-groups.sh \
+  --bootstrap-server localhost:29092 --describe --group researchtrack-github-webhook-v1
+/opt/researchtrack/scripts/compose.sh exec -T kafka /opt/kafka/bin/kafka-consumer-groups.sh \
+  --bootstrap-server localhost:29092 --describe --group researchtrack-jira-webhook-v1
+curl -fsS http://127.0.0.1:9090/-/ready
+curl -fsS http://127.0.0.1:9090/api/v1/targets | jq '.data.activeTargets[] | {labels,health,lastError}'
+curl -fsS --get http://127.0.0.1:9090/api/v1/query \
+  --data-urlencode 'query=researchtrack_kafka_broker_healthy'
+curl -fsS --get http://127.0.0.1:9090/api/v1/query \
+  --data-urlencode 'query=researchtrack_kafka_outbox_messages'
+curl -fsS --get http://127.0.0.1:9090/api/v1/query \
+  --data-urlencode 'query=ALERTS{alertname=~"ResearchTrackKafka.*",alertstate="firing"}'
+curl -fsS http://127.0.0.1:3000/api/health
+```
+
+Expected: broker running/healthy, only private verified SSL/9092 exposed, exact allowed
+persistent/config mounts, identity hash retained, approved topics partitions 1/RF1,
+application retention 259200000 ms; smoke retention is separately 24 hours. Both groups
+must be present/active after legitimate traffic with committed offsets advancing toward
+log end. Missing inactive groups are missing evidence, not permission to create/reset them.
+Prometheus exporter/service targets should be UP; backlog should drain within its retry
+schedule, held/failed work should be investigated, not cleared. Exporter broker health
+must be 1. Grafana health confirms its server/database only: inspect the authenticated
+Kafka dashboard (UID from provisioned JSON), datasource health, time range and panel errors
+manually, with no credential/token screenshots. Absence of alerts alone is not proof of
+monitoring: check loaded rules, targets and metric presence.
+
+Inspect Container App configuration through approved read-only Azure access without
+printing secret values. For GitHub/Jira, select only Kafka keys excluding Base64 certificate
+value, and confirm CA uses `secretRef`, enabled true, private bootstrap endpoint, SSL,
+certificate verification true, endpoint identification https, approved v1 topic and groups.
+Use each existing private FQDN for verified HTTPS GET `/health/live`, `/health/ready` and
+`/metrics`; preserve output only after redacting identifiers and confirming metrics carry
+bounded labels. Verify `researchtrack_kafka_publish_total`, consume outcomes/consumer health
+and outbox gauges exist in the deployed image; zero traffic counters may require the
+separately authorized event below. No new public metrics exposure is required.
+
+Through a preconfigured read-only SQL account in **each service database**, collect only:
+
+```sql
+SELECT Status, COUNT(*) AS Messages, MIN(NextAttemptAtUtc) AS NextRetryUtc
+FROM kafka_outbox_messages GROUP BY Status;
+SELECT COUNT(*) AS Receipts FROM kafka_inbox_receipts;
+SELECT MigrationId FROM __EFMigrationsHistory ORDER BY MigrationId;
+```
+
+Use existing secure credential delivery, never passwords in command arguments/evidence.
+Do not select payloads, provider tokens or private keys. Compare migration history and
+counts to approved before/after evidence; automatic migration success does not prove a
+production backup or every historical row's preservation.
+
+For the mount assertion, preserve actual mounts/image-declared volumes plus assertion
+name/UTC/SHA. If all exact binds and only allowed anonymous image volumes match, and the
+installed verifier has the obsolete exact-five rule, the narrow proposal is delivery of
+only the reviewed verifier followed by `--check`, through a separately approved operation.
+Do not remount, chmod, recreate the container or edit the live verifier during diagnosis.
+
+### Separately authorized event acceptance
+
+These steps create provider events/business state and require an explicit owner-approved
+synthetic project/repository/Jira issue. They are not performed by the read-only checks.
+
+1. Record SHA/images/revisions, topic/config/identity, provider correlation ID, current
+   outbox/receipt/business counts, group offsets and scrape/rule/dashboard state.
+2. **GitHub:** generate one approved signed provider webhook through normal ingress.
+   Observe accepted delivery → atomic durable outbox → PUBLISHED after TLS Kafka ack →
+   consumer handoff with one durable receipt → existing sync job/worker → expected mirror
+   SHA/commit/activity result → committed next offset (no skipped record) → lag returns to 0.
+   Capture service publish/consume/business metrics and real panel traffic. Investigate
+   alerts according to their real `for`/evaluation windows; no production failure injection.
+3. **Jira:** generate one approved authenticated provider issue update through normal
+   ingress. Observe durable webhook/outbox → Kafka ack → receipt and scheduled sync job →
+   existing worker updates the approved issue snapshot/SyncRevision → committed next offset
+   and lag 0 → deployed service metrics, scrape and Grafana evidence.
+4. Any duplicate delivery check is a separate approved action; verify one logical handoff/
+   business effect rather than republishing forged Kafka payloads or editing receipt rows.
+5. Capture UTC time, run/attempt/SHA, redacted correlation, numeric counts/offsets, health,
+   metrics/rule results and dashboard screenshots. Retain failures as well as successes.
+   Mark the chain incomplete if any stage lacks evidence. Preserve all pending/failed events.
+
+No `--smoke`, `--restart`, topic create/apply, broker reconfiguration, offset reset or
+SQL repair occurs in this procedure. Use the reviewed release/runtime/revision rollback
+plan if acceptance fails; retain compatible Kafka consumers, additive tables and all data.

@@ -98,6 +98,9 @@ jobs:
       - name: Test production release trust and exact-commit policy (offline)
         run: python3 deploy/azure/validation/test_release_policy.py
 
+      - name: Test infrastructure release gate and optional public readiness (offline)
+        run: python3 deploy/azure/validation/test_workflow_release_gates.py
+
       - name: Test monitoring-only VM reconciliation (mocked Docker)
         run: python3 deploy/azure/validation/test_monitoring_reconciliation.py
 

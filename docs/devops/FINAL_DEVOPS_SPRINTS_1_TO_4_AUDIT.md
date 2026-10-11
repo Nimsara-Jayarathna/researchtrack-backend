@@ -1,5 +1,73 @@
 # Final DevOps Sprints 1–4 audit
 
+## Current dated verification — 2026-10-11, a26cfd2 hardening review
+
+HEAD was clean and exactly `a26cfd2b2b2093a8be45ef4a80c493af3d29958e` before editing.
+Fetched `origin/main` is `141181575e7b7fdda75e31356bfe9a980deadb7c`; integration is
+16 commits ahead, zero behind. No newer source changes needed integration.
+
+The application release gate is **IMPLEMENTED AND DEMONSTRATED**, superseding the
+pre-publication statements in the original audit below. Read-only GitHub verification
+confirmed [production run 38147705025](https://github.com/Nimsara-Jayarathna/researchtrack-backend/actions/runs/38147705025)
+and [PR Backend CI 38149500022](https://github.com/Nimsara-Jayarathna/researchtrack-backend/actions/runs/38149500022)
+succeeded at that exact SHA. Required CI, all five isolated tests, source eligibility,
+seven image builds, six service migration log confirmations, all seven application
+rollouts/health checks, infrastructure verification, exact runtime restoration and k6
+smoke succeeded. The explicit public readiness step was **SKIPPED**. These executions
+were performed before this task; no new workflow was triggered here.
+
+Current read-only settings still show integration `protected:false`, no required checks,
+and production `deployment_branch_policy:null`, `protection_rules:[]`. Active main/develop
+rulesets do not establish protection of integration. Owner settings remain incomplete.
+
+### Current issue classification and acceptance
+
+| Item | Current classification / resolution | Evidence still needed |
+|---|---|---|
+| Application exact-SHA CI gate | Already fixed and demonstrated at a26cfd2; preserved | Owner branch/Environment protection; live rejection/recovery acceptance |
+| Infrastructure CD CI gate | Confirmed missing validation; fixed locally using the existing reusable gate before Bicep and credentials | Reviewed publication and first gated infrastructure run |
+| Production branch/Environment | GitHub configuration gap; exact UI/check-name checklist added | Owner-applied effective restrictions/reviewers |
+| Public readiness | Acceptance gap plus confirmed redirect false-positive; optional check now requires HTTP 200 with TLS unchanged | Owner verifies configured URL/contract and enables existing variable |
+| ARM reconciliation failure | Confirmed defect: failed deployment could report success on healthy existing revision; fixed with fatal result and preserved rollback | Published execution if separately approved |
+| Smoke/restore reporting | Existing fatal job semantics retained; automated failure coverage and fail-closed metadata reporting expanded | Authorized recovery demonstration, no automatic cross-service/schema rollback |
+| Jira latency | Performance investigation/handoff; no speculative app optimization | Representative per-stage timings/bytes/realistic EXPLAIN and agreed target |
+| Kafka live chain | Acceptance gap; existing recovery/migration tests retained and rerun successfully | Approved provider events → business/offset/scrape/panel evidence |
+| Actions/images/tool warnings | Maintenance recommendations, not proven deployment root causes | Action runner compatibility validation and deployed monitoring digest/version capture |
+
+| Sprint acceptance | Current verified progress | Remaining final acceptance |
+|---|---|---|
+| Sprint 1 baseline | Preserved Auth/Project/Meeting/Submission/Gateway/Test functionality; fresh build and ordinary regressions pass | Original ticket mapping/criteria unavailable |
+| Sprint 2 monitoring (SCRUM-194–197) | Config/rules/tests and production monitoring verification step succeed | Real target/panel/traffic/fire-resolve evidence |
+| Sprint 3 Azure/CI (SCRUM-204–207) | Application trusted gate, builds, six migrations and seven rollouts demonstrated | Owner protections, current effective Azure/backup inventory, public readiness and reviewed rollback acceptance; infrastructure gate publication |
+| Sprint 4 Kafka (SCRUM-201–203,208) | Required isolated suite five PASS/zero skips, historical upgrades/recovery/metrics/alerts; baseline gated CI demonstrated | Live mounts/identity/CA/settings and approved GitHub/Jira business/offset/metrics/dashboard chain; no production failure injection |
+
+Fresh local verification: Release build zero warnings/errors; ordinary unit/mock coverage
+**825 PASS, 5 conditional SKIPPED**, those five separately **PASS** in the disposable suite.
+Business coverage **78.30% line / 64.50% branch**, unchanged floors 65/50. Release-policy/
+summary **17**, infrastructure/public/restoration/What-If **16**, image-selection/failure/rollback
+**16** regressions pass. Observability **159 config checks / 30 scenarios / 55 expressions**,
+operational/env/composition/runtime/performance/Bicep checks also pass. Raw actionlint retains
+ten baseline queue/style findings; qualified validation passes. Exact commands, all changed
+files, limitations and artifact paths are in [FINAL_DEVOPS_HARDENING.md](FINAL_DEVOPS_HARDENING.md).
+
+Latest k6 Jira issues p95 **3076.93 ms** (9/9 HTTP 2xx), GitHub activity **375.95 ms**;
+overall p95 **1566.86 ms**, 61 business requests/0% failures. Existing overall threshold
+3000 ms, endpoint map `{}`. Earlier Jira 3755.43 ms / eight requests below is historical,
+not overwritten. Two tiny samples do not justify an endpoint SLO or threshold relaxation.
+Isolated EXPLAIN uses existing unique project connection and project/IssueKey issue indexes,
+no filesort, one synthetic row; it does not diagnose production latency.
+
+**READY FOR USER CODE REVIEW; production acceptance remains incomplete.** This task made
+local repository edits and read-only GitHub calls only; no commit, push, merge, PR creation,
+workflow trigger, production resource/secret/settings/database/topic/offset change occurred.
+
+## Original audit snapshot — before owner publication of a26cfd2
+
+The original report below is retained as historical evidence, including its test failures,
+old branch comparison and statements about the then-unpublished gate. Those statements
+are superseded by the dated verification above; they are not current blockers for the
+already-demonstrated application gate. Its owner protection/live acceptance gaps remain.
+
 Audit date: **2026-10-11**. Repository: `Nimsara-Jayarathna/researchtrack-backend`.
 Working tree: `integration/main-kafka-production-20261011`, local/uncommitted changes only.
 

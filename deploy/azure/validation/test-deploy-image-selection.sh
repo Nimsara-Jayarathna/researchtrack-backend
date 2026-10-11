@@ -38,7 +38,13 @@ case "$args" in
     echo 'Synthetic migration provisioning failure' >&2
     touch "$STUB_DIR/migration-attempted"
     exit 1 ;;
-  "deployment group create"*) touch "$STUB_DIR/rollout-attempted"; exit 99 ;;
+  "deployment group create"*) touch "$STUB_DIR/rollout-attempted"; exit "${STUB_ROLLOUT_EXIT:-99}" ;;
+  "containerapp revision show"*)
+    if [[ "$args" == *"--query properties.active"* ]]; then echo true; exit 0; fi
+    [[ "${STUB_REVISION_READ_FAIL:-false}" != true ]] || { echo 'Synthetic revision read failure' >&2; exit 1; }
+    while [[ $# -gt 0 && "$1" != "-n" ]]; do shift; done
+    jq '{properties:{provisioningState:"Provisioned", healthState:"Healthy",runningState:"Running", template:.properties.template}}' "$STUB_DIR/apps/$2.json" ;;
+  "containerapp logs show"*) exit 0 ;;
   "containerapp show"*)
     while [[ $# -gt 0 && "$1" != "-n" ]]; do shift; done
     [[ -f "$STUB_DIR/apps/$2.json" ]] || { echo "ResourceNotFound" >&2; exit 3; }
@@ -229,6 +235,30 @@ if run_deployer env IMAGE_TAGS="$(image_tags)" PLAN_ONLY=false; then fail "faile
 grep -Eq '^\| auth \| FAIL \| [0-9]+ \| - \| - \|' "$work/summary.md" || fail "failed migration status/duration missing"
 grep -q 'Application deployment: FAIL' "$work/summary.md" || fail "failed migration claimed deployment success"
 pass "migration failure stops rollout and is reported with an actual duration"
+
+# Only Gateway needs configuration delivery: its previous revision is already
+# healthy on the target image. A failed ARM reconciliation still MUST fail.
+reset_state
+publish single
+for service in "${services[@]}"; do
+  image="$prefix/researchtrack-$service@$(digest_for "$service")"
+  set_app "$service" "$image" "$(spec_hash "$service" "$image")"
+done
+set_app gateway "$prefix/researchtrack-gateway@$(digest_for gateway)" stale-config
+if run_deployer env IMAGE_TAGS="$(image_tags)" PLAN_ONLY=false; then fail "failed ARM reconciliation was hidden by healthy old revision"; fi
+grep -q 'Bicep deployment of rt-gateway-prod reported a failure' "$work/out" || fail "ARM failure not exercised"
+grep -q 'Application deployment: FAIL' "$work/summary.md" || fail "ARM failure reported success"
+grep -q 'kept on previous healthy revision rt-gateway-prod--old' "$work/out" || fail "previous healthy revision not retained"
+pass "failed ARM reconciliation cannot be hidden by a healthy matching revision"
+
+if run_deployer env IMAGE_TAGS="$(image_tags)" PLAN_ONLY=false STUB_ROLLOUT_EXIT=0 STUB_REVISION_READ_FAIL=true; then fail "revision API failure accepted"; fi
+grep -q 'Synthetic revision read failure' "$work/out" || fail "revision query failure not exercised"
+grep -q 'Application deployment: FAIL' "$work/summary.md" || fail "revision query failure reported success"
+pass "revision CLI error fails explicitly inside conditional health polling"
+
+run_deployer env IMAGE_TAGS="$(image_tags)" PLAN_ONLY=false STUB_ROLLOUT_EXIT=0 || fail "successful ARM/healthy revision rejected"
+grep -q 'Application deployment: PASS; 1 changed applications' "$work/summary.md" || fail "successful rollout not reported"
+pass "successful ARM and healthy matching revision still report deployment success"
 
 # 10. Rollback is idempotent: an already-active previous revision is success.
 rollback_fns="$(sed -n '/^revision_active() {/,/^}/p; /^set_revision_active() {/,/^}/p; /^rollback() {/,/^}/p' "$deployer")"

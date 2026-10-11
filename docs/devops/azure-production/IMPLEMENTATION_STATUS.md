@@ -2,18 +2,25 @@
 
 ## Current audit — 2026-10-11
 
-The [final Sprint 1–4 audit](../FINAL_DEVOPS_SPRINTS_1_TO_4_AUDIT.md) supersedes earlier
-local test/tool availability and independent CI/CD notes below. Branch `integration/main-kafka-production-20261011`
-is 15 commits ahead of fetched main, zero behind. Local fixes require shared same-SHA
-static/.NET/coverage and isolated Kafka/upgrades CI before production builds, with an
-exact trusted-source recheck before production access. Manual workflows and deployment
-safeguards are preserved. No remote changes or workflow dispatches were performed.
+HEAD was confirmed clean at `a26cfd2b2b2093a8be45ef4a80c493af3d29958e` before this
+hardening task. Fetched main is `141181575e7b7fdda75e31356bfe9a980deadb7c`;
+integration is 16 commits ahead, zero behind. The owner-published application gate is
+**IMPLEMENTED AND DEMONSTRATED** in [production run 38147705025](https://github.com/Nimsara-Jayarathna/researchtrack-backend/actions/runs/38147705025).
+[PR CI 38149500022](https://github.com/Nimsara-Jayarathna/researchtrack-backend/actions/runs/38149500022)
+passed at the same SHA. Required CI/Kafka/source validation, seven builds/deployments,
+six migration log confirmations, infrastructure verification, runtime restoration and
+automatic k6 smoke succeeded. The optional public endpoint step was SKIPPED.
 
-Final disposable suite: GitHub 3/3, Jira 2/2, zero skips; both historical MySQL upgrades
-preserve existing tables/records and verify Kafka indexes. Unit/coverage, observability,
-operations and Bicep checks executed; exact commands/counts are in the audit.
-Production branch/reviewer protection is absent in read-only GitHub evidence; owner action
-and live provider/metrics/dashboard/mount/migration acceptance remain pending.
+New local changes add the same trusted-source/CI gate to infrastructure CD, preserve
+Bicep/What-If/monitoring-only behavior, reject failed ARM reconciliation despite an
+existing healthy revision, require HTTP 200 for optional public readiness, and strengthen
+failure/restoration reporting and offline regressions. These new changes have not been
+published or run in Actions. No production resource/settings/secret change was made.
+
+Production branch/reviewer protection remains absent in current read-only evidence.
+Live provider events → business/offsets/metrics/dashboard evidence remains pending;
+isolated tests do not replace it. See [the hardening report](../FINAL_DEVOPS_HARDENING.md)
+and [the final Sprint 1–4 audit](../FINAL_DEVOPS_SPRINTS_1_TO_4_AUDIT.md).
 
 Entries below are historical snapshots. Earlier Docker/tool limitations, unit counts,
 branch decisions and unexecuted local upgrades refer to those sessions.
