@@ -165,8 +165,17 @@ if mode=='missing-binding': bindings={}
 if mode=='controller-binding': bindings['9093/tcp']=[{'HostIp':'0.0.0.0','HostPort':'9093'}]
 mounts=[]
 for source,dest,rw in [('data/kafka/data','/var/lib/kafka/data',True),('data/kafka/cluster-id','/etc/kafka/cluster-id',False),('opt/kafka','/etc/researchtrack/kafka',False),('opt/runtime/kafka','/etc/researchtrack/kafka-runtime',False),('data/kafka/tls/container','/etc/researchtrack/kafka-tls',False)]:
-    mounts.append(dict(Source=w+'/'+source,Destination=dest,RW=rw))
+    mounts.append(dict(Type='bind',Source=w+'/'+source,Destination=dest,RW=rw))
 if mode=='wrong-mount': mounts[0]['Source']=w+'/empty'
+if mode in ('image-volumes','named-image-volume','extra-host-bind'):
+    for i,dest in enumerate(('/etc/kafka/secrets','/mnt/shared/config')):
+        mounts.append(dict(Type='volume',Name=str(i)*64,Source='/var/lib/docker/volumes/'+str(i)*64+'/_data',Destination=dest,RW=True))
+if mode=='named-image-volume': mounts[-1]['Name']='unexpected-named-volume'
+if mode=='extra-host-bind': mounts[-1].update(Type='bind',Source='/unexpected/host')
+if mode=='extra-shadow-mount': mounts.append(dict(Type='bind',Source='/unexpected',Destination='/var/lib/kafka/data/shadow',RW=True))
+if mode=='duplicate-destination': mounts.append(dict(mounts[0]))
+if mode=='writable-config': mounts[2]['RW']=True
+if mode=='missing-required': mounts.pop(1)
 v=[dict(State=dict(Running=True,Health=dict(Status='unhealthy' if mode=='unhealthy' else 'healthy')),HostConfig=dict(PortBindings=bindings,RestartPolicy=dict(Name='unless-stopped')),Config=dict(User='1000:1000'),NetworkSettings=dict(Ports=bindings),Mounts=mounts)]
 json.dump(v,open(w+'/inspection.json','w'))
 PY
@@ -188,6 +197,10 @@ run_case() {
   fi
 }
 run_case ok --check 0
+run_case image-volumes --check 0
+for mode in named-image-volume extra-host-bind extra-shadow-mount duplicate-destination writable-config missing-required; do
+  run_case "$mode" --check 1
+done
 run_case ok --smoke 0
 run_case ok --restart 0
 [[ -e "$work/restarted" && "$(grep -c '^restart --no-deps kafka$' "$work/calls")" == 1 ]] || fail 'restart command scope'

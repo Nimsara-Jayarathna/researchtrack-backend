@@ -101,18 +101,33 @@ fi
             for name in ['./scripts/reconcile-monitoring.sh', './prometheus/rules/researchtrack-alerts.yml', './grafana/provisioning/dashboards/json/kafka-observability.json']:
                 self.assertIn(name, names)
                 self.assertEqual(0o755 if '/scripts/' in name else 0o644, bundle.getmember(name).mode)
-    def test_workflow_allows_main_only_and_scopes_monitoring_mode(self):
+    def test_workflow_preserves_selected_branch_and_scopes_monitoring_mode(self):
         workflow = (ROOT / '.github/workflows/azure-infrastructure.yml').read_text()
         push = workflow.split('  push:', 1)[1].split('  workflow_dispatch:', 1)[0]
-        self.assertEqual("f4b67a82f63a5ab2de9cc6c145d134c8b5ca27f794f17082add0af2f95209f49", hashlib.sha256(push.replace('branches: ["main"]', 'branches: ["devops/sprint4-kafka-infrastructure-verification"]').encode()).hexdigest())
-        self.assertIn('branches: ["main"]', push)
-        self.assertNotIn('sprint4-kafka', push)
-        self.assertIn("if: ${{ github.ref == 'refs/heads/main' }}", workflow)
+        self.assertEqual("f4b67a82f63a5ab2de9cc6c145d134c8b5ca27f794f17082add0af2f95209f49", hashlib.sha256(push.encode()).hexdigest())
+        self.assertIn('branches: ["devops/sprint4-kafka-infrastructure-verification"]', push)
+        self.assertIn("if: ${{ github.ref == 'refs/heads/devops/sprint4-kafka-infrastructure-verification' }}", workflow)
         for name in ['Materialize and validate VM runtime configuration', 'Configure VM (OS, Docker, data disk)', 'What-If', 'Validate private networking (VM side)', 'Validate private networking (Container Apps side)']:
             self.assertIn('      - name: ' + name + '\n        if: ${{ !inputs.monitoring_only }}', workflow)
         self.assertIn('"MONITORING_ONLY=$MONITORING_ONLY"', workflow)
         self.assertIn('inputs.monitoring_only || false', workflow)
         self.assertIn('Require an already-running VM', workflow)
+    def test_application_and_reusable_jobs_enforce_selected_branch(self):
+        branch = 'devops/sprint4-kafka-infrastructure-verification'
+        guard = "    if: ${{ github.ref == 'refs/heads/" + branch + "' }}\n"
+        paths = ROOT / '.github/workflows'
+        application = (paths / 'backend-deploy-production.yml').read_text()
+        push = application.split('  push:', 1)[1].split('  workflow_dispatch:', 1)[0]
+        self.assertEqual('\n    branches: ["' + branch + '"]\n', push)
+        self.assertIn('  deploy:\n' + guard, application)
+        azure = (paths / 'backend-deploy-azure-production.yml').read_text()
+        legacy = (paths / 'backend-deploy-reusable.yml').read_text()
+        legacy_guard = "    if: ${{ inputs.environment_name != 'production' || github.ref == 'refs/heads/" + branch + "' }}\n"
+        for name in ['build', 'deploy']:
+            self.assertIn('  ' + name + ':\n' + guard, azure)
+            self.assertIn('  ' + name + ':\n' + legacy_guard, legacy)
+        self.assertIn('branches: ["develop"]', (paths / 'backend-deploy-test.yml').read_text())
+
     def test_workflow_reads_outputs_without_deploying_bicep_in_monitoring_mode(self):
         self.check_workflow_output_step('true', 'show')
     def test_workflow_preserves_normal_bicep_deployment(self):

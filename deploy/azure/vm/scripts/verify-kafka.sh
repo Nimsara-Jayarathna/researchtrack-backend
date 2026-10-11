@@ -47,7 +47,17 @@ json_check 'restart policy and container user' '.[0] | .HostConfig.RestartPolicy
 json_check 'Docker publishes only private-IP:9092' '.[0].HostConfig.PortBindings | keys == ["9092/tcp"] and .["9092/tcp"] == [{HostIp: $ip, HostPort: "9092"}]' --arg ip "$INFRA_PRIVATE_IP"
 json_check 'running Docker network publication is private-IP:9092 only' '.[0].NetworkSettings.Ports | to_entries | map(select(.value != null and (.value | length) > 0)) | . == [{key: "9092/tcp", value: [{HostIp: $ip, HostPort: "9092"}]}]' --arg ip "$INFRA_PRIVATE_IP"
 json_check 'persistent data, identity and restricted configuration mounts' '.[0].Mounts as $m |
-  ($m | length) == 5 and
+  # apache/kafka:3.9.1 declares two additional anonymous volumes. Require all
+  # five exact binds and admit only those image destinations; never any extra
+  # host bind, named volume, duplicate destination or nested data/config mount.
+  ($m | length) >= 5 and ($m | length) <= 7 and
+  ([$m[].Destination] | length) == ([$m[].Destination] | unique | length) and
+  all($m[]; .Destination as $destination |
+    if (.Destination == "/etc/kafka/secrets" or .Destination == "/mnt/shared/config") then
+      .Type == "volume" and .RW == true and (.Name | test("^[a-f0-9]{64}$"))
+    else .Type == "bind" and
+      (["/var/lib/kafka/data", "/etc/kafka/cluster-id", "/etc/researchtrack/kafka", "/etc/researchtrack/kafka-runtime", "/etc/researchtrack/kafka-tls"] | index($destination)) != null
+    end) and
   any($m[]; .Source == $data + "/kafka/data" and .Destination == "/var/lib/kafka/data" and .RW == true) and
   any($m[]; .Source == $data + "/kafka/cluster-id" and .Destination == "/etc/kafka/cluster-id" and .RW == false) and
   any($m[]; .Source == $opt + "/kafka" and .Destination == "/etc/researchtrack/kafka" and .RW == false) and

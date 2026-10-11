@@ -2,6 +2,8 @@
 services:
   kafka:
     image: apache/kafka:3.9.1
+    labels:
+      researchtrack.fixture: isolated-kafka
     user: "${RT_KAFKA_TEST_UID:?}:${RT_KAFKA_TEST_GID:?}"
     entrypoint: ["/bin/bash", "-c"]
     command:

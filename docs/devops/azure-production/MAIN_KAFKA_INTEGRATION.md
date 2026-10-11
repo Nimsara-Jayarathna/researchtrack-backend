@@ -1,5 +1,11 @@
 # Main / Kafka production integration review
 
+> Historical integration review. The user subsequently selected
+> `devops/sprint4-kafka-infrastructure-verification` as the production deployment
+> source. Its push filters and manual/reusable guards now supersede the main-only
+> policy described below. See `RUNBOOK.md` for the current cutover procedure.
+> Earlier test evidence and the integration inventory below describe the prior review.
+
 Prepared locally on 2026-10-11. Nothing was committed, pushed, deployed or changed in Azure or GitHub settings/secrets. Existing branches and production data are untouched.
 
 ## Review location and merge state

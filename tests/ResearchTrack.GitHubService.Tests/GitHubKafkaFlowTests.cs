@@ -1,3 +1,6 @@
+using ResearchTrack.Testing;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Confluent.Kafka;
 using Prometheus;
 using Microsoft.EntityFrameworkCore;
@@ -42,7 +45,7 @@ public sealed class GitHubKafkaFlowTests
 
     [Fact(Skip = "Requires the isolated Docker TLS Kafka/MySQL fixture.", SkipUnless = nameof(IsolatedKafkaAvailable))]
     [Trait("Category", "KafkaIntegration")]
-    public async Task TlsBrokerAcknowledgementRealConsumerBusinessOutcomeAndClientRestart()
+    public async Task TlsBrokerOutageDurableRetryCommitRecoveryAndActualBusinessOutcome()
     {
         using var database = new KafkaTestDatabase<GitHubDbContext>(options => new(options), IsolatedKafkaFixture.DatabaseConnection("github"));
         var options = IsolatedKafkaFixture.Options("github");
@@ -55,15 +58,36 @@ public sealed class GitHubKafkaFlowTests
         await using var db = database.CreateDbContext();
         var row = await db.Set<KafkaOutboxMessage>().SingleAsync(Ct);
         var factory = IsolatedKafkaFixture.Factory(options);
-        using (var publisher = new KafkaEventPublisher(factory, options))
-            Assert.True(await new KafkaOutboxWorker(new KafkaOutboxStore<GitHubDbContext>(database), publisher, new(), NullLogger<KafkaOutboxWorker>.Instance, metrics).PublishOneAsync(Ct));
-        Assert.Equal("PUBLISHED", (await db.Set<KafkaOutboxMessage>().AsNoTracking().SingleAsync(Ct)).Status);
+        var outboxStore = new KafkaOutboxStore<GitHubDbContext>(database);
+        var messagingHealth = new KafkaMessagingHealth(outboxStore, metrics);
+        await using var httpHost = new ResearchTrackWebApplicationFactory<Program>(IsolatedKafkaFixture.DatabaseConnection("github"), services =>
+        {
+            // HTTP checks use the real application pipeline and fixture MySQL;
+            // flow workers below own processing, avoiding a second scheduler.
+            services.RemoveAll<IHostedService>();
+            services.AddHealthChecks().AddCheck("fixture-kafka", messagingHealth, tags: ["ready"]);
+        });
+        using var httpClient = httpHost.CreateClient();
+        using var publisher = new KafkaEventPublisher(factory, options);
+        using var outboxWorker = new KafkaOutboxWorker(outboxStore, publisher, messagingHealth, NullLogger<KafkaOutboxWorker>.Instance, metrics);
         var worker = new KafkaConsumerWorker(factory, options, provider.GetRequiredService<IServiceScopeFactory>(), new(options, metrics), new(null, metrics), NullLogger<KafkaConsumerWorker>.Instance, metrics);
         TopicPartitionOffset next;
+        Offset uncommitted;
+        using (var consumer = factory.CreateConsumer())
+        {
+            await IsolatedKafkaFixture.RecoverOutboxAsync(database, options, metrics, registry, consumer, outboxWorker, httpClient, Ct);
+            var record = await IsolatedKafkaFixture.ReceiveAsync(consumer, row.EventId, Ct);
+            uncommitted = record.Offset;
+            await IsolatedKafkaFixture.FailCommitDuringOutageAsync(worker, consumer, record, Ct);
+            consumer.Close();
+        }
+        // The durable receipt survived failed commit. Rejoin at the exact record,
+        // deduplicate the handoff, then commit; never skip/reset broker offsets.
         using (var consumer = factory.CreateConsumer())
         {
             consumer.Subscribe(options.Topic);
             var record = await IsolatedKafkaFixture.ReceiveAsync(consumer, row.EventId, Ct);
+            Assert.Equal(uncommitted, record.Offset);
             await worker.HandleAndCommitAsync(consumer, record, Ct);
             next = new(record.TopicPartition, record.Offset + 1);
             consumer.Close();
@@ -78,7 +102,7 @@ public sealed class GitHubKafkaFlowTests
             Assert.Equal(next.Offset, Assert.Single(committed).Offset);
             consumer.Close();
         }
-        using (var publisher = new KafkaEventPublisher(factory, options)) await publisher.PublishAsync(row, Ct);
+        await publisher.PublishAsync(row, Ct);
         using (var consumer = factory.CreateConsumer())
         {
             consumer.Subscribe(options.Topic);
@@ -90,8 +114,10 @@ public sealed class GitHubKafkaFlowTests
         var sample = await KafkaMetricSnapshot.ExportAsync(registry, Ct);
         Assert.Equal(1, KafkaMetricSnapshot.Value(sample, "researchtrack_kafka_publish_total", ("outcome", "success")));
         Assert.Equal(1, KafkaMetricSnapshot.Value(sample, "researchtrack_kafka_consume_total", ("stage", "process"), ("outcome", "success")));
-        Assert.Equal(1, KafkaMetricSnapshot.Value(sample, "researchtrack_kafka_consume_total", ("stage", "process"), ("outcome", "duplicate")));
+        Assert.Equal(2, KafkaMetricSnapshot.Value(sample, "researchtrack_kafka_consume_total", ("stage", "process"), ("outcome", "duplicate")));
         await new KafkaOutboxMetricsWorker(new KafkaOutboxStore<GitHubDbContext>(database), metrics, NullLogger<KafkaOutboxMetricsWorker>.Instance).SampleAsync(Ct);
+        Assert.Equal(1, KafkaMetricSnapshot.Value(sample, "researchtrack_kafka_consume_total", ("stage", "commit"), ("outcome", "failed")));
+        await IsolatedKafkaFixture.SaveEvidenceAsync("github-final", registry, Ct);
         await KafkaMetricSnapshot.SaveIsolatedAsync("github", registry, Ct);
         await IsolatedKafkaFixture.WaitForMetricAsync("researchtrack_kafka_consume_total{service=\"github\",stage=\"process\",outcome=\"success\"}", x => x == 1, Ct);
         await VerifyHeldLagAndRecoveryAsync(database, options, row, metrics, registry);

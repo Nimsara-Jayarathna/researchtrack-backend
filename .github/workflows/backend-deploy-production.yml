@@ -2,7 +2,7 @@ name: Backend Deploy - Production
 
 on:
   push:
-    branches: ["main"]
+    branches: ["devops/sprint4-kafka-infrastructure-verification"]
   workflow_dispatch:
     inputs:
       force_full_build:
@@ -31,7 +31,7 @@ jobs:
   # Production runs on Azure Container Apps + an infrastructure VM. Test keeps
   # using the VPS/Compose path in backend-deploy-reusable.yml.
   deploy:
-    if: ${{ github.ref == 'refs/heads/main' }}
+    if: ${{ github.ref == 'refs/heads/devops/sprint4-kafka-infrastructure-verification' }}
     name: Build and Deploy Azure Production
     uses: ./.github/workflows/backend-deploy-azure-production.yml
     with:

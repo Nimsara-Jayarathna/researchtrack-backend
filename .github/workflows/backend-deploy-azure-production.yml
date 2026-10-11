@@ -27,7 +27,7 @@ permissions:
 
 jobs:
   build:
-    if: ${{ github.ref == 'refs/heads/main' }}
+    if: ${{ github.ref == 'refs/heads/devops/sprint4-kafka-infrastructure-verification' }}
     name: Build Changed Images
     uses: ./.github/workflows/backend-build-images.yml
     with:
@@ -42,7 +42,7 @@ jobs:
       packages: write
 
   deploy:
-    if: ${{ github.ref == 'refs/heads/main' }}
+    if: ${{ github.ref == 'refs/heads/devops/sprint4-kafka-infrastructure-verification' }}
     name: Deploy Azure Production
     needs: build
     runs-on: ubuntu-latest

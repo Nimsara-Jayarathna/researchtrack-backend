@@ -84,7 +84,8 @@ is not an Azure integration success report.
 ## Azure preparation through the existing approved Actions context
 
 1. Review code, generated additive migration SQL and isolated test results. The production
-   CD branch is `main`; Kafka must be integrated into main before deployment. Publishing requires the
+   CD branch is `devops/sprint4-kafka-infrastructure-verification`; keep reviewed main fixes
+   integrated in that source before deployment. Publishing requires the
    owner's separate decision because a push may deploy. Preserve existing environment
    approvals, OIDC and concurrency. Resolve existing OIDC/bootstrap prerequisites in the
    runbook without changing identities as part of this task.

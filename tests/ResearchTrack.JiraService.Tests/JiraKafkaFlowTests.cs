@@ -1,3 +1,6 @@
+using ResearchTrack.Testing;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Prometheus;
 using System.Net;
 using System.Text;
@@ -22,7 +25,7 @@ public sealed class JiraKafkaFlowTests
 
     [Fact(Skip = "Requires the isolated Docker TLS Kafka/MySQL fixture.", SkipUnless = nameof(IsolatedKafkaAvailable))]
     [Trait("Category", "KafkaIntegration")]
-    public async Task AuthenticatedJiraWebhookTlsAcknowledgementConsumerRestartAndActualSnapshot()
+    public async Task AuthenticatedJiraWebhookBrokerOutageRetryCommitRecoveryAndActualSnapshot()
     {
         using var database = new KafkaTestDatabase<JiraDbContext>(options => new(options), IsolatedKafkaFixture.DatabaseConnection("jira"));
         var options = IsolatedKafkaFixture.Options("jira");
@@ -47,22 +50,34 @@ public sealed class JiraKafkaFlowTests
         await using var db = database.CreateDbContext();
         var row = await db.Set<KafkaOutboxMessage>().SingleAsync(Ct);
         var factory = IsolatedKafkaFixture.Factory(options);
-        using (var publisher = new KafkaEventPublisher(factory, options))
-            Assert.True(await new KafkaOutboxWorker(new KafkaOutboxStore<JiraDbContext>(database), publisher, new(), NullLogger<KafkaOutboxWorker>.Instance, metrics).PublishOneAsync(Ct));
-        Assert.Equal("PUBLISHED", (await db.Set<KafkaOutboxMessage>().AsNoTracking().SingleAsync(Ct)).Status);
-        // Simulate consumer restart with a fetched but uncommitted record.
+        var outboxStore = new KafkaOutboxStore<JiraDbContext>(database);
+        var messagingHealth = new KafkaMessagingHealth(outboxStore, metrics);
+        await using var httpHost = new ResearchTrackWebApplicationFactory<Program>(IsolatedKafkaFixture.DatabaseConnection("jira"), services =>
+        {
+            // HTTP checks use the real application pipeline and fixture MySQL;
+            // flow workers below own processing, avoiding a second scheduler.
+            services.RemoveAll<IHostedService>();
+            services.AddHealthChecks().AddCheck("fixture-kafka", messagingHealth, tags: ["ready"]);
+        });
+        using var httpClient = httpHost.CreateClient();
+        using var publisher = new KafkaEventPublisher(factory, options);
+        using var outboxWorker = new KafkaOutboxWorker(outboxStore, publisher, messagingHealth, NullLogger<KafkaOutboxWorker>.Instance, metrics);
+        var consumerWorker = new KafkaConsumerWorker(factory, options, provider.GetRequiredService<IServiceScopeFactory>(), new(options, metrics), new(null, metrics), NullLogger<KafkaConsumerWorker>.Instance, metrics);
+        Offset uncommitted;
         using (var consumer = factory.CreateConsumer())
         {
-            consumer.Subscribe(options.Topic);
-            await IsolatedKafkaFixture.ReceiveAsync(consumer, row.EventId, Ct);
+            await IsolatedKafkaFixture.RecoverOutboxAsync(database, options, metrics, registry, consumer, outboxWorker, httpClient, Ct);
+            var record = await IsolatedKafkaFixture.ReceiveAsync(consumer, row.EventId, Ct);
+            uncommitted = record.Offset;
+            await IsolatedKafkaFixture.FailCommitDuringOutageAsync(consumerWorker, consumer, record, Ct);
             consumer.Close();
         }
-        var consumerWorker = new KafkaConsumerWorker(factory, options, provider.GetRequiredService<IServiceScopeFactory>(), new(options, metrics), new(null, metrics), NullLogger<KafkaConsumerWorker>.Instance, metrics);
         TopicPartitionOffset next;
         using (var consumer = factory.CreateConsumer())
         {
             consumer.Subscribe(options.Topic);
             var record = await IsolatedKafkaFixture.ReceiveAsync(consumer, row.EventId, Ct);
+            Assert.Equal(uncommitted, record.Offset);
             await consumerWorker.HandleAndCommitAsync(consumer, record, Ct);
             next = new(record.TopicPartition, record.Offset + 1);
             consumer.Close();
@@ -94,7 +109,7 @@ public sealed class JiraKafkaFlowTests
             Assert.Equal(next.Offset, Assert.Single(consumer.Committed([next.TopicPartition], TimeSpan.FromSeconds(10))).Offset);
             consumer.Close();
         }
-        using (var publisher = new KafkaEventPublisher(factory, options)) await publisher.PublishAsync(row, Ct);
+        await publisher.PublishAsync(row, Ct);
         using (var consumer = factory.CreateConsumer())
         {
             consumer.Subscribe(options.Topic);
@@ -108,9 +123,12 @@ public sealed class JiraKafkaFlowTests
         var text = await KafkaMetricSnapshot.ExportAsync(registry, Ct);
         Assert.Equal(1, KafkaMetricSnapshot.Value(text, "researchtrack_kafka_publish_total", ("outcome", "success")));
         Assert.Equal(1, KafkaMetricSnapshot.Value(text, "researchtrack_kafka_consume_total", ("stage", "process"), ("outcome", "success")));
-        Assert.Equal(1, KafkaMetricSnapshot.Value(text, "researchtrack_kafka_consume_total", ("stage", "process"), ("outcome", "duplicate")));
+        Assert.Equal(2, KafkaMetricSnapshot.Value(text, "researchtrack_kafka_consume_total", ("stage", "process"), ("outcome", "duplicate")));
+        Assert.Equal(1, KafkaMetricSnapshot.Value(text, "researchtrack_kafka_consume_total", ("stage", "commit"), ("outcome", "failed")));
+        await IsolatedKafkaFixture.SaveEvidenceAsync("jira-final", registry, Ct);
         await KafkaMetricSnapshot.SaveIsolatedAsync("jira", registry, Ct);
         await IsolatedKafkaFixture.WaitForMetricAsync("researchtrack_kafka_consume_total{service=\"jira\",stage=\"process\",outcome=\"success\"}", x => x == 1, Ct);
+        await IsolatedKafkaFixture.WaitForMetricAsync("sum(kafka_consumergroup_lag{consumergroup=\"researchtrack-jira-webhook-v1\"})", x => x == 0, Ct);
         using var admin = new AdminClientBuilder(KafkaClientConfiguration.Producer(options)).Build();
         Assert.Equal(ErrorCode.NoError, Assert.Single(admin.GetMetadata(options.Topic, TimeSpan.FromSeconds(10)).Topics).Error.Code);
     }

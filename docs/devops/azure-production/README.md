@@ -13,12 +13,6 @@ Then open only the document relevant to the task.
 
 ## Documents
 
-### [MAIN_KAFKA_INTEGRATION.md](MAIN_KAFKA_INTEGRATION.md)
-
-Current main/Kafka integration review: revisions, semantic conflict fixes,
-production policy, tests, migration compatibility and release plan.
-Earlier task reports describe their historical feature-branch state.
-
 ### `MASTER_PLAN.md`
 
 Full architecture and implementation plan.

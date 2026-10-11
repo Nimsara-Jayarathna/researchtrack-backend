@@ -94,9 +94,6 @@ jobs:
       - name: Test monitoring-only VM reconciliation (mocked Docker)
         run: python3 deploy/azure/validation/test_monitoring_reconciliation.py
 
-      - name: Test main-only production deployment policy (offline)
-        run: python3 deploy/azure/validation/test_production_branch_policy.py
-
       - name: Test VM private-IP safety check (stubbed ip)
         run: ./deploy/azure/validation/test-private-ip-check.sh
 
