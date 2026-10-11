@@ -1,0 +1,14 @@
+<Project>
+  <!-- Opt-in report output for the code-quality runner only. Does not affect
+       ordinary builds or any test, mutation or load-test workflow. -->
+  <PropertyGroup Condition="'$(ResearchTrackQualityAnalysis)' == 'true'">
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <RunAnalyzers>true</RunAnalyzers>
+    <AnalysisMode>All</AnalysisMode>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <ErrorLog Condition="'$(ResearchTrackQualityRun)' != ''">$(MSBuildThisFileDirectory)../artifacts/code-quality/$(ResearchTrackQualityRun)/roslyn/$(MSBuildProjectName).sarif,version=2.1</ErrorLog>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(ResearchTrackQualityAnalysis)' == 'true'">
+    <GlobalAnalyzerConfigFiles Include="$(MSBuildThisFileDirectory)../config/testing/code-quality/roslyn.globalconfig" />
+  </ItemGroup>
+</Project>
