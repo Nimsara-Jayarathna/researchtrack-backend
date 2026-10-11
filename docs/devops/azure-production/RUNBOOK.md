@@ -6,53 +6,74 @@ Operator steps for the implementation in `deploy/azure/`. The architecture is in
 
 | Workflow | Trigger | Does |
 |---|---|---|
-| `azure-infrastructure.yml` | manual; `devops/sprint4-kafka-infrastructure-verification` pushes touching the existing infrastructure path filters | Bicep build → OIDC → What-If gate → Bicep deploy (subscription scope) → `configure-vm.sh` → VM stack reconcile → VM/network validation → Container Apps network probe |
-| `backend-deploy-production.yml` → `backend-deploy-azure-production.yml` | `devops/sprint4-kafka-infrastructure-verification` pushes; manual | build changed images (GHCR, immutable source images) → validate env → OIDC → capture/wake runtime → preflight → per changed service: `dbcheck`/`migrate` job → Bicep app deployment → readiness → rollback on failure → full verification → restore original runtime power states |
+| `azure-infrastructure.yml` | manual; `integration/main-kafka-production-20261011` pushes touching the existing infrastructure path filters | Bicep build → OIDC → What-If gate → Bicep deploy (subscription scope) → `configure-vm.sh` → VM stack reconcile → VM/network validation → Container Apps network probe |
+| `backend-deploy-production.yml` → `backend-deploy-azure-production.yml` | `integration/main-kafka-production-20261011` pushes; manual | build changed images (GHCR, immutable source images) → validate env → OIDC → capture/wake runtime → preflight → per changed service: `dbcheck`/`migrate` job → Bicep app deployment → readiness → rollback on failure → full verification → restore original runtime power states |
 
 Both workflows share the concurrency group `researchtrack-azure-production`, so they never overlap. Neither falls back to the VPS.
 
 ## Production deployment branch (2026-10-11)
 
-Automatic Azure production source: **`devops/sprint4-kafka-infrastructure-verification`**.
-This is the user's current deployment decision and supersedes the earlier main-only
-integration proposal. `main` remains the repository default branch. Test remains on
-`develop`; Backend CI remains PR-only for `develop` and `main`.
+Automatic Azure production source: **`integration/main-kafka-production-20261011`**.
+This is the user's current deployment decision and supersedes both the earlier
+main-only proposal and the feature-branch deployment policy. The integration branch
+serves as the production source without renaming `main` or changing the repository
+default branch. Test remains on `develop`. Backend CI runs on integration-branch
+pushes and PRs targeting `develop`, `main` or the integration branch. Existing CI
+build, coverage, regression and observability checks are retained.
 
 Both production entrypoints use this exact push branch. Manual deployment and reusable
 Azure build/deploy jobs also require
-`refs/heads/devops/sprint4-kafka-infrastructure-verification`. The generic reusable
-workflow guards production while keeping Test calls available. Main, integration
-branches and tags cannot pass these updated production deployment guards.
+`refs/heads/integration/main-kafka-production-20261011`. The generic reusable
+workflow guards production while keeping Test calls available. Other branches and
+tags cannot pass these updated production deployment guards. Kafka integration,
+mutation, runtime and manual performance workflows can be run with this branch
+selected; their manual triggers and inputs are retained. Post-deployment k6 smoke
+still follows a successful production deployment when enabled.
+
+CI and production deployment start independently on a push; CI is not a deployment
+dependency. Require reviewed, successful CI before publishing a production release.
 
 The infrastructure path filters, secret delivery, environment/OIDC, concurrency,
 What-If refusal, migrations, image provenance, rollback, runtime restoration and TLS
 are unchanged. No commit, push, deployment or remote policy edit was performed.
 
+Local validation for this branch-policy change (2026-10-11): 12 monitoring/branch/CI
+regression tests passed; 74 deployment/runner scripts passed Bash syntax checks;
+`git diff --check` passed. Comparison with HEAD confirmed all four deployment
+workflow bodies are unchanged after normalizing branch names, and all CI checks
+are retained. Raw actionlint 1.7.12 still fails on the same ten existing findings
+(five unsupported `concurrency.queue` keys and five SC2129 style findings); it passes
+with only those two diagnostic categories excluded. No .NET/Kafka suite or live
+workflow was run again for this workflow/documentation-only change.
+
 ### Repository-wide cutover
 
 GitHub reads push workflow definitions from the pushed ref. Updating this branch
-alone cannot stop main's old workflow from deploying. Before release, publish the
-reviewed trigger/guard policy on main as well, through the normal review process;
-the integration worktree contains the matching update for that purpose. Do not push
-any branch as part of this local task. Publishing feature-branch changes can
-immediately start both application and infrastructure production workflows.
+alone cannot stop main's or the old feature branch's workflow copies from deploying.
+Before release, an owner must publish the reviewed policy to other previously
+deploying branches or restrict production Environment deployment to the selected
+integration branch. Do not push any branch as part of this local task. Publishing
+integration-branch changes can immediately start application deployment and, when
+the existing path filters match, infrastructure reconciliation.
 
 An owner should restrict the `production` Environment to exact **Branch
-`devops/sprint4-kafka-infrastructure-verification`**, preserving existing secrets,
+`integration/main-kafka-production-20261011`**, preserving existing secrets,
 reviewers, OIDC and protection settings. Use **Settings → Environments → production
 → Deployment branches and tags → Selected branches and tags**. This restriction
 blocks other refs at environment-bound deployment jobs; their old workflow copies
 may still start or build images before that gate. Review queued/running deployments
-before cutover. No environment policy or repository default branch was changed here.
+before cutover. Read-only inspection on 2026-10-11 returned
+`deployment_branch_policy: null` and `protection_rules: []` for production; no remote
+branch restriction or reviewer rule was reported. No environment policy or repository
+default branch was changed here.
 
 See [GitHub deployment environment policies](https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments).
 
 ### Source freshness and release order
 
-The separate integration worktree combines recent main fixes with Kafka. Those
-application changes must also reach the selected deployment branch through owner
-review before releasing that source. Changing its workflows alone does not import
-main's newer application fixes. Preserve all integrated migration, contract,
+The selected integration branch combines main fixes with Kafka. Re-fetch and review
+subsequent main changes before releasing that source. Changing workflows alone does
+not import later application fixes. Preserve all integrated migration, contract,
 monitoring and test changes when promoting code.
 
 Shared concurrency serializes application/infrastructure runs but does not establish
@@ -107,7 +128,7 @@ separate Azure security change. No Azure security change is authorized by this b
 
 After separate authorization, dispatch **Azure Infrastructure - Production** or
 **Backend Deploy - Production** on branch
-**`devops/sprint4-kafka-infrastructure-verification`**. Keep destructive inputs false.
+**`integration/main-kafka-production-20261011`**. Keep destructive inputs false.
 Dispatch the entrypoint, never the reusable workflow. Other refs are blocked by the
 new guards; old workflow copies still require the environment restriction.
 
@@ -116,7 +137,7 @@ Read-only log retrieval:
 ```bash
 gh run list --repo Nimsara-Jayarathna/researchtrack-backend \
   --workflow backend-deploy-production.yml \
-  --branch devops/sprint4-kafka-infrastructure-verification --limit 10
+  --branch integration/main-kafka-production-20261011 --limit 10
 gh run view <run-id> --repo Nimsara-Jayarathna/researchtrack-backend --log-failed
 ```
 

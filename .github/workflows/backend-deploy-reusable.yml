@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   build:
-    if: ${{ inputs.environment_name != 'production' || github.ref == 'refs/heads/devops/sprint4-kafka-infrastructure-verification' }}
+    if: ${{ inputs.environment_name != 'production' || github.ref == 'refs/heads/integration/main-kafka-production-20261011' }}
     name: Build Changed Images
     uses: ./.github/workflows/backend-build-images.yml
     with:
@@ -28,7 +28,7 @@ jobs:
       packages: write
 
   deploy:
-    if: ${{ inputs.environment_name != 'production' || github.ref == 'refs/heads/devops/sprint4-kafka-infrastructure-verification' }}
+    if: ${{ inputs.environment_name != 'production' || github.ref == 'refs/heads/integration/main-kafka-production-20261011' }}
     name: Deploy ${{ inputs.environment_name }}
     needs: build
     runs-on: ubuntu-latest

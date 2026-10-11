@@ -6,9 +6,13 @@
 
 ## Production
 
-`devops/sprint4-kafka-infrastructure-verification` is the production deployment branch.
-`main` remains the repository default branch. Production deployment jobs accept only
-that exact feature-branch ref, including manual and reusable workflow calls.
+`integration/main-kafka-production-20261011` is the production deployment branch.
+Production deployment jobs accept only that exact integration-branch ref, including
+manual and reusable workflow calls. Backend CI runs on pushes to this branch and
+PRs targeting it, while retaining PR checks for `main` and `develop`. The repository
+default branch setting is unchanged. Existing manual test/operations workflows
+remain available with the integration branch selected. See `RUNBOOK.md` for the
+cutover procedure and the independent CI/deployment trigger behavior.
 
 ## Images
 

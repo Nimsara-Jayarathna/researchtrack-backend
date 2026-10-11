@@ -1,8 +1,10 @@
 name: Backend CI
 
 on:
+  push:
+    branches: ["integration/main-kafka-production-20261011"]
   pull_request:
-    branches: ["develop", "main"]
+    branches: ["develop", "main", "integration/main-kafka-production-20261011"]
 
 permissions:
   contents: read

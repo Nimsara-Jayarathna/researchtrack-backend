@@ -211,7 +211,9 @@ approved release. No direct Azure CLI/Run Command or SSH diagnostic was performe
 - Retained disposable data and stopped containers consume disk space; no deletion is part
   of this task. Temporary TLS/config/init files contain disposable secrets, keep them local.
 - Review raw lint limitations and the external concurrent commit before publishing. Pushing
-  the approved feature deployment branch can deploy; this task has not pushed anything.
+  the currently approved integration deployment branch can deploy; this task has not
+  pushed anything. See [the runbook](RUNBOOK.md#production-deployment-branch-2026-10-11)
+  for the subsequent deployment-branch decision.
 
 ## Safe reproduction and deployment acceptance
 

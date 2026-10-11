@@ -1,18 +1,18 @@
 # GitHub Environments, Secrets and Variables
 
-This is the authoritative inventory, derived from `secrets.*` and `vars.*` references in `.github/workflows/*.yml`. It was last verified 2026-09-24.
+This is the authoritative inventory, derived from `secrets.*` and `vars.*` references in `.github/workflows/*.yml`. Secret inventory was last verified 2026-09-24; deployment-branch policy was updated 2026-10-11.
 
 ## Environments
 
 | GitHub Environment | Branch | Entry workflow | Implementation | Target |
 |---|---|---|---|---|
 | `test` | `develop` (push) or manual | `backend-deploy-test.yml` | `backend-deploy-reusable.yml` | Existing VPS, Docker Compose project `researchtrack-test` |
-| `production` | `main` (push) or manual | `backend-deploy-production.yml` | `backend-deploy-azure-production.yml` | Azure Container Apps + infrastructure VM |
-| `production` | `main` pushes touching infrastructure paths, or manual | `azure-infrastructure.yml` | same file | Azure infrastructure (Bicep) + VM stack |
+| `production` | `integration/main-kafka-production-20261011` (push) or manual on that branch | `backend-deploy-production.yml` | `backend-deploy-azure-production.yml` | Azure Container Apps + infrastructure VM |
+| `production` | `integration/main-kafka-production-20261011` pushes touching infrastructure paths, or manual on that branch | `azure-infrastructure.yml` | same file | Azure infrastructure (Bicep) + VM stack |
 
-> Both Production workflows trigger on pushes to `main` (see `../azure-production/DECISIONS.md`). The OIDC federated credential is bound to the `production` Environment, not a branch. If the `production` Environment's "Deployment branches" rule was widened for the temporary migration branch, it can be narrowed back to `main`.
+> Both Production workflows select `integration/main-kafka-production-20261011` (see `../azure-production/DECISIONS.md`). The OIDC federated credential is bound to the `production` Environment, not a branch. An owner should restrict the Environment's deployment branches to that exact branch, preserving secrets, reviewers and OIDC; remote settings were not changed. See the runbook for other branches' old workflow copies.
 
-`backend-ci.yml` (pull requests) and `backend-build-images.yml` use no environment secrets. Image pushes use the automatic `GITHUB_TOKEN`.
+`backend-ci.yml` (integration-branch pushes and pull requests) and `backend-build-images.yml` use no environment secrets. Image pushes use the automatic `GITHUB_TOKEN`.
 
 Production **never** falls back to the VPS. `backend-deploy-reusable.yml` is only called by the Test workflow.
 

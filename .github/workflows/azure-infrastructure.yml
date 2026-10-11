@@ -6,7 +6,7 @@ name: Azure Infrastructure - Production
 
 on:
   push:
-    branches: ["devops/sprint4-kafka-infrastructure-verification"]
+    branches: ["integration/main-kafka-production-20261011"]
     paths:
       - "deploy/azure/main.bicep"
       - "deploy/azure/modules/**"
@@ -62,7 +62,7 @@ jobs:
           az bicep build --file deploy/azure/modules/container-app.bicep --stdout >/dev/null
 
   deploy:
-    if: ${{ github.ref == 'refs/heads/devops/sprint4-kafka-infrastructure-verification' }}
+    if: ${{ github.ref == 'refs/heads/integration/main-kafka-production-20261011' }}
     name: Reconcile Azure Production infrastructure
     needs: validate
     runs-on: ubuntu-latest

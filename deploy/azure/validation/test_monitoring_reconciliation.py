@@ -13,6 +13,7 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[3]
+DEPLOYMENT_BRANCH = 'integration/main-kafka-production-20261011'
 
 class MonitoringReconciliation(unittest.TestCase):
     def setUp(self):
@@ -104,16 +105,19 @@ fi
     def test_workflow_preserves_selected_branch_and_scopes_monitoring_mode(self):
         workflow = (ROOT / '.github/workflows/azure-infrastructure.yml').read_text()
         push = workflow.split('  push:', 1)[1].split('  workflow_dispatch:', 1)[0]
-        self.assertEqual("f4b67a82f63a5ab2de9cc6c145d134c8b5ca27f794f17082add0af2f95209f49", hashlib.sha256(push.encode()).hexdigest())
-        self.assertIn('branches: ["devops/sprint4-kafka-infrastructure-verification"]', push)
-        self.assertIn("if: ${{ github.ref == 'refs/heads/devops/sprint4-kafka-infrastructure-verification' }}", workflow)
+        # Preserve the existing infrastructure path filters independently of the
+        # selected deployment branch.
+        paths = push.split('    paths:', 1)[1]
+        self.assertEqual("c5c5496309391f3a99c289c6cd7a3f605e895347ebab1a65730edefbed095e41", hashlib.sha256(paths.encode()).hexdigest())
+        self.assertEqual('\n    branches: ["' + DEPLOYMENT_BRANCH + '"]\n', push.split('    paths:', 1)[0])
+        self.assertIn("if: ${{ github.ref == 'refs/heads/" + DEPLOYMENT_BRANCH + "' }}", workflow)
         for name in ['Materialize and validate VM runtime configuration', 'Configure VM (OS, Docker, data disk)', 'What-If', 'Validate private networking (VM side)', 'Validate private networking (Container Apps side)']:
             self.assertIn('      - name: ' + name + '\n        if: ${{ !inputs.monitoring_only }}', workflow)
         self.assertIn('"MONITORING_ONLY=$MONITORING_ONLY"', workflow)
         self.assertIn('inputs.monitoring_only || false', workflow)
         self.assertIn('Require an already-running VM', workflow)
     def test_application_and_reusable_jobs_enforce_selected_branch(self):
-        branch = 'devops/sprint4-kafka-infrastructure-verification'
+        branch = DEPLOYMENT_BRANCH
         guard = "    if: ${{ github.ref == 'refs/heads/" + branch + "' }}\n"
         paths = ROOT / '.github/workflows'
         application = (paths / 'backend-deploy-production.yml').read_text()
@@ -127,6 +131,13 @@ fi
             self.assertIn('  ' + name + ':\n' + guard, azure)
             self.assertIn('  ' + name + ':\n' + legacy_guard, legacy)
         self.assertIn('branches: ["develop"]', (paths / 'backend-deploy-test.yml').read_text())
+
+    def test_ci_covers_deployment_branch_pushes_and_pull_requests(self):
+        workflow = (ROOT / '.github/workflows/backend-ci.yml').read_text()
+        push = workflow.split('  push:', 1)[1].split('  pull_request:', 1)[0]
+        self.assertEqual('\n    branches: ["' + DEPLOYMENT_BRANCH + '"]\n', push)
+        pull_request = workflow.split('  pull_request:', 1)[1].split('\npermissions:', 1)[0]
+        self.assertIn('branches: ["develop", "main", "' + DEPLOYMENT_BRANCH + '"]', pull_request)
 
     def test_workflow_reads_outputs_without_deploying_bicep_in_monitoring_mode(self):
         self.check_workflow_output_step('true', 'show')
