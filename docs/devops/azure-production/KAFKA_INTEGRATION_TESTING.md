@@ -1,8 +1,9 @@
 # Kafka application integration testing and live evidence
 
-Updated 2026-10-10. Local contract/implementation approval does not authorize production
+Updated 2026-10-11. Local contract/implementation approval does not authorize production
 writes, workflow dispatch, synthetic provider activity, secrets, deployment or restart.
-This guide prepares reviewable actions; none of the live steps below ran in this session.
+This guide prepares reviewable actions; no Azure production steps below ran in this session.
+The executed isolated recovery results are in [DEVOPS_4_4_REPORT.md](DEVOPS_4_4_REPORT.md).
 
 ## Available local checks
 
@@ -12,7 +13,7 @@ Run from repository root:
 dotnet restore ResearchTrack.sln --verbosity minimal
 dotnet build ResearchTrack.sln --configuration Release --no-restore
 dotnet test ResearchTrack.sln --configuration Release --no-build \
-  --filter 'Category!=DatabaseIntegration' \
+  --filter 'Category!=DatabaseIntegration&Category!=KafkaIntegration' \
   --logger 'trx;LogFilePrefix=kafka-task' --results-directory artifacts/kafka-task
 PYTHONDONTWRITEBYTECODE=1 python3 deploy/azure/validation/test_kafka_topics_config.py
 bash deploy/azure/validation/test-kafka-operations.sh
@@ -36,8 +37,8 @@ not applied to any production database.
 ## Disposable real Kafka/MySQL fixture
 
 Prerequisites: Docker daemon + Compose, .NET 10, OpenSSL and Python 3; loopback ports 19092
-and 13307 free. The script fails with exit 2 and **NOT EXECUTED** before provisioning if
-Docker is unavailable. That is the observed result on this machine on 2026-10-10.
+13307 and 19090 free. The script fails with exit 2 and **NOT EXECUTED** before provisioning if
+Docker is unavailable. DEVOPS-4.4 results are recorded in [the recovery report](DEVOPS_4_4_REPORT.md).
 Do not count conditional test skips as integration success.
 
 `tests/Kafka/compose.yml` is a separate, disposable test fixture, never a production broker.
@@ -50,31 +51,32 @@ production TLS policy. No real env files or provider credentials are read.
 
 Only the two approved application topics are explicitly created, with one partition,
 RF1 and 72h retention; auto-create is disabled. The fixture endpoint/database guard refuses
-Azure endpoints. A trap removes only its unique project/volume and temporary directory.
+Azure endpoints. The trap stops only its unique project and retains containers, messages, databases, volumes and temporary files for inspection. Nothing is deleted automatically.
 If startup/test fails, results must be FAIL or NOT EXECUTED, never a mocked fallback pass.
 
 Three conditional tests run with `Category=KafkaIntegration`:
 
-- GitHub: signed ingress → actual MySQL inbox/outbox → real TLS producer acknowledgement →
+- GitHub: two controlled broker outages surround publication and durable handoff/commit,
+  followed by scheduled retry and automatic consumer rejoin. Signed ingress → actual MySQL inbox/outbox → real TLS producer acknowledgement →
   approved topic/consumer → production handler and receipt/commit → existing delivery worker,
   event processor and repository synchronization → expected mirror head SHA/commit. New
   clients verify committed offsets and replay the same event with no extra sync run.
 - GitHub outage: real native producer targets an unavailable loopback port, reaches its
   publication timeout, and retains the accepted inbox/outbox for durable retry (SQLite
   persistence in this failure-only fixture).
-- Jira: authenticated ingress → MySQL/outbox → real TLS acknowledgement → fetched but
+- Jira: the same two controlled outages and recovery checks, followed by authenticated ingress → MySQL/outbox → real TLS acknowledgement → fetched but
   uncommitted record → new consumer replay → actual project scheduling lock/receipt/job
   transaction → existing JiraSyncWorker and JiraSyncService → snapshot issue/revision.
   Duplicate replay and new clients verify receipt/job deduplication and broker offsets.
 
 Provider HTTP/client responses are stubbed, while the Kafka transport and business
 processing code are real. MySQL databases start fresh using EnsureCreated: this is not a
-migration-upgrade test. The fixture exercises client/handler restart boundaries, not a full
-Container Apps revision restart or broker restart. Pending outbox crash-lease recovery is
+migration-upgrade test. The fixture exercises the real broker stop/start, publisher reconnect and production consumer
+worker rejoin boundaries. It does not restart a full Container Apps revision. Pending outbox crash-lease recovery is
 covered locally; production process restart still requires the separate evidence below.
 
 The manual-only workflow `.github/workflows/kafka-integration-tests.yml` runs the same
-script on Ubuntu with Docker and uploads `artifacts/kafka-integration/*.trx` for 14 days.
+script on Ubuntu with Docker and uploads `artifacts/kafka-integration/` for 14 days.
 It has contents-read permission, no production environment/secrets/OIDC or deployment
 permission. It was not dispatched. GitHub requires a workflow to be published appropriately
 (on the default branch for workflow_dispatch UI discovery); arrange a reviewed publishing
@@ -190,3 +192,85 @@ protected Actions deployment context:
 No actual application restart, consumer process restart in Azure, broker restart or production
 pending-event exercise was performed. Existing broker-only restart verification is documented
 in [operations](KAFKA_OPERATIONS.md) and requires separate approval.
+
+
+## DEVOPS-4.4 reproducible recovery smoke on macOS
+
+1. Start Docker Desktop using its local socket. Install the .NET 10 SDK, Python 3,
+   OpenSSL 3, Homebrew Bash, ShellCheck and actionlint. Use this integration worktree;
+   do not load real `.env` files. If OpenSSL 3 is installed via Homebrew, select it
+   with `export PATH="$(brew --prefix openssl@3)/bin:$PATH"`. Confirm the ports are free:
+
+   ```bash
+   cd /Users/dev/Desktop/z/researchtrack-backend-integration-main-kafka
+   git branch --show-current
+   docker info
+   docker compose version
+   dotnet --version
+   openssl version
+   lsof -nP -iTCP:19092 -iTCP:13307 -iTCP:19090 -sTCP:LISTEN
+   ```
+
+   Expected branch: `integration/main-kafka-production-20261011`; .NET: 10.x;
+   no listeners on these ports. The runner refuses occupied ports and remote Docker.
+   Leave unrelated containers running. First image pulls need network access.
+2. Run the existing runner; keep its exit status and log:
+
+   ```bash
+   mkdir -p artifacts/devops-4.4
+   bash scripts/test-kafka-integration.sh > artifacts/devops-4.4/local-recovery.log 2>&1
+   result=$?
+   cat artifacts/devops-4.4/local-recovery.log
+   echo "runner exit=$result"
+   ```
+
+   It creates only its random test project, synthetic short-lived certificate and
+   loopback databases; stops/restarts only its labelled Kafka container; preserves
+   production TLS/client timeout/retry settings. MySQL uses required TLS in the fixture.
+   Do not manually invoke the broker control script or supply Azure endpoints.
+3. A complete success requires **GitHub 2/2 and Jira 1/1 executed, zero skips**, the
+   final isolated health/smoke PASS and exit 0. Startup missing prerequisites return
+   NOT EXECUTED/exit 2; assertions return FAIL. Look in the printed project's directory:
+
+   ```text
+   artifacts/kafka-integration/rt-kafka-fixture-<12 hex>/
+     kafka-GitHub.trx, kafka-Jira.trx
+     topic-github.txt, topic-jira.txt
+     group-github.txt, group-jira.txt
+     healthy-<timestamp>.json
+     metrics/*-business.json, *-offset-recovered.json
+     metrics/*-http-healthy.json, *-http-degraded.json
+     metrics/*-outbox-pending.json, *-outbox-published.json
+     metrics/*-outage.evidence, *-recovered.evidence, *-alerts.json
+     metrics/identity-*.json
+     fixture-location.txt
+   ```
+
+   Required observations: topic partition count 1/RF1, committed offsets at the end
+   of each group with lag 0, one logical business result and receipt, retained retry
+   row changes PENDING/attempt 1 to PUBLISHED/attempt 2, HTTP live/ready/Swagger 200
+   with readiness Healthy → Degraded → Healthy, broker/exporter alerts fire and
+   resolve. GitHub's existing held-consumer exercise also fires Held/Lag/ProcessingFailures;
+   Held and Lag resolve after reviewed consumer recovery. ProcessingFailures is a
+   historical 10-minute window and need not resolve immediately.
+4. Run offline checks without provisioning a broker:
+
+   ```bash
+   /opt/homebrew/bin/bash deploy/azure/validation/test-kafka-operations.sh
+   bash deploy/azure/validation/test-kafka-smoke.sh
+   python3 deploy/azure/validation/test_kafka_topics_config.py
+   bash deploy/azure/validation/test-service-env-composition.sh
+   bash deploy/azure/validation/test-validate-azure-env-files.sh
+   bash scripts/test-kafka-observability.sh
+   dotnet test ResearchTrack.sln -c Release --no-build \
+     --filter 'Category!=DatabaseIntegration&Category!=KafkaIntegration' \
+     --logger 'trx;LogFilePrefix=devops44' --results-directory artifacts/devops-4.4/regression-final
+   ```
+
+   Observability checks use a native `PROMTOOL` path when supplied, otherwise a
+   disposable Docker promtool invocation; no production monitoring connection is used.
+   Do not count the excluded categories as passed. Logs contain synthetic data only;
+   retained fixture TLS/config/init files contain disposable secrets and must not be
+   published. Disk usage grows on repeated runs: no cleanup/delete command is part
+   of this task. Container Apps revision restarts and migration upgrades are separate
+   evidence requirements.

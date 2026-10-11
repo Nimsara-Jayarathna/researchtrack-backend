@@ -34,7 +34,11 @@ public sealed class JiraKafkaEventHandler(IDbContextFactory<JiraDbContext> facto
         if (record is not null)
         {
             if (record.ResearchProjectId != projectId || record.CloudId != value.Data.CloudId ||
-                record.EventType != value.Data.EventType || record.ReceivedAt != value.OccurredAtUtc)
+                record.EventType != value.Data.EventType ||
+                // Connector/NET DateTimeOffset materialization loses microseconds.
+                // Compare the exact persisted datetime(6) in SQL instead of accepting
+                // a rounded timestamp or weakening owned-event validation.
+                !await db.JiraWebhookEvents.AnyAsync(x => x.Id == value.EventId && x.ReceivedAt == value.OccurredAtUtc, ct))
                 throw new KafkaContractException();
             outcome = "already_processed";
             if (record.Status == "RECEIVED")

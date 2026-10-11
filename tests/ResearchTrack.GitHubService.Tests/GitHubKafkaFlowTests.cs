@@ -1,6 +1,5 @@
 using ResearchTrack.Testing;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.DependencyInjection.Extensions;
 using Confluent.Kafka;
 using Prometheus;
 using Microsoft.EntityFrameworkCore;
@@ -64,34 +63,22 @@ public sealed class GitHubKafkaFlowTests
         {
             // HTTP checks use the real application pipeline and fixture MySQL;
             // flow workers below own processing, avoiding a second scheduler.
-            services.RemoveAll<IHostedService>();
+            foreach (var registration in services.Where(x => x.ServiceType == typeof(IHostedService) &&
+                x.ImplementationType?.Namespace?.StartsWith("ResearchTrack.", StringComparison.Ordinal) == true).ToArray())
+                services.Remove(registration);
             services.AddHealthChecks().AddCheck("fixture-kafka", messagingHealth, tags: ["ready"]);
         });
         using var httpClient = httpHost.CreateClient();
         using var publisher = new KafkaEventPublisher(factory, options);
         using var outboxWorker = new KafkaOutboxWorker(outboxStore, publisher, messagingHealth, NullLogger<KafkaOutboxWorker>.Instance, metrics);
         var worker = new KafkaConsumerWorker(factory, options, provider.GetRequiredService<IServiceScopeFactory>(), new(options, metrics), new(null, metrics), NullLogger<KafkaConsumerWorker>.Instance, metrics);
-        TopicPartitionOffset next;
-        Offset uncommitted;
         using (var consumer = factory.CreateConsumer())
         {
             await IsolatedKafkaFixture.RecoverOutboxAsync(database, options, metrics, registry, consumer, outboxWorker, httpClient, Ct);
-            var record = await IsolatedKafkaFixture.ReceiveAsync(consumer, row.EventId, Ct);
-            uncommitted = record.Offset;
-            await IsolatedKafkaFixture.FailCommitDuringOutageAsync(worker, consumer, record, Ct);
             consumer.Close();
         }
-        // The durable receipt survived failed commit. Rejoin at the exact record,
-        // deduplicate the handoff, then commit; never skip/reset broker offsets.
-        using (var consumer = factory.CreateConsumer())
-        {
-            consumer.Subscribe(options.Topic);
-            var record = await IsolatedKafkaFixture.ReceiveAsync(consumer, row.EventId, Ct);
-            Assert.Equal(uncommitted, record.Offset);
-            await worker.HandleAndCommitAsync(consumer, record, Ct);
-            next = new(record.TopicPartition, record.Offset + 1);
-            consumer.Close();
-        }
+        var next = await IsolatedKafkaFixture.RecoverConsumerCommitAsync(factory, options,
+            provider.GetRequiredService<IServiceScopeFactory>(), metrics, registry, Ct);
         await RunBusinessWorkerAsync(provider, database, row.EventId);
         Assert.Single(await db.Set<KafkaInboxReceipt>().ToListAsync(Ct));
         Assert.Equal(Sha, (await db.ProjectRepositoryLinks.AsNoTracking().SingleAsync(Ct)).LastKnownHeadSha);
@@ -121,6 +108,9 @@ public sealed class GitHubKafkaFlowTests
         await KafkaMetricSnapshot.SaveIsolatedAsync("github", registry, Ct);
         await IsolatedKafkaFixture.WaitForMetricAsync("researchtrack_kafka_consume_total{service=\"github\",stage=\"process\",outcome=\"success\"}", x => x == 1, Ct);
         await VerifyHeldLagAndRecoveryAsync(database, options, row, metrics, registry);
+        await IsolatedKafkaFixture.WriteEvidenceAsync("github-business", new { headSha = Sha,
+            commits = await db.Commits.CountAsync(Ct), syncRuns = await db.SyncRuns.CountAsync(Ct),
+            inboxReceipts = await db.Set<KafkaInboxReceipt>().CountAsync(Ct), eventId = row.EventId }, Ct);
         using var admin = new AdminClientBuilder(KafkaClientConfiguration.Producer(options)).Build();
         Assert.Equal(ErrorCode.NoError, Assert.Single(admin.GetMetadata(options.Topic, TimeSpan.FromSeconds(10)).Topics).Error.Code);
     }
@@ -199,6 +189,7 @@ public sealed class GitHubKafkaFlowTests
         await IsolatedKafkaFixture.WaitForMetricAsync("sum(kafka_consumergroup_lag{consumergroup=\"researchtrack-github-webhook-v1\"})", x => x == 0, Ct);
         foreach (var name in new[] { "ConsumerHeld", "ConsumerLagHigh" })
             await IsolatedKafkaFixture.WaitForMetricAsync($"absent(ALERTS{{alertname=\"ResearchTrackKafka{name}\",alertstate=\"firing\"}})", x => x == 1, Ct);
+        await IsolatedKafkaFixture.SaveEvidenceAsync("github-held-recovered", recoveredRegistry, Ct);
         await using var db = database.CreateDbContext();
         Assert.Single(await db.SyncRuns.ToListAsync(Ct));
         Assert.Single(await db.Set<KafkaInboxReceipt>().ToListAsync(Ct));

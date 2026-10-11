@@ -12,7 +12,7 @@ compose=(docker compose --env-file /dev/null --project-name "$RT_KAFKA_TEST_PROJ
 id="$("${compose[@]}" ps -a -q kafka)"
 [[ -n "$id" && "$id" == "${RT_KAFKA_TEST_BROKER_ID:-}" ]] || exit 2
 # Require project + service + explicit fixture marker + exact data source and port.
-docker inspect "$id" | python3 -c '
+docker inspect "$id" | python3 -I -c '
 import json,os,sys
 c=json.load(sys.stdin)[0]; labels=c["Config"]["Labels"]
 assert labels["com.docker.compose.project"]==os.environ["RT_KAFKA_TEST_PROJECT"]

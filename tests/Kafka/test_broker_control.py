@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
 """Adversarial offline tests of the real disposable-broker control boundary."""
+from functools import partial
+from http.server import ThreadingHTTPServer
+from threading import Thread
+from urllib.request import urlopen
+from serve_metrics import MetricSnapshotHandler
+
 import json
 import os
 from pathlib import Path
@@ -64,7 +70,9 @@ elif 'ps' in args: print('fixture-id')
         self.assert_no_mutation(*self.run_control(RT_KAFKA_TEST_BROKER_ID='other-container'))
     def test_missing_fixture_label_is_rejected(self):
         self.container['Config']['Labels']['researchtrack.fixture']='production'
-        self.assert_no_mutation(*self.run_control())
+        for optimization in ("", "1"):
+            with self.subTest(optimization=optimization):
+                self.assert_no_mutation(*self.run_control(PYTHONOPTIMIZE=optimization))
     def test_wrong_mount_or_public_port_is_rejected(self):
         for field in ['mount','port']:
             with self.subTest(field=field):
@@ -75,6 +83,23 @@ elif 'ps' in args: print('fixture-id')
     def test_unsupported_operation_is_rejected(self):
         for action in ['down','restart','delete','reset-offsets']:
             with self.subTest(action=action):self.assert_no_mutation(*self.run_control(action))
+
+class MetricSnapshotDelivery(unittest.TestCase):
+    def test_real_http_response_has_prometheus_content_type_and_original_body(self):
+        with tempfile.TemporaryDirectory() as directory:
+            body = '# TYPE fixture counter\nfixture 1\n'
+            Path(directory, 'github.prom').write_text(body)
+            server = ThreadingHTTPServer(('127.0.0.1', 0), partial(MetricSnapshotHandler, directory=directory))
+            thread = Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                with urlopen(f'http://127.0.0.1:{server.server_port}/github.prom', timeout=5) as response:
+                    self.assertEqual('text/plain; version=0.0.4; charset=utf-8', response.headers['Content-Type'])
+                    self.assertEqual(body, response.read().decode())
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join()
 
 if __name__ == '__main__':
     unittest.main()

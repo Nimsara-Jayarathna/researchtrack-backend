@@ -39,16 +39,19 @@ services:
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     mem_limit: 96m
-    cpus: 0.1
+    # Avoid throttling fixture scrapes into intermittent timeouts on Docker Desktop.
+    cpus: 0.5
   metric-snapshots:
     # Test-only HTTP delivery of actual application registry snapshots.
     image: python:3.13-alpine
-    command: [python, -m, http.server, '8080', --directory, /metrics]
+    command: [python, /serve-metrics.py]
     user: '65534:65534'
     read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
-    volumes: ['${RT_KAFKA_TEST_WORK:?}/metrics:/metrics:ro']
+    volumes:
+      - '${RT_KAFKA_TEST_WORK:?}/metrics:/metrics:ro'
+      - './serve_metrics.py:/serve-metrics.py:ro'
     mem_limit: 32m
   prometheus:
     image: prom/prometheus:v3.15.0

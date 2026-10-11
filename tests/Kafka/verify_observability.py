@@ -33,6 +33,9 @@ while time.monotonic() < deadline:
             healthy &= sample('kafka_brokers') == 1
             offset = sample('kafka_topic_partition_current_offset{topic="researchtrack.deployment-smoke",partition="0"}')
             healthy &= offset is not None and offset >= 0
+            for service in ('github', 'jira'):
+                healthy &= sample(f'sum(kafka_consumergroup_lag{{consumergroup="researchtrack-{service}-webhook-v1"}})') == 0
+                healthy &= sample(f'researchtrack_kafka_enabled{{service="{service}"}}') == 1
             healthy &= sample('absent(ALERTS{alertname=~"ResearchTrackKafka(Broker|Exporter)Unavailable",alertstate="firing"})') == 1
         else:
             firing = sample('sum(ALERTS{alertname=~"ResearchTrackKafka(Broker|Exporter)Unavailable",alertstate="firing"})')
@@ -50,7 +53,17 @@ evidence = {
     'targets': api('/api/v1/targets'), 'alerts': api('/api/v1/alerts'),
     'broker_health': sample('researchtrack_kafka_broker_healthy'),
 }
-directory = Path(__file__).resolve().parents[2] / 'artifacts/kafka-integration'
+if mode == 'healthy':
+    for service in ('github', 'jira'):
+        path = Path(os.environ['RT_KAFKA_TEST_METRICS_DIRECTORY']) / (service + '-business.json')
+        business = json.loads(path.read_text())
+        assert business['inboxReceipts'] == 1
+        if service == 'github':
+            assert business['commits'] == 1 and business['syncRuns'] == 1
+        else:
+            assert business['syncJobs'] == 1 and business['syncRevision'] > 0
+        evidence[service + '_business'] = business
+directory = Path(os.environ['RT_KAFKA_TEST_EVIDENCE_DIRECTORY'])
 directory.mkdir(parents=True, exist_ok=True)
 (directory / (mode + '-' + str(time.time_ns()) + '.json')).write_text(json.dumps(evidence, indent=2) + '\n')
 print('PASS: isolated exporter/broker scrape and alert state: ' + mode)

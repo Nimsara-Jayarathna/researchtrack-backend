@@ -262,5 +262,6 @@ with tarfile.open(fileobj=io.BytesIO(base64.b64decode((p/'runtime.b64').read_tex
     assert t.getmember('./infra.env').mode==0o600
 PYTEST
 then pass 'bundle includes Kafka scripts and modes; runtime retention externalized'; else fail 'bundle contract'; fi
+python3 "$repo_root/tests/Kafka/test_broker_control.py" || fail 'disposable broker control boundary'
 ((failures == 0)) || exit 1
 echo 'All offline Kafka operations cases passed.'

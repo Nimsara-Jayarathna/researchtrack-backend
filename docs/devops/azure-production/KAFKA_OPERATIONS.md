@@ -256,3 +256,105 @@ Retain approved commit SHA, client time, VM name/private address, redacted VM ch
 | `--restart` | Old token survives, new token passes, hashes unchanged, unrelated IDs/start times unchanged |
 
 See `KAFKA_TASK_REPORT.md` for the initial analysis, automated test evidence and Jira acceptance statuses.
+
+
+## DEVOPS-4.4 recovery diagnosis and final smoke
+
+The controlled outage suite is **local only**, documented in
+[KAFKA_INTEGRATION_TESTING.md](KAFKA_INTEGRATION_TESTING.md#devops-44-reproducible-recovery-smoke-on-macos).
+Never run a failure injection against the Azure broker. A healthy readiness response
+alone does not prove transport or business processing.
+
+For an incident, first capture read-only evidence through the existing approved VM
+access context. Do not run reconciliation, storage formatting, topic apply, offset
+reset, table updates or pending-event cleanup as diagnostic steps:
+
+```bash
+/opt/researchtrack/scripts/verify-kafka.sh --check
+/opt/researchtrack/scripts/kafka-topics.sh reconcile --check
+/opt/researchtrack/scripts/kafka-topics.sh describe researchtrack.github.events.v1
+/opt/researchtrack/scripts/kafka-topics.sh describe researchtrack.jira.events.v1
+/opt/researchtrack/scripts/diagnose-kafka-mounts.sh
+```
+
+The new mount diagnostic is a local proposal; this task has not installed it on the VM.
+Its live availability has not been verified.
+It prints selected mount metadata and image-declared volumes, never environment
+variables or credentials. Collect it only after separately approving the script's
+availability through the usual operational process. Expected: all five existing binds
+have their exact sources, destinations and read-only flags; image volumes may add
+`/etc/kafka/secrets` and `/mnt/shared/config`. Preserve mount output, image digest,
+assertion name, UTC time, revision SHA and filesystem identity in restricted evidence.
+
+The earlier exact-five-mount assertion can reject the official Kafka image's anonymous
+volumes. Locally `apache/kafka:3.9.1` declares `/etc/kafka/secrets`, `/mnt/shared/config`
+and `/var/lib/kafka/data`; the production data bind covers the last one. The proposed
+minimal verifier change accepts only the first two additional anonymous Docker volumes
+(64-character hex names, writable), preserves all five exact bind assertions, and
+rejects any other mount/duplicate destination. This changes verification only: no Compose,
+image, live mount, ownership, certificate, network or data change. Live mount evidence
+is still needed to establish whether this caused the reported production assertion.
+Do not change mounts to make a count assertion pass.
+
+Prometheus read-only query evidence (use the existing authorized Prometheus UI/API):
+
+```promql
+researchtrack_kafka_broker_healthy
+up{job="researchtrack-kafka"}
+sum by (service,outcome) (researchtrack_kafka_publish_total)
+researchtrack_kafka_outbox_messages{status="pending"}
+researchtrack_kafka_outbox_messages{status="failed"}
+sum by (service,stage,outcome) (researchtrack_kafka_consume_total)
+sum by (consumergroup) (kafka_consumergroup_lag)
+ALERTS{alertname=~"ResearchTrackKafka.*",alertstate="firing"}
+```
+
+Inspect `/health/live` and `/health/ready` on GitHub/Jira through the existing authorized
+application route and inspect unrelated application health. Transient publisher failures
+make messaging readiness **Degraded** (HTTP 200 under the existing policy); a held consumer
+is **Unhealthy**. Broker down with no attempted publication may not immediately change
+application readiness. The exporter/broker alert is the transport signal. Processing
+alerts use historical windows, so record their evaluation/`for` periods before declaring
+failed recovery. Production durations are unchanged; only disposable alert `for` values
+are shortened to 10 seconds, with 5-second fixture evaluation, for reproducibility.
+
+| Symptom | Read-only check / expected behavior |
+|---|---|
+| Publication timeout | Original durable outbox retained, attempt/error recorded, next eligible retry after 30s, then 2m/10m/30m/1h; no busy loop |
+| Broker restored | Same KRaft metadata, topic partition/retention state, CA and persisted offsets; normal clients reconnect |
+| Commit fails after handoff | Receipt/job already durable, consumer rejoin from broker offset, replay deduplicates, commit next offset only after durable handoff |
+| Pending does not drain | Check broker/TLS, next retry time and lease expiry; earlier FAILED event can block its key |
+| Failed rows / held consumer | Bounded retries exhausted or invalid contract/handler; preserve events and escalate for reviewed application repair |
+| Healthy broker but missing metrics | Confirm deployed image includes Kafka integration, enabled status, service scrape targets and content type; never inject credentials into a dashboard |
+| Wrong mount / identity | Capture diagnostic; stop verification and escalate, never regenerate identity, delete logs or remount live data |
+
+Recovery of a transient outage within the retry budget is automatic. The suite proves this
+without topic recreation, offset reset, database repair or clearing pending work. Permanent
+failures and exhausted attempts intentionally require review; do not claim automatic
+recovery after the retry budget is exhausted.
+
+For final deployment acceptance, separately authorize rollout and synthetic provider events
+through the existing protected environment. Capture existing topic/config state, deployed
+revision/image, health, authenticated delivery correlation ID, PUBLISHED outbox, one receipt,
+GitHub mirror SHA/commit or Jira issue/revision, committed next offset/lag 0, real scrape
+and alert recovery. Do not publish guessed Kafka payloads. This task does not perform that
+rollout or live event generation.
+
+Rollback guidance: use the existing approved revision/image rollback process only after
+separate authorization. Retain additive outbox/receipt tables, Kafka disk/cluster identity,
+CA, topics, offsets and pending events. Confirm the target revision is compatible with
+already accepted Kafka work before switching; disabling Kafka or rolling back to an image
+without consumers may strand pending events. Capture pending/failed counts and processing
+state before the decision. Do not run migration Down or purge data as rollback. Any infrastructure
+mount change is outside this verifier correction and needs its own reviewed plan.
+
+Evidence must distinguish isolated PASS from production NOT EXECUTED, include all assertion
+failures and retries, and omit webhook bodies, passwords, env bundles and private keys.
+
+
+Jira timestamp diagnostic: DEVOPS-4.4 found Connector/NET DateTimeOffset reads can drop
+fractional seconds while MySQL `datetime(6)` retains them. The local handler correction
+compares exact timestamp identity in SQL. If a previously held consumer hit this defect,
+verify the deployed image contains the correction, then use the separately approved
+application rollout/restart process. Preserve the original outbox, receipt state and offsets;
+never round/repair stored timestamps, republish forged events or skip the held record.

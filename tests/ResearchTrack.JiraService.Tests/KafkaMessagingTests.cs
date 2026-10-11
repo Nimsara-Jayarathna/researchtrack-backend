@@ -98,6 +98,23 @@ public sealed class KafkaMessagingTests
     }
 
     [Fact]
+    public async Task ExactPersistedTimestampMustMatchEvenWithinTheSameSecond()
+    {
+        using var database = new KafkaTestDatabase<JiraDbContext>(options => new(options));
+        await SeedAsync(database, Ct);
+        Assert.True(await Service(database).ReceiveAsync(Bearer(), "synthetic-delivery", Payload, Ct));
+        await using var db = database.CreateDbContext();
+        var row = await db.Set<KafkaOutboxMessage>().SingleAsync(Ct);
+        var value = KafkaWebhookContract.Parse(row.PayloadJson, row.MessageKey, "jira", "1");
+        var webhook = await db.JiraWebhookEvents.SingleAsync(Ct);
+        webhook.ReceivedAt = value.OccurredAtUtc.AddTicks(value.OccurredAtUtc.Microsecond == 999 ? -10 : 10);
+        await db.SaveChangesAsync(Ct);
+        await Assert.ThrowsAsync<KafkaContractException>(() => Handler(database).HandleAsync(value, Ct));
+        Assert.Empty(await db.Set<KafkaInboxReceipt>().ToListAsync(Ct));
+        Assert.Empty(await db.JiraSyncJobs.ToListAsync(Ct));
+    }
+
+    [Fact]
     public async Task DuplicateWebhookDoesNotCreateAnotherOutboxEvent()
     {
         using var database = new KafkaTestDatabase<JiraDbContext>(options => new(options));

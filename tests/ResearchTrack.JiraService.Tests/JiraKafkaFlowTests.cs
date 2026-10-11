@@ -1,6 +1,5 @@
 using ResearchTrack.Testing;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.DependencyInjection.Extensions;
 using Prometheus;
 using System.Net;
 using System.Text;
@@ -49,6 +48,11 @@ public sealed class JiraKafkaFlowTests
         using var provider = services.BuildServiceProvider();
         await using var db = database.CreateDbContext();
         var row = await db.Set<KafkaOutboxMessage>().SingleAsync(Ct);
+        var contract = KafkaWebhookContract.Parse(row.PayloadJson, row.MessageKey, "jira", "1");
+        // DateTime GetDateTime preserves the stored microseconds; DateTimeOffset
+        // materialization in Connector/NET does not. Require exact DB identity.
+        var timestamp = await db.Database.SqlQuery<DateTime>($"SELECT ReceivedAt AS Value FROM jira_webhook_events WHERE Id = {row.EventId}").SingleAsync(Ct);
+        Assert.Equal(contract.OccurredAtUtc.UtcDateTime, timestamp);
         var factory = IsolatedKafkaFixture.Factory(options);
         var outboxStore = new KafkaOutboxStore<JiraDbContext>(database);
         var messagingHealth = new KafkaMessagingHealth(outboxStore, metrics);
@@ -56,32 +60,22 @@ public sealed class JiraKafkaFlowTests
         {
             // HTTP checks use the real application pipeline and fixture MySQL;
             // flow workers below own processing, avoiding a second scheduler.
-            services.RemoveAll<IHostedService>();
+            foreach (var registration in services.Where(x => x.ServiceType == typeof(IHostedService) &&
+                x.ImplementationType?.Namespace?.StartsWith("ResearchTrack.", StringComparison.Ordinal) == true).ToArray())
+                services.Remove(registration);
             services.AddHealthChecks().AddCheck("fixture-kafka", messagingHealth, tags: ["ready"]);
         });
         using var httpClient = httpHost.CreateClient();
         using var publisher = new KafkaEventPublisher(factory, options);
         using var outboxWorker = new KafkaOutboxWorker(outboxStore, publisher, messagingHealth, NullLogger<KafkaOutboxWorker>.Instance, metrics);
         var consumerWorker = new KafkaConsumerWorker(factory, options, provider.GetRequiredService<IServiceScopeFactory>(), new(options, metrics), new(null, metrics), NullLogger<KafkaConsumerWorker>.Instance, metrics);
-        Offset uncommitted;
         using (var consumer = factory.CreateConsumer())
         {
             await IsolatedKafkaFixture.RecoverOutboxAsync(database, options, metrics, registry, consumer, outboxWorker, httpClient, Ct);
-            var record = await IsolatedKafkaFixture.ReceiveAsync(consumer, row.EventId, Ct);
-            uncommitted = record.Offset;
-            await IsolatedKafkaFixture.FailCommitDuringOutageAsync(consumerWorker, consumer, record, Ct);
             consumer.Close();
         }
-        TopicPartitionOffset next;
-        using (var consumer = factory.CreateConsumer())
-        {
-            consumer.Subscribe(options.Topic);
-            var record = await IsolatedKafkaFixture.ReceiveAsync(consumer, row.EventId, Ct);
-            Assert.Equal(uncommitted, record.Offset);
-            await consumerWorker.HandleAndCommitAsync(consumer, record, Ct);
-            next = new(record.TopicPartition, record.Offset + 1);
-            consumer.Close();
-        }
+        var next = await IsolatedKafkaFixture.RecoverConsumerCommitAsync(factory, options,
+            provider.GetRequiredService<IServiceScopeFactory>(), metrics, registry, Ct);
         Assert.Single(await db.Set<KafkaInboxReceipt>().ToListAsync(Ct));
         Assert.Single(await db.JiraSyncJobs.Where(x => x.Status == "PENDING").ToListAsync(Ct));
         using (var businessWorker = new JiraSyncWorker(provider.GetRequiredService<IServiceScopeFactory>(), jiraOptions, NullLogger<JiraSyncWorker>.Instance))
@@ -129,6 +123,9 @@ public sealed class JiraKafkaFlowTests
         await KafkaMetricSnapshot.SaveIsolatedAsync("jira", registry, Ct);
         await IsolatedKafkaFixture.WaitForMetricAsync("researchtrack_kafka_consume_total{service=\"jira\",stage=\"process\",outcome=\"success\"}", x => x == 1, Ct);
         await IsolatedKafkaFixture.WaitForMetricAsync("sum(kafka_consumergroup_lag{consumergroup=\"researchtrack-jira-webhook-v1\"})", x => x == 0, Ct);
+        await IsolatedKafkaFixture.WriteEvidenceAsync("jira-business", new { issue = issue.IssueKey, issue.Summary,
+            syncRevision = revision, syncJobs = await db.JiraSyncJobs.CountAsync(Ct),
+            inboxReceipts = await db.Set<KafkaInboxReceipt>().CountAsync(Ct), eventId = row.EventId }, Ct);
         using var admin = new AdminClientBuilder(KafkaClientConfiguration.Producer(options)).Build();
         Assert.Equal(ErrorCode.NoError, Assert.Single(admin.GetMetadata(options.Topic, TimeSpan.FromSeconds(10)).Topics).Error.Code);
     }

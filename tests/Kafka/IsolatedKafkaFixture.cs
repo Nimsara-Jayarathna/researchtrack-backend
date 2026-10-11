@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Diagnostics;
 using System.Net;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using ResearchTrack.BuildingBlocks.Kafka;
 
@@ -122,7 +123,7 @@ public static class IsolatedKafkaFixture
         var beforeSnapshot = await ControlBrokerAsync("snapshot", ct);
         await KafkaMetricSnapshot.SaveIsolatedAsync(options.Service, registry, ct);
         await WaitForMetricAsync($"researchtrack_kafka_publish_total{{service=\"{options.Service}\",outcome=\"retryable_failure\"}}", x => x == 0, ct);
-        await VerifyHttpAsync(http, "Healthy", ct);
+        await VerifyHttpAsync(http, options.Service, "Healthy", ct);
         await ControlBrokerAsync("stop", ct);
         try
         {
@@ -135,12 +136,14 @@ public static class IsolatedKafkaFixture
                 "Failed publication must retain the original event and one attempt.");
             Require(pending.NextAttemptAtUtc > DateTime.UtcNow.AddSeconds(20), "Production retry delay was not preserved.");
             Require(!await publisher.PublishOneAsync(ct), "Publisher retried before its scheduled delay.");
+            await WriteEvidenceAsync(options.Service + "-outbox-pending", new { pending.EventId, pending.Status,
+                pending.AttemptCount, pending.NextAttemptAtUtc, pending.LastErrorCode }, ct);
             Require(await db.Set<KafkaInboxReceipt>().CountAsync(ct) == 0, "Consumer committed handoff for an unpublished event.");
             Require(consumer.Consume(TimeSpan.FromMilliseconds(500)) is null, "Consumer unexpectedly received work during outage.");
             await new KafkaOutboxMetricsWorker(new KafkaOutboxStore<TContext>(database), metrics,
                 NullLogger<KafkaOutboxMetricsWorker>.Instance).SampleAsync(ct);
             await KafkaMetricSnapshot.SaveIsolatedAsync(options.Service, registry, ct);
-            await VerifyHttpAsync(http, "Degraded", ct);
+            await VerifyHttpAsync(http, options.Service, "Degraded", ct);
             await WaitForMetricAsync($"researchtrack_kafka_outbox_messages{{service=\"{options.Service}\",status=\"pending\"}}", x => x == 1, ct);
             await WaitForMetricAsync($"researchtrack_kafka_publish_total{{service=\"{options.Service}\",outcome=\"retryable_failure\"}}", x => x == 1, ct);
             await WaitForMetricAsync("sum(ALERTS{alertname=~\"ResearchTrackKafka(Broker|Exporter)Unavailable\",alertstate=\"firing\"})", x => x >= 1, ct);
@@ -157,7 +160,20 @@ public static class IsolatedKafkaFixture
             .Where(t => t.Topic.StartsWith("researchtrack.", StringComparison.Ordinal))
             .Select(t => (t.Topic, Count: t.Partitions.Count)).OrderBy(t => t.Topic).ToArray();
         Require(beforeTopics.SequenceEqual(afterTopics), "Existing topic names/partitions changed.");
-        Require(consumer.Committed([partition], TimeSpan.FromSeconds(10)).Single().Offset == beforeOffset, "Outage advanced committed offsets.");
+        await WaitAsync(() =>
+        {
+            // Poll the existing client while its group coordinator reconnects.
+            // No message has been published, so this cannot discard a record.
+            Require(consumer.Consume(TimeSpan.FromMilliseconds(250)) is null, "Unexpected event before durable retry.");
+            try
+            {
+                Require(consumer.Committed([partition], TimeSpan.FromSeconds(3)).Single().Offset == beforeOffset,
+                    "Outage advanced committed offsets.");
+                return Task.FromResult(true);
+            }
+            catch (KafkaException ex) when (ex.Error.Code is ErrorCode.Local_TimedOut or ErrorCode.GroupLoadInProgress or ErrorCode.GroupCoordinatorNotAvailable or ErrorCode.NotCoordinatorForGroup)
+            { return Task.FromResult(false); }
+        }, ct);
         deadline = DateTime.UtcNow.AddSeconds(45);
         while (!await publisher.PublishOneAsync(ct))
         {
@@ -169,13 +185,15 @@ public static class IsolatedKafkaFixture
             var published = await db.Set<KafkaOutboxMessage>().AsNoTracking().SingleAsync(ct);
             Require(published.Status == "PUBLISHED" && published.AttemptCount == 2 && published.LastErrorCode is null,
                 "The original producer did not acknowledge its automatic scheduled retry.");
+            await WriteEvidenceAsync(options.Service + "-outbox-published", new { published.EventId, published.Status,
+                published.AttemptCount, published.LastErrorCode }, ct);
         }
         var text = await KafkaMetricSnapshot.ExportAsync(registry, ct);
         Require(KafkaMetricSnapshot.Value(text, "researchtrack_kafka_retry_total", ("stage", "publish")) == 1, "Retry metric missing.");
         await new KafkaOutboxMetricsWorker(new KafkaOutboxStore<TContext>(database), metrics,
             NullLogger<KafkaOutboxMetricsWorker>.Instance).SampleAsync(ct);
         await KafkaMetricSnapshot.SaveIsolatedAsync(options.Service, registry, ct);
-        await VerifyHttpAsync(http, "Healthy", ct);
+        await VerifyHttpAsync(http, options.Service, "Healthy", ct);
         await WaitForMetricAsync("researchtrack_kafka_broker_healthy", x => x == 1, ct);
         await WaitForMetricAsync("absent(ALERTS{alertname=~\"ResearchTrackKafka(Broker|Exporter)Unavailable\",alertstate=\"firing\"})", x => x == 1, ct);
         var afterSnapshot = await ControlBrokerAsync("snapshot", ct);
@@ -189,36 +207,117 @@ public static class IsolatedKafkaFixture
         await SaveEvidenceAsync(options.Service + "-recovered", registry, ct);
     }
 
-    public static async Task FailCommitDuringOutageAsync(KafkaConsumerWorker worker,
-        IConsumer<string, string> consumer, ConsumeResult<string, string> record, CancellationToken ct)
+    public static async Task<TopicPartitionOffset> RecoverConsumerCommitAsync(
+        IKafkaClientFactory factory, KafkaRuntimeOptions options, Microsoft.Extensions.DependencyInjection.IServiceScopeFactory businessScopes,
+        KafkaMetrics metrics, Prometheus.CollectorRegistry registry, CancellationToken ct)
     {
-        await ControlBrokerAsync("stop", ct);
+        using var reader = factory.CreateConsumer();
+        var partition = new TopicPartition(options.Topic, new Partition(0));
+        var expected = await ReadBrokerAsync(() => reader.QueryWatermarkOffsets(partition, TimeSpan.FromSeconds(3)).High, ct);
+        var handler = new StopAfterHandoff(businessScopes);
+        using var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection()
+            .AddSingleton<IKafkaEventHandler>(handler).BuildServiceProvider();
+        using var worker = new KafkaConsumerWorker(factory, options, services.GetRequiredService<Microsoft.Extensions.DependencyInjection.IServiceScopeFactory>(),
+            new(options, metrics), new(null, metrics), NullLogger<KafkaConsumerWorker>.Instance, metrics);
+        await worker.StartAsync(ct);
         try
         {
-            try { await worker.HandleAndCommitAsync(consumer, record, ct); }
-            catch (KafkaOffsetCommitException) { return; }
-            throw new InvalidOperationException("Offset commit unexpectedly succeeded with the disposable broker stopped.");
+            try
+            {
+                await WaitAsync(async () => KafkaMetricSnapshot.Value(await KafkaMetricSnapshot.ExportAsync(registry, ct),
+                    "researchtrack_kafka_consume_total", ("stage", "commit"), ("outcome", "failed")) == 1, ct);
+                await KafkaMetricSnapshot.SaveIsolatedAsync(options.Service, registry, ct);
+                await SaveEvidenceAsync(options.Service + "-commit-failed", registry, ct);
+            }
+            finally
+            {
+                using var recovery = new CancellationTokenSource(TimeSpan.FromMinutes(4));
+                await ControlBrokerAsync("start", recovery.Token);
+            }
+            // ExecuteAsync closes/rejoins automatically after its failed commit;
+            // the test never invokes a reset, seek, table update or app restart.
+            await WaitAsync(async () => KafkaMetricSnapshot.Value(await KafkaMetricSnapshot.ExportAsync(registry, ct),
+                "researchtrack_kafka_consume_total", ("stage", "commit"), ("outcome", "success")) == 1, ct);
+            Require(await ReadBrokerAsync(() => reader.Committed([partition], TimeSpan.FromSeconds(3)).Single().Offset, ct) == expected,
+                "Consumer did not commit the exact next offset after automatic replay.");
+            Require(handler.Calls == 2, "Expected one durable handoff and one deduplicated replay.");
+            Require(KafkaMetricSnapshot.Value(await KafkaMetricSnapshot.ExportAsync(registry, ct), "researchtrack_kafka_consumer_held") == 0,
+                "Transient commit failure must not permanently hold the consumer.");
+            await WriteEvidenceAsync(options.Service + "-offset-recovered", new { topic = options.Topic, group = options.ConsumerGroupId,
+                committedNextOffset = expected.Value, handlerCalls = handler.Calls }, ct);
+            return new(partition, expected);
         }
         finally
         {
-            using var recovery = new CancellationTokenSource(TimeSpan.FromMinutes(4));
-            await ControlBrokerAsync("start", recovery.Token);
+            using var shutdown = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+            await worker.StopAsync(shutdown.Token);
+            await SaveEvidenceAsync(options.Service + "-consumer-diagnostic", registry, shutdown.Token);
         }
     }
 
-    private static async Task VerifyHttpAsync(HttpClient client, string ready, CancellationToken ct)
+    private sealed class StopAfterHandoff(Microsoft.Extensions.DependencyInjection.IServiceScopeFactory scopes) : IKafkaEventHandler
     {
+        private int _calls;
+        public int Calls => Volatile.Read(ref _calls);
+        public async Task HandleAsync(WebhookReadyEvent value, CancellationToken ct)
+        {
+            using var scope = scopes.CreateScope();
+            try { await scope.ServiceProvider.GetRequiredService<IKafkaEventHandler>().HandleAsync(value, ct); }
+            catch (Exception error)
+            {
+                // Only synthetic fixture data/clients are reachable here.
+                Console.Error.WriteLine("Disposable fixture handoff failed: " + error);
+                throw;
+            }
+            if (Interlocked.Increment(ref _calls) == 1) await ControlBrokerAsync("stop", ct);
+        }
+    }
+
+    private static async Task<T> ReadBrokerAsync<T>(Func<T> read, CancellationToken ct)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(60);
+        while (true)
+        {
+            ct.ThrowIfCancellationRequested();
+            try { return read(); }
+            catch (KafkaException ex) when (DateTime.UtcNow < deadline && ex.Error.Code is
+                ErrorCode.Local_DestroyBroker or ErrorCode.Local_Transport or ErrorCode.Local_TimedOut or
+                ErrorCode.GroupLoadInProgress or ErrorCode.GroupCoordinatorNotAvailable or ErrorCode.NotCoordinatorForGroup)
+            { await Task.Delay(250, ct); }
+        }
+    }
+
+    private static async Task WaitAsync(Func<Task<bool>> condition, CancellationToken ct)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(90);
+        while (!await condition())
+        {
+            if (DateTime.UtcNow >= deadline) throw new TimeoutException("Disposable consumer recovery did not converge.");
+            await Task.Delay(250, ct);
+        }
+    }
+
+    private static async Task VerifyHttpAsync(HttpClient client, string service, string ready, CancellationToken ct)
+    {
+        var evidence = new Dictionary<string, object>();
         foreach (var path in new[] { "/health/live", "/health/ready", "/swagger/v1/swagger.json" })
         {
             using var response = await client.GetAsync(path, ct);
             Require(response.StatusCode == HttpStatusCode.OK, "Unrelated HTTP route unavailable: " + path);
+            evidence[path] = (int)response.StatusCode;
             if (path == "/health/ready")
             {
                 using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
                 Require(body.RootElement.GetProperty("status").GetString() == ready, "Readiness must expose the actual messaging health state.");
             }
         }
+        evidence["readyStatus"] = ready;
+        await WriteEvidenceAsync(service + "-http-" + ready.ToLowerInvariant(), evidence, ct);
     }
+
+    public static Task WriteEvidenceAsync(string phase, object evidence, CancellationToken ct) =>
+        File.WriteAllTextAsync(Path.Combine(Environment.GetEnvironmentVariable("RT_KAFKA_TEST_WORK")!, "metrics", phase + ".json"),
+            JsonSerializer.Serialize(evidence, new JsonSerializerOptions { WriteIndented = true }), ct);
 
     public static async Task SaveEvidenceAsync(string phase, Prometheus.CollectorRegistry registry, CancellationToken ct)
     {
