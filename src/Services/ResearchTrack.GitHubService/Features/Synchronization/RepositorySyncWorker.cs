@@ -9,7 +9,8 @@ public sealed class RepositorySyncWorker : BackgroundService
     public RepositorySyncWorker(
         IRepositorySyncQueue queue,
         IServiceScopeFactory scopeFactory,
-        ILogger<RepositorySyncWorker> logger)
+        ILogger<RepositorySyncWorker> logger
+    )
     {
         _queue = queue;
         _scopeFactory = scopeFactory;
@@ -24,11 +25,13 @@ public sealed class RepositorySyncWorker : BackgroundService
             try
             {
                 using var scope = _scopeFactory.CreateScope();
-                var service = scope.ServiceProvider.GetRequiredService<IGitHubRepositorySynchronizationService>();
+                var service =
+                    scope.ServiceProvider.GetRequiredService<IGitHubRepositorySynchronizationService>();
                 var outcome = await service.SynchronizeAsync(
                     workItem.LinkedRepositoryId,
                     workItem.Trigger,
-                    stoppingToken);
+                    stoppingToken
+                );
                 if (outcome == GitHubSynchronizationOutcome.AlreadyRunning)
                 {
                     // Another synchronization path (for example the durable
@@ -48,7 +51,8 @@ public sealed class RepositorySyncWorker : BackgroundService
                     exception,
                     "Queued GitHub synchronization failed. LinkedRepositoryId={LinkedRepositoryId} Trigger={Trigger}",
                     workItem.LinkedRepositoryId,
-                    workItem.Trigger);
+                    workItem.Trigger
+                );
             }
             finally
             {

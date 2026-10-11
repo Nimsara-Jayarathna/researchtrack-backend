@@ -6,9 +6,7 @@ namespace ResearchTrack.MeetingService.Persistence;
 public sealed class MeetingDbContext : DbContext
 {
     public MeetingDbContext(DbContextOptions<MeetingDbContext> options)
-        : base(options)
-    {
-    }
+        : base(options) { }
 
     public DbSet<MeetingChannel> MeetingChannels => Set<MeetingChannel>();
     public DbSet<MeetingRecord> MeetingRecords => Set<MeetingRecord>();

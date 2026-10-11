@@ -1,9 +1,9 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
+using Prometheus;
 using ResearchTrack.BuildingBlocks.Api.Constants;
 using ResearchTrack.BuildingBlocks.Api.Exceptions;
-using Prometheus;
 
 namespace ResearchTrack.GitHubService.Features.Synchronization;
 
@@ -16,7 +16,8 @@ public sealed class GitHubRepositorySyncClient : IGitHubRepositorySyncClient
     private static readonly Counter ApiRequestsTotal = Metrics.CreateCounter(
         "github_api_requests_total",
         "Total number of outbound GitHub API requests by outcome.",
-        new CounterConfiguration { LabelNames = new[] { "outcome" } });
+        new CounterConfiguration { LabelNames = new[] { "outcome" } }
+    );
 
     public GitHubRepositorySyncClient(HttpClient httpClient)
     {
@@ -27,9 +28,14 @@ public sealed class GitHubRepositorySyncClient : IGitHubRepositorySyncClient
         string owner,
         string repository,
         string? token,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
-        using var payload = await GetAsync($"repos/{Part(owner)}/{Part(repository)}", token, cancellationToken);
+        using var payload = await GetAsync(
+            $"repos/{Part(owner)}/{Part(repository)}",
+            token,
+            cancellationToken
+        );
         return ParseRepository(payload.RootElement);
     }
 
@@ -38,17 +44,17 @@ public sealed class GitHubRepositorySyncClient : IGitHubRepositorySyncClient
         string repository,
         string branch,
         string? token,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         using var payload = await GetAsync(
             $"repos/{Part(owner)}/{Part(repository)}/branches/{Part(branch)}",
             token,
-            cancellationToken);
+            cancellationToken
+        );
 
         var commit = RequiredObject(payload.RootElement, "commit");
-        return new GitHubDefaultBranchHead(
-            branch,
-            RequiredString(commit, "sha"));
+        return new GitHubDefaultBranchHead(branch, RequiredString(commit, "sha"));
     }
 
     public Task<IReadOnlyList<GitHubSyncCommit>> GetCommitsAsync(
@@ -56,24 +62,28 @@ public sealed class GitHubRepositorySyncClient : IGitHubRepositorySyncClient
         string repository,
         string branch,
         string? token,
-        CancellationToken cancellationToken) =>
+        CancellationToken cancellationToken
+    ) =>
         GetPagedAsync(
             $"repos/{Part(owner)}/{Part(repository)}/commits?sha={Uri.EscapeDataString(branch)}",
             token,
             ParseCommit,
-            cancellationToken);
+            cancellationToken
+        );
 
     public async Task<GitHubSyncCommit> GetCommitAsync(
         string owner,
         string repository,
         string sha,
         string? token,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         using var payload = await GetAsync(
             $"repos/{Part(owner)}/{Part(repository)}/commits/{Part(sha)}",
             token,
-            cancellationToken);
+            cancellationToken
+        );
         return ParseCommit(payload.RootElement);
     }
 
@@ -81,35 +91,41 @@ public sealed class GitHubRepositorySyncClient : IGitHubRepositorySyncClient
         string owner,
         string repository,
         string? token,
-        CancellationToken cancellationToken) =>
+        CancellationToken cancellationToken
+    ) =>
         GetPagedAsync(
             $"repos/{Part(owner)}/{Part(repository)}/contributors?anon=0",
             token,
             ParseContributor,
-            cancellationToken);
+            cancellationToken
+        );
 
     public Task<IReadOnlyList<GitHubSyncPullRequest>> GetPullRequestsAsync(
         string owner,
         string repository,
         string? token,
-        CancellationToken cancellationToken) =>
+        CancellationToken cancellationToken
+    ) =>
         GetPagedAsync(
             $"repos/{Part(owner)}/{Part(repository)}/pulls?state=all&sort=updated&direction=desc",
             token,
             ParsePullRequest,
-            cancellationToken);
+            cancellationToken
+        );
 
     public async Task<GitHubSyncPullRequest> GetPullRequestAsync(
         string owner,
         string repository,
         int number,
         string? token,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         using var payload = await GetAsync(
             $"repos/{Part(owner)}/{Part(repository)}/pulls/{number}",
             token,
-            cancellationToken);
+            cancellationToken
+        );
         return ParsePullRequest(payload.RootElement);
     }
 
@@ -118,18 +134,21 @@ public sealed class GitHubRepositorySyncClient : IGitHubRepositorySyncClient
         string repository,
         int number,
         string? token,
-        CancellationToken cancellationToken) =>
+        CancellationToken cancellationToken
+    ) =>
         GetPagedAsync(
             $"repos/{Part(owner)}/{Part(repository)}/pulls/{number}/reviews",
             token,
             ParseReview,
-            cancellationToken);
+            cancellationToken
+        );
 
     private async Task<IReadOnlyList<T>> GetPagedAsync<T>(
         string path,
         string? token,
         Func<JsonElement, T> parser,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         var items = new List<T>();
         for (var page = 1; page <= MaxPages; page++)
@@ -138,7 +157,8 @@ public sealed class GitHubRepositorySyncClient : IGitHubRepositorySyncClient
             using var payload = await GetAsync(
                 $"{path}{separator}per_page={PerPage}&page={page}",
                 token,
-                cancellationToken);
+                cancellationToken
+            );
 
             if (payload.RootElement.ValueKind != JsonValueKind.Array)
             {
@@ -164,7 +184,8 @@ public sealed class GitHubRepositorySyncClient : IGitHubRepositorySyncClient
     private async Task<JsonDocument> GetAsync(
         string relativeUrl,
         string? token,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         ThrowIfAnonymousRateLimited(token);
 
@@ -180,7 +201,8 @@ public sealed class GitHubRepositorySyncClient : IGitHubRepositorySyncClient
             response = await _httpClient.SendAsync(
                 request,
                 HttpCompletionOption.ResponseHeadersRead,
-                cancellationToken);
+                cancellationToken
+            );
         }
         catch (HttpRequestException exception)
         {
@@ -201,7 +223,8 @@ public sealed class GitHubRepositorySyncClient : IGitHubRepositorySyncClient
                 throw new ApiException(
                     StatusCodes.Status404NotFound,
                     ErrorCodes.NotFound,
-                    "The GitHub repository or resource was not found.");
+                    "The GitHub repository or resource was not found."
+                );
             }
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
@@ -210,7 +233,8 @@ public sealed class GitHubRepositorySyncClient : IGitHubRepositorySyncClient
                 throw new ApiException(
                     StatusCodes.Status403Forbidden,
                     ErrorCodes.Forbidden,
-                    "ResearchTrack no longer has permission to read this GitHub repository.");
+                    "ResearchTrack no longer has permission to read this GitHub repository."
+                );
             }
 
             if (response.StatusCode == HttpStatusCode.Forbidden)
@@ -223,7 +247,8 @@ public sealed class GitHubRepositorySyncClient : IGitHubRepositorySyncClient
                     throw new ApiException(
                         StatusCodes.Status503ServiceUnavailable,
                         ErrorCodes.DependencyUnavailable,
-                        BuildRateLimitMessage(response));
+                        BuildRateLimitMessage(response)
+                    );
                 }
 
                 ApiRequestsTotal.WithLabels("forbidden").Inc();
@@ -231,10 +256,7 @@ public sealed class GitHubRepositorySyncClient : IGitHubRepositorySyncClient
                 var message = string.IsNullOrWhiteSpace(acceptedPermissions)
                     ? "ResearchTrack does not have permission to read this GitHub repository."
                     : $"ResearchTrack GitHub App permission is insufficient for this GitHub API operation. Required permission set: {acceptedPermissions}. Update the GitHub App permissions and approve the update for the installation.";
-                throw new ApiException(
-                    StatusCodes.Status403Forbidden,
-                    ErrorCodes.Forbidden,
-                    message);
+                throw new ApiException(StatusCodes.Status403Forbidden, ErrorCodes.Forbidden, message);
             }
 
             if ((int)response.StatusCode == StatusCodes.Status429TooManyRequests)
@@ -244,14 +266,14 @@ public sealed class GitHubRepositorySyncClient : IGitHubRepositorySyncClient
                 throw new ApiException(
                     StatusCodes.Status503ServiceUnavailable,
                     ErrorCodes.DependencyUnavailable,
-                    BuildRateLimitMessage(response));
+                    BuildRateLimitMessage(response)
+                );
             }
 
             if (!response.IsSuccessStatusCode)
             {
                 ApiRequestsTotal.WithLabels("error").Inc();
-                throw DependencyFailure(
-                    $"GitHub API returned HTTP {(int)response.StatusCode}.");
+                throw DependencyFailure($"GitHub API returned HTTP {(int)response.StatusCode}.");
             }
 
             ApiRequestsTotal.WithLabels("success").Inc();
@@ -278,7 +300,8 @@ public sealed class GitHubRepositorySyncClient : IGitHubRepositorySyncClient
         throw new ApiException(
             StatusCodes.Status503ServiceUnavailable,
             ErrorCodes.DependencyUnavailable,
-            $"GitHub API rate limit is still active for anonymous requests. Retry after {resetAt:O}.");
+            $"GitHub API rate limit is still active for anonymous requests. Retry after {resetAt:O}."
+        );
     }
 
     private static void RememberAnonymousRateLimit(string? token, HttpResponseMessage response)
@@ -316,9 +339,7 @@ public sealed class GitHubRepositorySyncClient : IGitHubRepositorySyncClient
 
     private static string? TryGetHeader(HttpResponseMessage response, string name)
     {
-        return response.Headers.TryGetValues(name, out var values)
-            ? values.FirstOrDefault()
-            : null;
+        return response.Headers.TryGetValues(name, out var values) ? values.FirstOrDefault() : null;
     }
 
     private static GitHubSyncRepository ParseRepository(JsonElement element)
@@ -337,7 +358,8 @@ public sealed class GitHubRepositorySyncClient : IGitHubRepositorySyncClient
             NullableString(element, "description"),
             NullableDate(element, "created_at"),
             NullableDate(element, "updated_at"),
-            NullableDate(element, "pushed_at"));
+            NullableDate(element, "pushed_at")
+        );
     }
 
     private static GitHubSyncCommit ParseCommit(JsonElement element)
@@ -347,23 +369,21 @@ public sealed class GitHubRepositorySyncClient : IGitHubRepositorySyncClient
         var committerInfo = RequiredObject(commit, "committer");
         var author = OptionalObject(element, "author");
         var committer = OptionalObject(element, "committer");
-        var parentCount = element.TryGetProperty("parents", out var parents)
-            && parents.ValueKind == JsonValueKind.Array
+        var parentCount =
+            element.TryGetProperty("parents", out var parents) && parents.ValueKind == JsonValueKind.Array
                 ? parents.GetArrayLength()
                 : 0;
 
         int? additions = null;
         int? deletions = null;
         int? changedFiles = null;
-        if (element.TryGetProperty("stats", out var stats)
-            && stats.ValueKind == JsonValueKind.Object)
+        if (element.TryGetProperty("stats", out var stats) && stats.ValueKind == JsonValueKind.Object)
         {
             additions = NullableInt(stats, "additions");
             deletions = NullableInt(stats, "deletions");
         }
 
-        if (element.TryGetProperty("files", out var files)
-            && files.ValueKind == JsonValueKind.Array)
+        if (element.TryGetProperty("files", out var files) && files.ValueKind == JsonValueKind.Array)
         {
             changedFiles = files.GetArrayLength();
         }
@@ -383,15 +403,18 @@ public sealed class GitHubRepositorySyncClient : IGitHubRepositorySyncClient
             parentCount,
             additions,
             deletions,
-            changedFiles);
+            changedFiles
+        );
     }
 
-    private static GitHubSyncContributor ParseContributor(JsonElement element) => new(
-        RequiredInt64(element, "id"),
-        RequiredString(element, "login"),
-        NullableString(element, "avatar_url"),
-        NullableString(element, "html_url"),
-        NullableInt(element, "contributions") ?? 0);
+    private static GitHubSyncContributor ParseContributor(JsonElement element) =>
+        new(
+            RequiredInt64(element, "id"),
+            RequiredString(element, "login"),
+            NullableString(element, "avatar_url"),
+            NullableString(element, "html_url"),
+            NullableInt(element, "contributions") ?? 0
+        );
 
     private static GitHubSyncPullRequest ParsePullRequest(JsonElement element)
     {
@@ -427,7 +450,8 @@ public sealed class GitHubRepositorySyncClient : IGitHubRepositorySyncClient
             NullableInt(element, "changed_files"),
             NullableInt(element, "commits"),
             NullableInt(element, "comments"),
-            NullableInt(element, "review_comments"));
+            NullableInt(element, "review_comments")
+        );
     }
 
     private static GitHubSyncReview ParseReview(JsonElement element)
@@ -438,15 +462,15 @@ public sealed class GitHubRepositorySyncClient : IGitHubRepositorySyncClient
             user is null ? null : NullableInt64(user.Value, "id"),
             user is null ? null : NullableString(user.Value, "login"),
             RequiredString(element, "state").ToUpperInvariant(),
-            NullableDate(element, "submitted_at"));
+            NullableDate(element, "submitted_at")
+        );
     }
 
     private static string Part(string value) => Uri.EscapeDataString(value.Trim());
 
     private static JsonElement RequiredObject(JsonElement element, string propertyName)
     {
-        if (element.TryGetProperty(propertyName, out var value)
-            && value.ValueKind == JsonValueKind.Object)
+        if (element.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.Object)
         {
             return value;
         }
@@ -455,8 +479,7 @@ public sealed class GitHubRepositorySyncClient : IGitHubRepositorySyncClient
     }
 
     private static JsonElement? OptionalObject(JsonElement element, string propertyName) =>
-        element.TryGetProperty(propertyName, out var value)
-        && value.ValueKind == JsonValueKind.Object
+        element.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.Object
             ? value
             : null;
 
@@ -465,8 +488,7 @@ public sealed class GitHubRepositorySyncClient : IGitHubRepositorySyncClient
         ?? throw DependencyFailure($"GitHub payload is missing '{propertyName}'.");
 
     private static string? NullableString(JsonElement element, string propertyName) =>
-        element.TryGetProperty(propertyName, out var value)
-        && value.ValueKind == JsonValueKind.String
+        element.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.String
             ? value.GetString()
             : null;
 
@@ -475,8 +497,7 @@ public sealed class GitHubRepositorySyncClient : IGitHubRepositorySyncClient
         ?? throw DependencyFailure($"GitHub payload is missing '{propertyName}'.");
 
     private static long? NullableInt64(JsonElement element, string propertyName) =>
-        element.TryGetProperty(propertyName, out var value)
-        && value.TryGetInt64(out var number)
+        element.TryGetProperty(propertyName, out var value) && value.TryGetInt64(out var number)
             ? number
             : null;
 
@@ -485,8 +506,7 @@ public sealed class GitHubRepositorySyncClient : IGitHubRepositorySyncClient
         ?? throw DependencyFailure($"GitHub payload is missing '{propertyName}'.");
 
     private static int? NullableInt(JsonElement element, string propertyName) =>
-        element.TryGetProperty(propertyName, out var value)
-        && value.TryGetInt32(out var number)
+        element.TryGetProperty(propertyName, out var value) && value.TryGetInt32(out var number)
             ? number
             : null;
 
@@ -502,14 +522,14 @@ public sealed class GitHubRepositorySyncClient : IGitHubRepositorySyncClient
     private static DateTime? NullableDate(JsonElement element, string propertyName)
     {
         var raw = NullableString(element, propertyName);
-        return raw is not null && DateTimeOffset.TryParse(raw, out var value)
-            ? value.UtcDateTime
-            : null;
+        return raw is not null && DateTimeOffset.TryParse(raw, out var value) ? value.UtcDateTime : null;
     }
 
-    private static ApiException DependencyFailure(string message, Exception? inner = null) => new(
-        StatusCodes.Status503ServiceUnavailable,
-        ErrorCodes.DependencyUnavailable,
-        message,
-        innerException: inner);
+    private static ApiException DependencyFailure(string message, Exception? inner = null) =>
+        new(
+            StatusCodes.Status503ServiceUnavailable,
+            ErrorCodes.DependencyUnavailable,
+            message,
+            innerException: inner
+        );
 }

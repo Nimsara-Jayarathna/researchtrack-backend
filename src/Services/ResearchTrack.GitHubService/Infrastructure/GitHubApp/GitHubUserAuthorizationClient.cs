@@ -19,7 +19,8 @@ public sealed class GitHubUserAuthorizationClient : IGitHubUserAuthorizationClie
         if (httpClient.BaseAddress != TrustedBaseAddress)
         {
             throw new InvalidOperationException(
-                "The GitHub user authorization client must use the trusted GitHub web base address.");
+                "The GitHub user authorization client must use the trusted GitHub web base address."
+            );
         }
 
         _httpClient = httpClient;
@@ -29,7 +30,8 @@ public sealed class GitHubUserAuthorizationClient : IGitHubUserAuthorizationClie
     public async Task<GitHubUserAccessToken> ExchangeCodeAsync(
         string code,
         string codeVerifier,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         if (string.IsNullOrWhiteSpace(code))
         {
@@ -42,14 +44,16 @@ public sealed class GitHubUserAuthorizationClient : IGitHubUserAuthorizationClie
 
         using var request = new HttpRequestMessage(HttpMethod.Post, "login/oauth/access_token")
         {
-            Content = new FormUrlEncodedContent(new Dictionary<string, string>
-            {
-                ["client_id"] = _options.ClientId,
-                ["client_secret"] = _options.ClientSecret,
-                ["code"] = code,
-                ["redirect_uri"] = _options.SetupCallbackUrl.AbsoluteUri,
-                ["code_verifier"] = codeVerifier
-            })
+            Content = new FormUrlEncodedContent(
+                new Dictionary<string, string>
+                {
+                    ["client_id"] = _options.ClientId,
+                    ["client_secret"] = _options.ClientSecret,
+                    ["code"] = code,
+                    ["redirect_uri"] = _options.SetupCallbackUrl.AbsoluteUri,
+                    ["code_verifier"] = codeVerifier,
+                }
+            ),
         };
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
@@ -75,28 +79,35 @@ public sealed class GitHubUserAuthorizationClient : IGitHubUserAuthorizationClie
             }
 
             var payload = await response.Content.ReadFromJsonAsync<TokenResponse>(
-                cancellationToken: cancellationToken);
-            if (payload is null
+                cancellationToken: cancellationToken
+            );
+            if (
+                payload is null
                 || !string.IsNullOrWhiteSpace(payload.Error)
-                || string.IsNullOrWhiteSpace(payload.AccessToken))
+                || string.IsNullOrWhiteSpace(payload.AccessToken)
+            )
             {
                 throw new ApiException(
                     StatusCodes.Status400BadRequest,
                     ErrorCodes.ValidationError,
-                    "GitHub user authorization could not be completed.");
+                    "GitHub user authorization could not be completed."
+                );
             }
 
             return new GitHubUserAccessToken(payload.AccessToken);
         }
     }
 
-    private static ApiException DependencyFailure(string message, Exception? inner = null) => new(
-        StatusCodes.Status503ServiceUnavailable,
-        ErrorCodes.DependencyUnavailable,
-        message,
-        innerException: inner);
+    private static ApiException DependencyFailure(string message, Exception? inner = null) =>
+        new(
+            StatusCodes.Status503ServiceUnavailable,
+            ErrorCodes.DependencyUnavailable,
+            message,
+            innerException: inner
+        );
 
     private sealed record TokenResponse(
         [property: JsonPropertyName("access_token")] string? AccessToken,
-        [property: JsonPropertyName("error")] string? Error);
+        [property: JsonPropertyName("error")] string? Error
+    );
 }

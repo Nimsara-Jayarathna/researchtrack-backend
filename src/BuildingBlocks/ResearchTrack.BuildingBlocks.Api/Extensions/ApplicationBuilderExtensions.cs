@@ -24,10 +24,8 @@ public static class ApplicationBuilderExtensions
             }
         });
 
-
         app.UseAuthentication();
         app.UseAuthorization();
-
 
         if (app.Environment.IsDevelopment() || app.Configuration.GetValue<bool>("OpenApi:Enabled"))
         {
@@ -40,16 +38,22 @@ public static class ApplicationBuilderExtensions
         }
 
         app.MapControllers();
-        app.MapHealthChecks("/health/live", new HealthCheckOptions
-        {
-            Predicate = _ => false,
-            ResponseWriter = HealthResponseWriter.WriteAsync
-        });
-        app.MapHealthChecks("/health/ready", new HealthCheckOptions
-        {
-            Predicate = registration => registration.Tags.Contains("ready"),
-            ResponseWriter = HealthResponseWriter.WriteAsync
-        });
+        app.MapHealthChecks(
+            "/health/live",
+            new HealthCheckOptions
+            {
+                Predicate = _ => false,
+                ResponseWriter = HealthResponseWriter.WriteAsync,
+            }
+        );
+        app.MapHealthChecks(
+            "/health/ready",
+            new HealthCheckOptions
+            {
+                Predicate = registration => registration.Tags.Contains("ready"),
+                ResponseWriter = HealthResponseWriter.WriteAsync,
+            }
+        );
 
         return app;
     }

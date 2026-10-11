@@ -8,5 +8,6 @@ public interface IGitHubWebhookIngressService
         string? signature,
         string? deliveryId,
         string? eventType,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken
+    );
 }

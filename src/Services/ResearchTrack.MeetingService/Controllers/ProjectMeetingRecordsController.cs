@@ -23,34 +23,32 @@ public sealed class ProjectMeetingRecordsController : ApiControllerBase
     }
 
     [HttpGet]
-    [ProducesResponseType<ApiResponse<IReadOnlyList<MeetingRecordResponse>>>(
-        StatusCodes.Status200OK)]
+    [ProducesResponseType<ApiResponse<IReadOnlyList<MeetingRecordResponse>>>(StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<IReadOnlyList<MeetingRecordResponse>>>> List(
         Guid projectId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
-        return ApiOk(
-            await _meetingRecordService.ListAsync(projectId, cancellationToken));
+        return ApiOk(await _meetingRecordService.ListAsync(projectId, cancellationToken));
     }
 
     [HttpPost]
-    [ProducesResponseType<ApiResponse<MeetingRecordResponse>>(
-        StatusCodes.Status201Created)]
+    [ProducesResponseType<ApiResponse<MeetingRecordResponse>>(StatusCodes.Status201Created)]
     public async Task<ActionResult<ApiResponse<MeetingRecordResponse>>> Create(
         Guid projectId,
         [FromBody] MeetingRecordUpsertRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         var created = await _meetingRecordService.CreateAsync(
             projectId,
             GetRequiredUserId(),
             GetRequiredRole(),
             request,
-            cancellationToken);
+            cancellationToken
+        );
 
-        return ApiCreated(
-            $"/api/v1/projects/{projectId}/meetings/records/{created.Id}",
-            created);
+        return ApiCreated($"/api/v1/projects/{projectId}/meetings/records/{created.Id}", created);
     }
 
     [Authorize(Policy = AuthSecurityConstants.Policies.SupervisorOnly)]
@@ -59,14 +57,12 @@ public sealed class ProjectMeetingRecordsController : ApiControllerBase
         Guid projectId,
         Guid recordId,
         [FromBody] MeetingRecordUpsertRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         return ApiOk(
-            await _meetingRecordService.UpdateAsync(
-                projectId,
-                recordId,
-                request,
-                cancellationToken));
+            await _meetingRecordService.UpdateAsync(projectId, recordId, request, cancellationToken)
+        );
     }
 
     [Authorize(Policy = AuthSecurityConstants.Policies.SupervisorOnly)]
@@ -75,7 +71,8 @@ public sealed class ProjectMeetingRecordsController : ApiControllerBase
     public async Task<IActionResult> Delete(
         Guid projectId,
         Guid recordId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         await _meetingRecordService.DeleteAsync(projectId, recordId, cancellationToken);
         return NoContent();
@@ -86,35 +83,31 @@ public sealed class ProjectMeetingRecordsController : ApiControllerBase
     public async Task<ActionResult<ApiResponse<MeetingRecordResponse>>> Approve(
         Guid projectId,
         Guid recordId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         return ApiOk(
             await _meetingRecordService.ApproveAsync(
                 projectId,
                 recordId,
                 GetRequiredUserId(),
-                cancellationToken));
+                cancellationToken
+            )
+        );
     }
 
     private Guid GetRequiredUserId()
     {
         var value = User.FindFirstValue(AuthSecurityConstants.SubjectClaim);
-        return Guid.TryParse(value, out var userId)
-            ? userId
-            : throw AuthenticationRequired();
+        return Guid.TryParse(value, out var userId) ? userId : throw AuthenticationRequired();
     }
 
     private string GetRequiredRole()
     {
         var role = User.FindFirstValue(AuthSecurityConstants.RoleClaim);
-        return string.IsNullOrWhiteSpace(role)
-            ? throw AuthenticationRequired()
-            : role;
+        return string.IsNullOrWhiteSpace(role) ? throw AuthenticationRequired() : role;
     }
 
     private static ApiException AuthenticationRequired() =>
-        new(
-            StatusCodes.Status401Unauthorized,
-            ErrorCodes.Unauthorized,
-            "Authentication is required.");
+        new(StatusCodes.Status401Unauthorized, ErrorCodes.Unauthorized, "Authentication is required.");
 }

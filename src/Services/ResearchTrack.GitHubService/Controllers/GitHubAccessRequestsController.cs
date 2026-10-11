@@ -17,7 +17,10 @@ public sealed class GitHubAccessRequestsController : ApiControllerBase
     private readonly IGitHubAccessRequestService _requests;
     private readonly IGitHubInstallationFlowService _installationFlow;
 
-    public GitHubAccessRequestsController(IGitHubAccessRequestService requests, IGitHubInstallationFlowService installationFlow)
+    public GitHubAccessRequestsController(
+        IGitHubAccessRequestService requests,
+        IGitHubInstallationFlowService installationFlow
+    )
     {
         _requests = requests;
         _installationFlow = installationFlow;
@@ -28,19 +31,22 @@ public sealed class GitHubAccessRequestsController : ApiControllerBase
     [AllowAnonymous]
     public async Task<ActionResult<ApiResponse<GitHubAccessRequestValidationResponse>>> Validate(
         [FromQuery] string token,
-        CancellationToken cancellationToken) => ApiOk(await _requests.ValidateAsync(token, cancellationToken));
+        CancellationToken cancellationToken
+    ) => ApiOk(await _requests.ValidateAsync(token, cancellationToken));
 
     [HttpPost("api/github/access-requests/continue")]
     [HttpPost("api/v1/github/access-requests/continue")]
     [AllowAnonymous]
     public async Task<ActionResult<ApiResponse<GitHubAccessRequestContinueResponse>>> Continue(
         [FromQuery] string token,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         var started = await _installationFlow.StartAsync(
             Guid.Empty,
             new StartGitHubInstallationRequest(null, token),
-            cancellationToken);
+            cancellationToken
+        );
         return ApiOk(new GitHubAccessRequestContinueResponse(started.ProjectId, started.GitHubAuthorizeUrl));
     }
 
@@ -49,34 +55,42 @@ public sealed class GitHubAccessRequestsController : ApiControllerBase
     [AllowAnonymous]
     public async Task<ActionResult<ApiResponse<GitHubAccessUpdatedSummaryResponse>>> Result(
         [FromQuery] string token,
-        CancellationToken cancellationToken) => ApiOk(await _requests.GetResultAsync(token, cancellationToken));
+        CancellationToken cancellationToken
+    ) => ApiOk(await _requests.GetResultAsync(token, cancellationToken));
 
     [HttpPost("api/github/access-updated/acknowledge")]
     [HttpPost("api/v1/github/access-updated/acknowledge")]
     [AllowAnonymous]
     public async Task<ActionResult<ApiResponse<GitHubAccessUpdatedAcknowledgeResponse>>> Acknowledge(
         [FromQuery] string token,
-        CancellationToken cancellationToken) => ApiOk(await _requests.AcknowledgeAsync(token, cancellationToken));
+        CancellationToken cancellationToken
+    ) => ApiOk(await _requests.AcknowledgeAsync(token, cancellationToken));
 
     [HttpGet("api/supervisor/projects/{projectId:guid}/github/access-updated/summary")]
     [HttpGet("api/v1/projects/{projectId:guid}/github/access-updated/summary")]
     [Authorize(Policy = AuthSecurityConstants.Policies.SupervisorOnly)]
     public async Task<ActionResult<ApiResponse<GitHubAccessUpdatedSummaryResponse>>> ProjectSummary(
         Guid projectId,
-        CancellationToken cancellationToken) => ApiOk(await _requests.GetLatestCompletedAsync(GetRequiredUserId(), projectId, cancellationToken));
+        CancellationToken cancellationToken
+    ) => ApiOk(await _requests.GetLatestCompletedAsync(GetRequiredUserId(), projectId, cancellationToken));
 
     [HttpPost("api/supervisor/projects/{projectId:guid}/github/access-updated/acknowledge")]
     [HttpPost("api/v1/projects/{projectId:guid}/github/access-updated/acknowledge")]
     [Authorize(Policy = AuthSecurityConstants.Policies.SupervisorOnly)]
     public async Task<ActionResult<ApiResponse<GitHubAccessUpdatedAcknowledgeResponse>>> AcknowledgeProject(
         Guid projectId,
-        CancellationToken cancellationToken) => ApiOk(await _requests.AcknowledgeLatestAsync(GetRequiredUserId(), projectId, cancellationToken));
-
+        CancellationToken cancellationToken
+    ) => ApiOk(await _requests.AcknowledgeLatestAsync(GetRequiredUserId(), projectId, cancellationToken));
 
     private Guid GetRequiredUserId()
     {
         var subject = User.FindFirstValue(AuthSecurityConstants.SubjectClaim);
-        if (Guid.TryParse(subject, out var userId)) return userId;
-        throw new ApiException(StatusCodes.Status401Unauthorized, ErrorCodes.Unauthorized, "Authentication is required.");
+        if (Guid.TryParse(subject, out var userId))
+            return userId;
+        throw new ApiException(
+            StatusCodes.Status401Unauthorized,
+            ErrorCodes.Unauthorized,
+            "Authentication is required."
+        );
     }
 }

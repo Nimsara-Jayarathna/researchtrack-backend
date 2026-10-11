@@ -22,13 +22,14 @@ public sealed class JwtAccessTokenService : IAccessTokenService
             ["sub"] = user.Id.ToString(),
             ["jti"] = Guid.NewGuid().ToString("N"),
             ["email"] = user.Email,
-            ["role"] = user.Role == UserRole.Student
-                ? AuthSecurityConstants.Roles.Student
-                : AuthSecurityConstants.Roles.Supervisor,
+            ["role"] =
+                user.Role == UserRole.Student
+                    ? AuthSecurityConstants.Roles.Student
+                    : AuthSecurityConstants.Roles.Supervisor,
             ["iss"] = _options.Issuer,
             ["aud"] = _options.Audience,
             ["iat"] = now.ToUnixTimeSeconds(),
-            ["exp"] = now.AddMinutes(_options.AccessTokenMinutes).ToUnixTimeSeconds()
+            ["exp"] = now.AddMinutes(_options.AccessTokenMinutes).ToUnixTimeSeconds(),
         };
 
         var encodedHeader = Base64Url(JsonSerializer.SerializeToUtf8Bytes(header));
@@ -39,8 +40,6 @@ public sealed class JwtAccessTokenService : IAccessTokenService
         return $"{unsigned}.{signature}";
     }
 
-    private static string Base64Url(byte[] bytes) => Convert.ToBase64String(bytes)
-        .TrimEnd('=')
-        .Replace('+', '-')
-        .Replace('/', '_');
+    private static string Base64Url(byte[] bytes) =>
+        Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 }

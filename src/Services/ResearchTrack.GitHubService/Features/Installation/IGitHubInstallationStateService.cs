@@ -8,27 +8,32 @@ public interface IGitHubInstallationStateService
         string flowType,
         string returnPath,
         CancellationToken cancellationToken,
-        Guid? accessRequestId = null);
+        Guid? accessRequestId = null
+    );
 
     Task<ValidatedGitHubInstallationState> ValidateAsync(
         string state,
         Guid expectedUserId,
         string expectedFlowType,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken
+    );
 
     Task<ValidatedGitHubInstallationState> ValidateExternalCallbackAsync(
         string state,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken
+    );
 
     Task<ValidatedGitHubInstallationState> BindInstallationAsync(
         string state,
         long installationId,
         string expectedFlowType,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken
+    );
 
     Task<ConsumedGitHubInstallationState> ConsumeAsync(
         string state,
         Guid expectedUserId,
         string expectedFlowType,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken
+    );
 }

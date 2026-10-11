@@ -22,10 +22,9 @@ public sealed class JiraDashboardController : ApiControllerBase
     [HttpPost("health")]
     public async Task<ActionResult<ApiResponse<JiraDashboardHealthResponse>>> Health(
         [FromBody] JiraDashboardHealthRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
-        return ApiOk(await _service.GetAsync(
-            request.ProjectIds ?? [],
-            cancellationToken));
+        return ApiOk(await _service.GetAsync(request.ProjectIds ?? [], cancellationToken));
     }
 }

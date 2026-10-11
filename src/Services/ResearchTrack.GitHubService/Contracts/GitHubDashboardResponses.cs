@@ -7,7 +7,8 @@ public sealed record GitHubDashboardRepositoryResponse(
     string? DefaultBranch,
     DateTime? LastSyncedAt,
     DateTime CreatedAt,
-    DateTime? UpdatedAt);
+    DateTime? UpdatedAt
+);
 
 public sealed record GitHubDashboardActivitySummaryResponse(
     int TotalCommits,
@@ -20,13 +21,15 @@ public sealed record GitHubDashboardActivitySummaryResponse(
     string? LastActivityType,
     int? LastActivityPullRequestNumber,
     string? LastActivityPullRequestStatus,
-    string Status);
+    string Status
+);
 
 public sealed record GitHubDashboardContributorResponse(
     string Name,
     int CommitCount,
     string? GitHubUsername,
-    string? AvatarUrl);
+    string? AvatarUrl
+);
 
 public sealed record GitHubDashboardCommitResponse(
     string? Sha,
@@ -35,8 +38,8 @@ public sealed record GitHubDashboardCommitResponse(
     string? GitHubUsername,
     string? AvatarUrl,
     DateTime? CommittedAt,
-    string? Type);
-
+    string? Type
+);
 
 public sealed record GitHubDashboardPullRequestResponse(
     long GitHubPullRequestId,
@@ -61,7 +64,8 @@ public sealed record GitHubDashboardPullRequestResponse(
     int? ChangedFiles,
     int? CommitsCount,
     int? CommentsCount,
-    int? ReviewCommentsCount);
+    int? ReviewCommentsCount
+);
 
 public sealed record GitHubDashboardResponse(
     bool RepositoryLinked,
@@ -74,5 +78,5 @@ public sealed record GitHubDashboardResponse(
     IReadOnlyList<GitHubDashboardContributorResponse> ContributorsPreview,
     IReadOnlyList<GitHubDashboardCommitResponse> RecentCommitsPreview,
     IReadOnlyList<GitHubDashboardPullRequestResponse> PullRequestsPreview,
-    bool HasUnacknowledgedAccess);
-
+    bool HasUnacknowledgedAccess
+);

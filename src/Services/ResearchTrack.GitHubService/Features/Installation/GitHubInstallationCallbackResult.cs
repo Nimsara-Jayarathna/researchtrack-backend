@@ -8,4 +8,5 @@ public sealed record GitHubInstallationCallbackResult(
     string ReturnPath,
     bool Succeeded,
     string? ErrorCode,
-    string? ExternalRedirectUrl = null);
+    string? ExternalRedirectUrl = null
+);

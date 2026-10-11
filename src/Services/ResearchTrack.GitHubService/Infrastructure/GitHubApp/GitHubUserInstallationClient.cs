@@ -18,7 +18,8 @@ public sealed class GitHubUserInstallationClient : IGitHubUserInstallationClient
         if (httpClient.BaseAddress != GitHubApiDefaults.TrustedBaseAddress)
         {
             throw new InvalidOperationException(
-                "The GitHub user installation client must use the trusted GitHub API base address.");
+                "The GitHub user installation client must use the trusted GitHub API base address."
+            );
         }
 
         _httpClient = httpClient;
@@ -27,7 +28,8 @@ public sealed class GitHubUserInstallationClient : IGitHubUserInstallationClient
     public async Task<bool> CanAccessInstallationAsync(
         GitHubUserAccessToken token,
         long installationId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         if (string.IsNullOrWhiteSpace(token.Value))
         {
@@ -45,7 +47,8 @@ public sealed class GitHubUserInstallationClient : IGitHubUserInstallationClient
         {
             using var request = new HttpRequestMessage(
                 HttpMethod.Get,
-                $"user/installations?per_page={PageSize}&page={page}");
+                $"user/installations?per_page={PageSize}&page={page}"
+            );
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token.Value);
 
             using var response = await SendAsync(request, cancellationToken);
@@ -58,7 +61,8 @@ public sealed class GitHubUserInstallationClient : IGitHubUserInstallationClient
                 throw new ApiException(
                     StatusCodes.Status403Forbidden,
                     ErrorCodes.Forbidden,
-                    "GitHub could not confirm access to the selected App installation.");
+                    "GitHub could not confirm access to the selected App installation."
+                );
             }
             if (!response.IsSuccessStatusCode)
             {
@@ -68,19 +72,23 @@ public sealed class GitHubUserInstallationClient : IGitHubUserInstallationClient
             await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
             using var payload = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
             var root = payload.RootElement;
-            if (!root.TryGetProperty("total_count", out var totalElement)
+            if (
+                !root.TryGetProperty("total_count", out var totalElement)
                 || !totalElement.TryGetInt32(out var totalCount)
                 || !root.TryGetProperty("installations", out var installations)
-                || installations.ValueKind != JsonValueKind.Array)
+                || installations.ValueKind != JsonValueKind.Array
+            )
             {
                 throw DependencyFailure("GitHub returned invalid user installation metadata.");
             }
 
             foreach (var installation in installations.EnumerateArray())
             {
-                if (installation.TryGetProperty("id", out var idElement)
+                if (
+                    installation.TryGetProperty("id", out var idElement)
                     && idElement.TryGetInt64(out var id)
-                    && id == installationId)
+                    && id == installationId
+                )
                 {
                     return true;
                 }
@@ -97,7 +105,8 @@ public sealed class GitHubUserInstallationClient : IGitHubUserInstallationClient
 
     private async Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         try
         {
@@ -109,13 +118,18 @@ public sealed class GitHubUserInstallationClient : IGitHubUserInstallationClient
         }
         catch (TaskCanceledException exception) when (!cancellationToken.IsCancellationRequested)
         {
-            throw DependencyFailure("GitHub user installation verification did not respond in time.", exception);
+            throw DependencyFailure(
+                "GitHub user installation verification did not respond in time.",
+                exception
+            );
         }
     }
 
-    private static ApiException DependencyFailure(string message, Exception? inner = null) => new(
-        StatusCodes.Status503ServiceUnavailable,
-        ErrorCodes.DependencyUnavailable,
-        message,
-        innerException: inner);
+    private static ApiException DependencyFailure(string message, Exception? inner = null) =>
+        new(
+            StatusCodes.Status503ServiceUnavailable,
+            ErrorCodes.DependencyUnavailable,
+            message,
+            innerException: inner
+        );
 }

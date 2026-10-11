@@ -6,12 +6,10 @@ public interface IMeetingRecordRepository
 {
     Task<IReadOnlyList<MeetingRecord>> ListByProjectAsync(
         Guid projectId,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken
+    );
 
-    Task<MeetingRecord?> FindAsync(
-        Guid projectId,
-        Guid recordId,
-        CancellationToken cancellationToken);
+    Task<MeetingRecord?> FindAsync(Guid projectId, Guid recordId, CancellationToken cancellationToken);
 
     Task AddAsync(MeetingRecord record, CancellationToken cancellationToken);
     Task SaveAsync(MeetingRecord record, CancellationToken cancellationToken);

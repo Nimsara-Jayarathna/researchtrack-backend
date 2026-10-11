@@ -1,5 +1,5 @@
-using Prometheus;
 using Microsoft.EntityFrameworkCore;
+using Prometheus;
 using ResearchTrack.BuildingBlocks.Api.Constants;
 using ResearchTrack.BuildingBlocks.Api.Exceptions;
 using ResearchTrack.GitHubService.Domain;
@@ -17,8 +17,16 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
     private readonly IGitHubAppClient _gitHubAppClient;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<GitHubRepositorySynchronizationService> _logger;
-    private static readonly Counter SyncRunsTotal = Metrics.CreateCounter("github_sync_runs_total","Total number of GitHub repository sync attempts.",new CounterConfiguration { LabelNames = new[] { "trigger", "outcome" } });
-    private static readonly Histogram SyncDurationSeconds = Metrics.CreateHistogram("github_sync_duration_seconds","Duration of GitHub repository sync operations that actually ran.",new HistogramConfiguration { LabelNames = new[] { "trigger" } });
+    private static readonly Counter SyncRunsTotal = Metrics.CreateCounter(
+        "github_sync_runs_total",
+        "Total number of GitHub repository sync attempts.",
+        new CounterConfiguration { LabelNames = new[] { "trigger", "outcome" } }
+    );
+    private static readonly Histogram SyncDurationSeconds = Metrics.CreateHistogram(
+        "github_sync_duration_seconds",
+        "Duration of GitHub repository sync operations that actually ran.",
+        new HistogramConfiguration { LabelNames = new[] { "trigger" } }
+    );
 
     public GitHubRepositorySynchronizationService(
         IDbContextFactory<GitHubDbContext> dbContextFactory,
@@ -26,7 +34,8 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
         IGitHubInstallationTokenProvider tokenProvider,
         IGitHubAppClient gitHubAppClient,
         TimeProvider timeProvider,
-        ILogger<GitHubRepositorySynchronizationService> logger)
+        ILogger<GitHubRepositorySynchronizationService> logger
+    )
     {
         _dbContextFactory = dbContextFactory;
         _gitHubClient = gitHubClient;
@@ -36,16 +45,23 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
         _logger = logger;
     }
 
-        public async Task<GitHubSynchronizationOutcome> SynchronizeAsync(
+    public async Task<GitHubSynchronizationOutcome> SynchronizeAsync(
         Guid linkedRepositoryId,
         string trigger,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         var syncContext = await LoadSyncContextAsync(linkedRepositoryId, cancellationToken);
-        if (!syncContext.Link.Active
+        if (
+            !syncContext.Link.Active
             || !syncContext.Link.Enabled
-            || !string.Equals(syncContext.Source.ConnectionStatus, GitHubConnectionStatuses.Connected, StringComparison.Ordinal)
-            || !syncContext.Repository.Available)
+            || !string.Equals(
+                syncContext.Source.ConnectionStatus,
+                GitHubConnectionStatuses.Connected,
+                StringComparison.Ordinal
+            )
+            || !syncContext.Repository.Available
+        )
         {
             SyncRunsTotal.WithLabels(trigger, "skipped_unavailable").Inc();
             return GitHubSynchronizationOutcome.SkippedUnavailable;
@@ -67,12 +83,11 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
                 throw new ApiException(
                     StatusCodes.Status409Conflict,
                     ErrorCodes.Conflict,
-                    "The linked repository does not have an active GitHub App installation.");
+                    "The linked repository does not have an active GitHub App installation."
+                );
             }
 
-            var installation = await _gitHubAppClient.GetInstallationAsync(
-                installationId,
-                cancellationToken);
+            var installation = await _gitHubAppClient.GetInstallationAsync(installationId, cancellationToken);
             GitHubAppPermissionRequirements.EnsureInstallationActive(installation);
             GitHubAppPermissionRequirements.EnsureSynchronizationReadPermissions(installation);
 
@@ -82,55 +97,61 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
                 syncContext.Link.OwnerLogin,
                 syncContext.Link.Name,
                 token,
-                cancellationToken);
+                cancellationToken
+            );
 
             if (repository.Id != syncContext.Link.GitHubRepoId)
             {
                 throw new ApiException(
                     StatusCodes.Status409Conflict,
                     ErrorCodes.Conflict,
-                    "The GitHub repository identity no longer matches the linked ResearchTrack repository.");
+                    "The GitHub repository identity no longer matches the linked ResearchTrack repository."
+                );
             }
 
             // ResearchTrack tracks default-branch activity only. Listing every
             // branch adds an unnecessary GitHub API call and used to make initial
             // synchronization fail before the default-branch commit request. Use
             // the newest default-branch commit as the local branch head instead.
-            var commits = (await _gitHubClient.GetCommitsAsync(
-                repository.OwnerLogin,
-                repository.Name,
-                repository.DefaultBranch,
-                token,
-                cancellationToken)).ToList();
-            IReadOnlyList<GitHubSyncBranch> branches = commits.Count == 0
-                ? []
-                : [new GitHubSyncBranch(repository.DefaultBranch, commits[0].Sha, false)];
+            var commits = (
+                await _gitHubClient.GetCommitsAsync(
+                    repository.OwnerLogin,
+                    repository.Name,
+                    repository.DefaultBranch,
+                    token,
+                    cancellationToken
+                )
+            ).ToList();
+            IReadOnlyList<GitHubSyncBranch> branches =
+                commits.Count == 0
+                    ? []
+                    : [new GitHubSyncBranch(repository.DefaultBranch, commits[0].Sha, false)];
 
             var contributors = await _gitHubClient.GetContributorsAsync(
                 repository.OwnerLogin,
                 repository.Name,
                 token,
-                cancellationToken);
+                cancellationToken
+            );
 
-            var pullRequests = (await _gitHubClient.GetPullRequestsAsync(
-                repository.OwnerLogin,
-                repository.Name,
-                token,
-                cancellationToken)).ToList();
+            var pullRequests = (
+                await _gitHubClient.GetPullRequestsAsync(
+                    repository.OwnerLogin,
+                    repository.Name,
+                    token,
+                    cancellationToken
+                )
+            ).ToList();
 
-            await EnrichNewCommitsAsync(
-                linkedRepositoryId,
-                repository,
-                commits,
-                token,
-                cancellationToken);
+            await EnrichNewCommitsAsync(linkedRepositoryId, repository, commits, token, cancellationToken);
 
             var reviews = await EnrichPullRequestsAsync(
                 linkedRepositoryId,
                 repository,
                 pullRequests,
                 token,
-                cancellationToken);
+                cancellationToken
+            );
 
             await PersistSnapshotAsync(
                 syncContext,
@@ -141,7 +162,8 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
                 contributors,
                 pullRequests,
                 reviews,
-                cancellationToken);
+                cancellationToken
+            );
 
             _logger.LogInformation(
                 "GitHub synchronization completed. ProjectId={ProjectId} LinkedRepositoryId={LinkedRepositoryId} Trigger={Trigger} Commits={CommitCount} Contributors={ContributorCount} PullRequests={PullRequestCount}",
@@ -150,7 +172,8 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
                 trigger,
                 commits.Count,
                 contributors.Count,
-                pullRequests.Count);
+                pullRequests.Count
+            );
             SyncRunsTotal.WithLabels(trigger, "completed").Inc();
             return GitHubSynchronizationOutcome.Completed;
         }
@@ -161,62 +184,64 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
                 linkedRepositoryId,
                 runId,
                 "cancelled",
-                "GitHub synchronization was cancelled.");
+                "GitHub synchronization was cancelled."
+            );
             throw;
         }
         catch (Exception exception)
         {
             SyncRunsTotal.WithLabels(trigger, "failed").Inc();
-            var errorCode = exception is ApiException apiException
-                ? apiException.Code
-                : "github_sync_failed";
-            await MarkFailedBestEffortAsync(
-                linkedRepositoryId,
-                runId,
-                errorCode,
-                exception.Message);
+            var errorCode = exception is ApiException apiException ? apiException.Code : "github_sync_failed";
+            await MarkFailedBestEffortAsync(linkedRepositoryId, runId, errorCode, exception.Message);
 
             _logger.LogError(
                 exception,
                 "GitHub synchronization failed. LinkedRepositoryId={LinkedRepositoryId} Trigger={Trigger}",
                 linkedRepositoryId,
-                trigger);
+                trigger
+            );
             throw;
         }
     }
 
-
-
     private async Task<SyncContext> LoadSyncContextAsync(
         Guid linkedRepositoryId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-        var link = await dbContext.ProjectRepositoryLinks
-            .AsNoTracking()
-            .SingleOrDefaultAsync(link => link.Id == linkedRepositoryId, cancellationToken)
+        var link =
+            await dbContext
+                .ProjectRepositoryLinks.AsNoTracking()
+                .SingleOrDefaultAsync(link => link.Id == linkedRepositoryId, cancellationToken)
             ?? throw new ApiException(
                 StatusCodes.Status404NotFound,
                 ErrorCodes.NotFound,
-                "The linked GitHub repository was not found.");
+                "The linked GitHub repository was not found."
+            );
 
-        var source = await dbContext.AccessSources
-            .AsNoTracking()
-            .SingleOrDefaultAsync(
-                source => source.Id == link.SourceId && source.Active,
-                cancellationToken)
+        var source =
+            await dbContext
+                .AccessSources.AsNoTracking()
+                .SingleOrDefaultAsync(
+                    source => source.Id == link.SourceId && source.Active,
+                    cancellationToken
+                )
             ?? throw new ApiException(
                 StatusCodes.Status404NotFound,
                 ErrorCodes.NotFound,
-                "The GitHub access source is no longer active.");
+                "The GitHub access source is no longer active."
+            );
 
-        var repository = await dbContext.Repositories
-            .AsNoTracking()
-            .SingleOrDefaultAsync(item => item.Id == link.GitHubRepositoryId, cancellationToken)
+        var repository =
+            await dbContext
+                .Repositories.AsNoTracking()
+                .SingleOrDefaultAsync(item => item.Id == link.GitHubRepositoryId, cancellationToken)
             ?? throw new ApiException(
                 StatusCodes.Status404NotFound,
                 ErrorCodes.NotFound,
-                "The GitHub repository inventory record was not found.");
+                "The GitHub repository inventory record was not found."
+            );
 
         return new SyncContext(link, source, repository);
     }
@@ -225,37 +250,46 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
         ProjectRepositoryLink link,
         Guid runId,
         string trigger,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         var now = _timeProvider.GetUtcNow().UtcDateTime;
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
         await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
 
-        var affected = await dbContext.ProjectRepositoryLinks
-            .Where(item => item.Id == link.Id
+        var affected = await dbContext
+            .ProjectRepositoryLinks.Where(item =>
+                item.Id == link.Id
                 && item.Active
                 && item.Enabled
-                && item.SyncStatus != GitHubSyncStatuses.InProgress)
-            .ExecuteUpdateAsync(setters => setters
-                .SetProperty(item => item.SyncStatus, GitHubSyncStatuses.InProgress)
-                .SetProperty(item => item.LastSyncStartedAt, now)
-                .SetProperty(item => item.LastSyncError, (string?)null)
-                .SetProperty(item => item.UpdatedAt, now), cancellationToken);
+                && item.SyncStatus != GitHubSyncStatuses.InProgress
+            )
+            .ExecuteUpdateAsync(
+                setters =>
+                    setters
+                        .SetProperty(item => item.SyncStatus, GitHubSyncStatuses.InProgress)
+                        .SetProperty(item => item.LastSyncStartedAt, now)
+                        .SetProperty(item => item.LastSyncError, (string?)null)
+                        .SetProperty(item => item.UpdatedAt, now),
+                cancellationToken
+            );
         if (affected != 1)
         {
             await transaction.RollbackAsync(cancellationToken);
             return false;
         }
 
-        dbContext.SyncRuns.Add(new GitHubSyncRun
-        {
-            Id = runId,
-            ProjectId = link.ProjectId,
-            RepositoryLinkId = link.Id,
-            Trigger = trigger,
-            Status = GitHubSyncRunStatuses.Running,
-            StartedAt = now
-        });
+        dbContext.SyncRuns.Add(
+            new GitHubSyncRun
+            {
+                Id = runId,
+                ProjectId = link.ProjectId,
+                RepositoryLinkId = link.Id,
+                Trigger = trigger,
+                Status = GitHubSyncRunStatuses.Running,
+                StartedAt = now,
+            }
+        );
         await dbContext.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return true;
@@ -266,17 +300,17 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
         GitHubSyncRepository repository,
         List<GitHubSyncCommit> commits,
         string? token,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-        var detailedShas = (await dbContext.Commits
-            .AsNoTracking()
-            .Where(commit =>
-                commit.RepositoryLinkId == linkedRepositoryId
-                && commit.Additions != null)
-            .Select(commit => commit.Sha)
-            .ToListAsync(cancellationToken))
-            .ToHashSet(StringComparer.Ordinal);
+        var detailedShas = (
+            await dbContext
+                .Commits.AsNoTracking()
+                .Where(commit => commit.RepositoryLinkId == linkedRepositoryId && commit.Additions != null)
+                .Select(commit => commit.Sha)
+                .ToListAsync(cancellationToken)
+        ).ToHashSet(StringComparer.Ordinal);
 
         for (var index = 0; index < commits.Count; index++)
         {
@@ -290,7 +324,8 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
                 repository.Name,
                 commits[index].Sha,
                 token,
-                cancellationToken);
+                cancellationToken
+            );
         }
     }
 
@@ -299,39 +334,33 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
         GitHubSyncRepository repository,
         List<GitHubSyncPullRequest> pullRequests,
         string? token,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-        var knownUpdates = await dbContext.PullRequests
-            .AsNoTracking()
+        var knownUpdates = await dbContext
+            .PullRequests.AsNoTracking()
             .Where(item => item.RepositoryLinkId == linkedRepositoryId)
             .Select(item => new
             {
                 item.GitHubPullRequestId,
                 item.UpdatedAt,
                 item.IsMerged,
-                item.MergedByLogin
+                item.MergedByLogin,
             })
             .ToListAsync(cancellationToken);
-        var knownById = knownUpdates.ToDictionary(
-            item => item.GitHubPullRequestId);
+        var knownById = knownUpdates.ToDictionary(item => item.GitHubPullRequestId);
 
         var reviews = new Dictionary<long, IReadOnlyList<GitHubSyncReview>>();
         for (var index = 0; index < pullRequests.Count; index++)
         {
             var pullRequest = pullRequests[index];
-            var hasKnownVersion = knownById.TryGetValue(
-                pullRequest.Id,
-                out var known);
+            var hasKnownVersion = knownById.TryGetValue(pullRequest.Id, out var known);
             var needsMergeActorBackfill =
                 pullRequest.Merged
-                && (!hasKnownVersion
-                    || !known!.IsMerged
-                    || string.IsNullOrWhiteSpace(known.MergedByLogin));
-            var needsDetail = string.Equals(
-                    pullRequest.State,
-                    "OPEN",
-                    StringComparison.Ordinal)
+                && (!hasKnownVersion || !known!.IsMerged || string.IsNullOrWhiteSpace(known.MergedByLogin));
+            var needsDetail =
+                string.Equals(pullRequest.State, "OPEN", StringComparison.Ordinal)
                 || !hasKnownVersion
                 || known!.UpdatedAt != pullRequest.UpdatedAt
                 || needsMergeActorBackfill;
@@ -346,7 +375,8 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
                 repository.Name,
                 pullRequest.Number,
                 token,
-                cancellationToken);
+                cancellationToken
+            );
             pullRequests[index] = pullRequest;
 
             reviews[pullRequest.Id] = await _gitHubClient.GetPullRequestReviewsAsync(
@@ -354,7 +384,8 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
                 repository.Name,
                 pullRequest.Number,
                 token,
-                cancellationToken);
+                cancellationToken
+            );
         }
 
         return reviews;
@@ -369,16 +400,21 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
         IReadOnlyList<GitHubSyncContributor> contributors,
         IReadOnlyList<GitHubSyncPullRequest> pullRequests,
         IReadOnlyDictionary<long, IReadOnlyList<GitHubSyncReview>> reviews,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         var now = _timeProvider.GetUtcNow().UtcDateTime;
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
         await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
 
-        var link = await dbContext.ProjectRepositoryLinks
-            .SingleAsync(item => item.Id == syncContext.Link.Id, cancellationToken);
-        var repositoryEntity = await dbContext.Repositories
-            .SingleAsync(item => item.Id == link.GitHubRepositoryId, cancellationToken);
+        var link = await dbContext.ProjectRepositoryLinks.SingleAsync(
+            item => item.Id == syncContext.Link.Id,
+            cancellationToken
+        );
+        var repositoryEntity = await dbContext.Repositories.SingleAsync(
+            item => item.Id == link.GitHubRepositoryId,
+            cancellationToken
+        );
 
         UpdateRepositoryMetadata(link, repositoryEntity, repository, branches, commits, now);
         await UpsertBranchesAsync(dbContext, link.Id, branches, now, cancellationToken);
@@ -389,17 +425,12 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
             link.Id,
             pullRequests,
             now,
-            cancellationToken);
+            cancellationToken
+        );
         await dbContext.SaveChangesAsync(cancellationToken);
-        await UpsertReviewsAsync(
-            dbContext,
-            pullRequestEntities,
-            reviews,
-            now,
-            cancellationToken);
+        await UpsertReviewsAsync(dbContext, pullRequestEntities, reviews, now, cancellationToken);
 
-        var syncRun = await dbContext.SyncRuns
-            .SingleAsync(item => item.Id == runId, cancellationToken);
+        var syncRun = await dbContext.SyncRuns.SingleAsync(item => item.Id == runId, cancellationToken);
         syncRun.Status = GitHubSyncRunStatuses.Success;
         syncRun.CompletedAt = now;
         syncRun.CommitsFetched = commits.Count;
@@ -418,19 +449,20 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
         GitHubSyncRepository repository,
         IReadOnlyList<GitHubSyncBranch> branches,
         IReadOnlyList<GitHubSyncCommit> commits,
-        DateTime now)
+        DateTime now
+    )
     {
         link.FullName = repository.FullName;
         link.Name = repository.Name;
         link.OwnerLogin = repository.OwnerLogin;
         link.DefaultBranch = repository.DefaultBranch;
         link.Url = repository.HtmlUrl;
-        link.LastKnownHeadSha = branches
-            .FirstOrDefault(branch => string.Equals(
-                branch.Name,
-                repository.DefaultBranch,
-                StringComparison.Ordinal))
-            ?.HeadSha
+        link.LastKnownHeadSha =
+            branches
+                .FirstOrDefault(branch =>
+                    string.Equals(branch.Name, repository.DefaultBranch, StringComparison.Ordinal)
+                )
+                ?.HeadSha
             ?? commits.FirstOrDefault()?.Sha;
         link.LastSyncedAt = now;
         link.SyncRevision = checked(link.SyncRevision + 1);
@@ -451,10 +483,11 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
         Guid linkedRepositoryId,
         IReadOnlyList<GitHubSyncBranch> branches,
         DateTime now,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
-        var existing = await dbContext.Branches
-            .Where(item => item.RepositoryLinkId == linkedRepositoryId)
+        var existing = await dbContext
+            .Branches.Where(item => item.RepositoryLinkId == linkedRepositoryId)
             .ToListAsync(cancellationToken);
         var byName = existing.ToDictionary(item => item.Name, StringComparer.Ordinal);
 
@@ -469,7 +502,7 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
                     Name = branch.Name,
                     HeadSha = branch.HeadSha,
                     IsProtected = branch.Protected,
-                    LastSeenAt = now
+                    LastSeenAt = now,
                 };
                 dbContext.Branches.Add(entity);
                 byName[branch.Name] = entity;
@@ -488,10 +521,11 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
         Guid linkedRepositoryId,
         IReadOnlyList<GitHubSyncCommit> commits,
         DateTime now,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
-        var existing = await dbContext.Commits
-            .Where(item => item.RepositoryLinkId == linkedRepositoryId)
+        var existing = await dbContext
+            .Commits.Where(item => item.RepositoryLinkId == linkedRepositoryId)
             .ToListAsync(cancellationToken);
         var bySha = existing.ToDictionary(item => item.Sha, StringComparer.Ordinal);
 
@@ -507,7 +541,7 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
                     Message = commit.Message,
                     HtmlUrl = commit.HtmlUrl,
                     FirstSeenAt = now,
-                    LastSeenAt = now
+                    LastSeenAt = now,
                 };
                 dbContext.Commits.Add(entity);
                 bySha[commit.Sha] = entity;
@@ -537,10 +571,11 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
         IReadOnlyList<GitHubSyncContributor> contributors,
         IReadOnlyList<GitHubSyncCommit> commits,
         DateTime now,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
-        var existing = await dbContext.Contributors
-            .Where(item => item.RepositoryLinkId == linkedRepositoryId)
+        var existing = await dbContext
+            .Contributors.Where(item => item.RepositoryLinkId == linkedRepositoryId)
             .ToListAsync(cancellationToken);
         var byUserId = existing.ToDictionary(item => item.GitHubUserId);
 
@@ -555,7 +590,9 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
                     group.Sum(commit => (long)(commit.Deletions ?? 0)),
                     group.Sum(commit => (long)(commit.ChangedFiles ?? 0)),
                     MinDate(group.Select(commit => commit.CommittedAt)),
-                    MaxDate(group.Select(commit => commit.CommittedAt))));
+                    MaxDate(group.Select(commit => commit.CommittedAt))
+                )
+            );
 
         foreach (var contributor in contributors)
         {
@@ -566,7 +603,7 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
                     Id = Guid.NewGuid(),
                     RepositoryLinkId = linkedRepositoryId,
                     GitHubUserId = contributor.GitHubUserId,
-                    Login = contributor.Login
+                    Login = contributor.Login,
                 };
                 dbContext.Contributors.Add(entity);
                 byUserId[contributor.GitHubUserId] = entity;
@@ -592,10 +629,11 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
         Guid linkedRepositoryId,
         IReadOnlyList<GitHubSyncPullRequest> pullRequests,
         DateTime now,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
-        var existing = await dbContext.PullRequests
-            .Where(item => item.RepositoryLinkId == linkedRepositoryId)
+        var existing = await dbContext
+            .PullRequests.Where(item => item.RepositoryLinkId == linkedRepositoryId)
             .ToListAsync(cancellationToken);
         var byGitHubId = existing.ToDictionary(item => item.GitHubPullRequestId);
 
@@ -617,7 +655,7 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
                     TargetSha = pullRequest.TargetSha,
                     CreatedAt = pullRequest.CreatedAt,
                     UpdatedAt = pullRequest.UpdatedAt,
-                    HtmlUrl = pullRequest.HtmlUrl
+                    HtmlUrl = pullRequest.HtmlUrl,
                 };
                 dbContext.PullRequests.Add(entity);
                 byGitHubId[pullRequest.Id] = entity;
@@ -660,7 +698,8 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
         IReadOnlyDictionary<long, GitHubPullRequest> pullRequestEntities,
         IReadOnlyDictionary<long, IReadOnlyList<GitHubSyncReview>> reviews,
         DateTime now,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         foreach (var pair in reviews)
         {
@@ -669,8 +708,8 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
                 continue;
             }
 
-            var existing = await dbContext.PullRequestReviews
-                .Where(item => item.PullRequestId == pullRequest.Id)
+            var existing = await dbContext
+                .PullRequestReviews.Where(item => item.PullRequestId == pullRequest.Id)
                 .ToListAsync(cancellationToken);
             var byReviewId = existing.ToDictionary(item => item.GitHubReviewId);
 
@@ -684,7 +723,7 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
                         PullRequestId = pullRequest.Id,
                         GitHubReviewId = review.Id,
                         State = review.State,
-                        LastSyncedAt = now
+                        LastSyncedAt = now,
                     };
                     dbContext.PullRequestReviews.Add(entity);
                     byReviewId[review.Id] = entity;
@@ -703,14 +742,16 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
         Guid linkedRepositoryId,
         Guid runId,
         string errorCode,
-        string errorMessage)
+        string errorMessage
+    )
     {
         try
         {
             var now = _timeProvider.GetUtcNow().UtcDateTime;
             await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
-            var link = await dbContext.ProjectRepositoryLinks
-                .SingleOrDefaultAsync(item => item.Id == linkedRepositoryId);
+            var link = await dbContext.ProjectRepositoryLinks.SingleOrDefaultAsync(item =>
+                item.Id == linkedRepositoryId
+            );
             if (link is not null)
             {
                 link.SyncStatus = GitHubSyncStatuses.Failed;
@@ -719,8 +760,7 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
                 link.UpdatedAt = now;
             }
 
-            var syncRun = await dbContext.SyncRuns
-                .SingleOrDefaultAsync(item => item.Id == runId);
+            var syncRun = await dbContext.SyncRuns.SingleOrDefaultAsync(item => item.Id == runId);
             if (syncRun is not null)
             {
                 syncRun.Status = GitHubSyncRunStatuses.Failed;
@@ -736,7 +776,8 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
             _logger.LogError(
                 exception,
                 "Unable to persist GitHub synchronization failure state. LinkedRepositoryId={LinkedRepositoryId}",
-                linkedRepositoryId);
+                linkedRepositoryId
+            );
         }
     }
 
@@ -755,7 +796,11 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
     private static string Truncate(string value, int maxLength) =>
         value.Length <= maxLength ? value : value[..maxLength];
 
-    private sealed record SyncContext(ProjectRepositoryLink Link, GitHubAccessSource Source, GitHubRepository Repository);
+    private sealed record SyncContext(
+        ProjectRepositoryLink Link,
+        GitHubAccessSource Source,
+        GitHubRepository Repository
+    );
 
     private sealed record ContributorMetrics(
         int CommitCount,
@@ -763,5 +808,6 @@ public sealed class GitHubRepositorySynchronizationService : IGitHubRepositorySy
         long Deletions,
         long ChangedFiles,
         DateTime? FirstCommitAt,
-        DateTime? LastCommitAt);
+        DateTime? LastCommitAt
+    );
 }

@@ -21,16 +21,16 @@ public sealed class PasswordPolicyValidator : IPasswordPolicyValidator
 
         if (password.Length < _options.MinimumLength)
         {
-            errors.Add(new ApiFieldError(
-                field,
-                [$"Password must be at least {_options.MinimumLength} characters."]));
+            errors.Add(
+                new ApiFieldError(field, [$"Password must be at least {_options.MinimumLength} characters."])
+            );
         }
 
         if (password.Length > _options.MaximumLength)
         {
-            errors.Add(new ApiFieldError(
-                field,
-                [$"Password must not exceed {_options.MaximumLength} characters."]));
+            errors.Add(
+                new ApiFieldError(field, [$"Password must not exceed {_options.MaximumLength} characters."])
+            );
         }
 
         if (_options.RequireUppercase && !password.Any(char.IsUpper))
@@ -48,8 +48,7 @@ public sealed class PasswordPolicyValidator : IPasswordPolicyValidator
             errors.Add(new ApiFieldError(field, ["Password must contain a digit."]));
         }
 
-        if (_options.RequireSpecialCharacter
-            && !password.Any(character => !char.IsLetterOrDigit(character)))
+        if (_options.RequireSpecialCharacter && !password.Any(character => !char.IsLetterOrDigit(character)))
         {
             errors.Add(new ApiFieldError(field, ["Password must contain a special character."]));
         }

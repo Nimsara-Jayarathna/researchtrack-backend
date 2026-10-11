@@ -5,4 +5,5 @@ public sealed record UpdateProjectRequest(
     string? Summary,
     string Batch,
     string Semester,
-    string? LifecycleStatus);
+    string? LifecycleStatus
+);

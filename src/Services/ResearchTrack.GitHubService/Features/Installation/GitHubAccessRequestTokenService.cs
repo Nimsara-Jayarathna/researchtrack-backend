@@ -20,21 +20,20 @@ public sealed class GitHubAccessRequestTokenService : IGitHubAccessRequestTokenS
     public (string Nonce, string Token, string Hash) CreateResultToken(Guid requestId) =>
         Create(requestId, "result");
 
-    public string RecreateRequestToken(Guid requestId, string nonce) =>
-        Build(requestId, nonce, "request");
+    public string RecreateRequestToken(Guid requestId, string nonce) => Build(requestId, nonce, "request");
 
-    public string RecreateResultToken(Guid requestId, string nonce) =>
-        Build(requestId, nonce, "result");
+    public string RecreateResultToken(Guid requestId, string nonce) => Build(requestId, nonce, "result");
 
-    public string Hash(string token) => Convert.ToHexString(
-        SHA256.HashData(Encoding.UTF8.GetBytes(token))).ToLowerInvariant();
+    public string Hash(string token) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token))).ToLowerInvariant();
 
     public bool IsWellFormed(string token, Guid requestId, string nonce, bool resultToken)
     {
         var expected = Build(requestId, nonce, resultToken ? "result" : "request");
         return CryptographicOperations.FixedTimeEquals(
             Encoding.UTF8.GetBytes(expected),
-            Encoding.UTF8.GetBytes(token));
+            Encoding.UTF8.GetBytes(token)
+        );
     }
 
     private (string Nonce, string Token, string Hash) Create(Guid requestId, string purpose)
@@ -53,8 +52,6 @@ public sealed class GitHubAccessRequestTokenService : IGitHubAccessRequestTokenS
         return $"{payload}.{signature}";
     }
 
-    private static string Base64Url(byte[] value) => Convert.ToBase64String(value)
-        .TrimEnd('=')
-        .Replace('+', '-')
-        .Replace('/', '_');
+    private static string Base64Url(byte[] value) =>
+        Convert.ToBase64String(value).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 }

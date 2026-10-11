@@ -6,7 +6,8 @@ using ResearchTrack.GitHubService.Infrastructure.GitHubApp;
 
 namespace ResearchTrack.GitHubService.Features.Installation;
 
-public sealed class GitHubInstallationRepositoryInventoryService : IGitHubInstallationRepositoryInventoryService
+public sealed class GitHubInstallationRepositoryInventoryService
+    : IGitHubInstallationRepositoryInventoryService
 {
     private const int PageSize = 100;
     private const int MaxPages = 100;
@@ -22,7 +23,8 @@ public sealed class GitHubInstallationRepositoryInventoryService : IGitHubInstal
         IGitHubAppClient gitHubAppClient,
         IGitHubInstallationRepositoryClient repositoryClient,
         TimeProvider timeProvider,
-        ILogger<GitHubInstallationRepositoryInventoryService> logger)
+        ILogger<GitHubInstallationRepositoryInventoryService> logger
+    )
     {
         _store = store;
         _gitHubAppClient = gitHubAppClient;
@@ -33,7 +35,8 @@ public sealed class GitHubInstallationRepositoryInventoryService : IGitHubInstal
 
     public async Task<GitHubAvailableRepositoriesResponse?> TryRefreshAsync(
         Guid sourceId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         if (sourceId == Guid.Empty)
         {
@@ -48,27 +51,33 @@ public sealed class GitHubInstallationRepositoryInventoryService : IGitHubInstal
 
         var installation = await _gitHubAppClient.GetInstallationAsync(
             source.InstallationId,
-            cancellationToken);
+            cancellationToken
+        );
         GitHubAppPermissionRequirements.EnsureInstallationActive(installation);
 
-        if (installation.InstallationId != source.InstallationId
+        if (
+            installation.InstallationId != source.InstallationId
             || !string.Equals(installation.OwnerLogin, source.OwnerLogin, StringComparison.OrdinalIgnoreCase)
-            || !string.Equals(installation.OwnerType, source.OwnerType, StringComparison.Ordinal))
+            || !string.Equals(installation.OwnerType, source.OwnerType, StringComparison.Ordinal)
+        )
         {
             throw DependencyFailure(
-                "GitHub installation verification returned metadata that does not match the stored access source.");
+                "GitHub installation verification returned metadata that does not match the stored access source."
+            );
         }
 
         var token = await _gitHubAppClient.CreateInstallationTokenAsync(
             source.InstallationId,
-            cancellationToken);
+            cancellationToken
+        );
         var repositories = await ListAllRepositoriesAsync(token, cancellationToken);
 
         var response = await _store.UpsertAvailableAsync(
             source.Id,
             repositories,
             _timeProvider.GetUtcNow().UtcDateTime,
-            cancellationToken);
+            cancellationToken
+        );
 
         _logger.LogInformation(
             "Refreshed GitHub App installation repository inventory. ProjectId={ProjectId} SourceId={SourceId} InstallationId={InstallationId} RepositoryCount={RepositoryCount} AccessType={AccessType}",
@@ -76,43 +85,43 @@ public sealed class GitHubInstallationRepositoryInventoryService : IGitHubInstal
             source.Id,
             source.InstallationId,
             response.TotalCount,
-            source.AccessType);
+            source.AccessType
+        );
 
         return response;
     }
 
     private async Task<IReadOnlyList<GitHubInstallationRepository>> ListAllRepositoriesAsync(
         GitHubInstallationToken token,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         var repositories = new List<GitHubInstallationRepository>();
         int? expectedTotalCount = null;
 
         for (var page = 1; page <= MaxPages; page++)
         {
-            var result = await _repositoryClient.ListAsync(
-                token,
-                page,
-                PageSize,
-                cancellationToken);
+            var result = await _repositoryClient.ListAsync(token, page, PageSize, cancellationToken);
 
             expectedTotalCount ??= result.TotalCount;
             if (result.TotalCount != expectedTotalCount)
             {
-                throw DependencyFailure(
-                    "GitHub repository pagination changed during repository discovery.");
+                throw DependencyFailure("GitHub repository pagination changed during repository discovery.");
             }
 
             repositories.AddRange(result.Items);
 
             if (!result.HasNext)
             {
-                if (repositories.Count != result.TotalCount
+                if (
+                    repositories.Count != result.TotalCount
                     || repositories.Select(repository => repository.Id).Distinct().Count()
-                        != repositories.Count)
+                        != repositories.Count
+                )
                 {
                     throw DependencyFailure(
-                        "GitHub repository pagination returned an inconsistent repository inventory.");
+                        "GitHub repository pagination returned an inconsistent repository inventory."
+                    );
                 }
 
                 return repositories;
@@ -120,11 +129,10 @@ public sealed class GitHubInstallationRepositoryInventoryService : IGitHubInstal
         }
 
         throw DependencyFailure(
-            "GitHub installation repository inventory exceeds the supported pagination limit.");
+            "GitHub installation repository inventory exceeds the supported pagination limit."
+        );
     }
 
-    private static ApiException DependencyFailure(string message) => new(
-        StatusCodes.Status503ServiceUnavailable,
-        ErrorCodes.DependencyUnavailable,
-        message);
+    private static ApiException DependencyFailure(string message) =>
+        new(StatusCodes.Status503ServiceUnavailable, ErrorCodes.DependencyUnavailable, message);
 }

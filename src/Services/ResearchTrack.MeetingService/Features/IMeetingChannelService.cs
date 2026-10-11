@@ -6,29 +6,30 @@ public interface IMeetingChannelService
 {
     Task<IReadOnlyList<MeetingChannelResponse>> ListAsync(
         Guid projectId,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken
+    );
 
     Task<MeetingChannelResponse> CreateAsync(
         Guid projectId,
         Guid userId,
         string role,
         MeetingChannelCreateRequest request,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken
+    );
 
     Task<MeetingChannelResponse> UpdateAsync(
         Guid projectId,
         Guid channelId,
         MeetingChannelUpdateRequest request,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken
+    );
 
-    Task DeleteAsync(
-        Guid projectId,
-        Guid channelId,
-        CancellationToken cancellationToken);
+    Task DeleteAsync(Guid projectId, Guid channelId, CancellationToken cancellationToken);
 
     Task<MeetingChannelResponse> ApproveAsync(
         Guid projectId,
         Guid channelId,
         Guid supervisorId,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken
+    );
 }

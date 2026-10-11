@@ -4,4 +4,5 @@ namespace ResearchTrack.GitHubService.Infrastructure;
 
 public sealed record AvailableRepositoriesPersistenceResult(
     Guid ProjectId,
-    GitHubAvailableRepositoriesResponse Response);
+    GitHubAvailableRepositoriesResponse Response
+);

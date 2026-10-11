@@ -9,8 +9,9 @@ public sealed class GitHubWebhookSignal
         {
             FullMode = BoundedChannelFullMode.DropWrite,
             SingleReader = true,
-            SingleWriter = false
-        });
+            SingleWriter = false,
+        }
+    );
 
     public void Pulse() => _channel.Writer.TryWrite(1);
 

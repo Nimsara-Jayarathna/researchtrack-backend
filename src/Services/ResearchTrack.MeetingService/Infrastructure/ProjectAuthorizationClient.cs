@@ -10,34 +10,31 @@ public sealed class ProjectAuthorizationClient : IProjectAuthorizationClient
     private readonly HttpClient _httpClient;
     private readonly IHttpContextAccessor _httpContextAccessor;
 
-    public ProjectAuthorizationClient(
-        HttpClient httpClient,
-        IHttpContextAccessor httpContextAccessor)
+    public ProjectAuthorizationClient(HttpClient httpClient, IHttpContextAccessor httpContextAccessor)
     {
         _httpClient = httpClient;
         _httpContextAccessor = httpContextAccessor;
     }
 
-    public Task EnsureCanAccessAsync(
-        Guid projectId,
-        CancellationToken cancellationToken) =>
+    public Task EnsureCanAccessAsync(Guid projectId, CancellationToken cancellationToken) =>
         EnsureAsync(
             $"api/v1/projects/{projectId}/authorization/access",
             "You do not have access to this project.",
-            cancellationToken);
+            cancellationToken
+        );
 
-    public Task EnsureCanManageAsync(
-        Guid projectId,
-        CancellationToken cancellationToken) =>
+    public Task EnsureCanManageAsync(Guid projectId, CancellationToken cancellationToken) =>
         EnsureAsync(
             $"api/v1/projects/{projectId}/authorization/manage",
             "Only the owning Supervisor can manage this project's meeting channels.",
-            cancellationToken);
+            cancellationToken
+        );
 
     private async Task EnsureAsync(
         string relativePath,
         string forbiddenMessage,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, relativePath);
         ForwardAuthentication(request);
@@ -47,14 +44,14 @@ public sealed class ProjectAuthorizationClient : IProjectAuthorizationClient
         {
             response = await _httpClient.SendAsync(request, cancellationToken);
         }
-        catch (Exception exception) when (
-            exception is HttpRequestException or TaskCanceledException)
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException)
         {
             throw new ApiException(
                 StatusCodes.Status503ServiceUnavailable,
                 ErrorCodes.DependencyUnavailable,
                 "Project Service is unavailable.",
-                innerException: exception);
+                innerException: exception
+            );
         }
 
         using (response)
@@ -69,7 +66,8 @@ public sealed class ProjectAuthorizationClient : IProjectAuthorizationClient
                 throw new ApiException(
                     StatusCodes.Status401Unauthorized,
                     ErrorCodes.Unauthorized,
-                    "Authentication is required.");
+                    "Authentication is required."
+                );
             }
 
             if (response.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.NotFound)
@@ -77,39 +75,45 @@ public sealed class ProjectAuthorizationClient : IProjectAuthorizationClient
                 throw new ApiException(
                     StatusCodes.Status403Forbidden,
                     ErrorCodes.Forbidden,
-                    forbiddenMessage);
+                    forbiddenMessage
+                );
             }
 
             throw new ApiException(
                 StatusCodes.Status503ServiceUnavailable,
                 ErrorCodes.DependencyUnavailable,
-                "Unable to verify project authorization with Project Service.");
+                "Unable to verify project authorization with Project Service."
+            );
         }
     }
 
     private void ForwardAuthentication(HttpRequestMessage request)
     {
-        var incoming = _httpContextAccessor.HttpContext?.Request
+        var incoming =
+            _httpContextAccessor.HttpContext?.Request
             ?? throw new ApiException(
                 StatusCodes.Status503ServiceUnavailable,
                 ErrorCodes.DependencyUnavailable,
-                "Request authentication context is unavailable.");
+                "Request authentication context is unavailable."
+            );
 
         if (incoming.Headers.Authorization.Count > 0)
         {
             request.Headers.TryAddWithoutValidation(
                 "Authorization",
-                incoming.Headers.Authorization.ToArray());
+                incoming.Headers.Authorization.ToArray()
+            );
         }
 
-        if (incoming.Cookies.TryGetValue(
-                AuthSecurityConstants.AccessCookieName,
-                out var accessToken)
-            && !string.IsNullOrWhiteSpace(accessToken))
+        if (
+            incoming.Cookies.TryGetValue(AuthSecurityConstants.AccessCookieName, out var accessToken)
+            && !string.IsNullOrWhiteSpace(accessToken)
+        )
         {
             request.Headers.TryAddWithoutValidation(
                 "Cookie",
-                $"{AuthSecurityConstants.AccessCookieName}={accessToken}");
+                $"{AuthSecurityConstants.AccessCookieName}={accessToken}"
+            );
         }
     }
 }

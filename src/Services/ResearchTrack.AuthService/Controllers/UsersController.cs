@@ -17,9 +17,7 @@ public sealed class UsersController : ApiControllerBase
     private readonly IUserDirectoryService _userDirectoryService;
     private readonly IUserAccountService _userAccountService;
 
-    public UsersController(
-        IUserDirectoryService userDirectoryService,
-        IUserAccountService userAccountService)
+    public UsersController(IUserDirectoryService userDirectoryService, IUserAccountService userAccountService)
     {
         _userDirectoryService = userDirectoryService;
         _userAccountService = userAccountService;
@@ -31,11 +29,13 @@ public sealed class UsersController : ApiControllerBase
     public async Task<ActionResult<ApiResponse<IReadOnlyList<UserDirectoryResponse>>>> SearchStudents(
         [FromQuery(Name = "query")] string? query,
         [FromQuery(Name = "q")] string? legacyQuery,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         var students = await _userDirectoryService.SearchStudentsAsync(
             query ?? legacyQuery,
-            cancellationToken);
+            cancellationToken
+        );
         return ApiOk(students);
     }
 
@@ -44,11 +44,13 @@ public sealed class UsersController : ApiControllerBase
     [ProducesResponseType<ApiResponse<IReadOnlyList<UserDirectoryResponse>>>(StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<IReadOnlyList<UserDirectoryResponse>>>> ResolveStudents(
         [FromBody] ResolveStudentsRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         var students = await _userDirectoryService.ResolveStudentsAsync(
             request.StudentIds ?? [],
-            cancellationToken);
+            cancellationToken
+        );
         return ApiOk(students);
     }
 
@@ -56,11 +58,10 @@ public sealed class UsersController : ApiControllerBase
     [HttpGet("me")]
     [ProducesResponseType<ApiResponse<UserDirectoryResponse>>(StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<UserDirectoryResponse>>> Me(
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
-        var user = await _userDirectoryService.GetUserAsync(
-            GetRequiredUserId(),
-            cancellationToken);
+        var user = await _userDirectoryService.GetUserAsync(GetRequiredUserId(), cancellationToken);
         if (user is null)
         {
             throw CreateUnauthorizedException();
@@ -76,25 +77,19 @@ public sealed class UsersController : ApiControllerBase
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> ChangePassword(
         [FromBody] ChangePasswordRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
-        await _userAccountService.ChangePasswordAsync(
-            GetRequiredUserId(),
-            request,
-            cancellationToken);
+        await _userAccountService.ChangePasswordAsync(GetRequiredUserId(), request, cancellationToken);
         return NoContent();
     }
 
     private Guid GetRequiredUserId()
     {
         var subject = User.FindFirstValue(AuthSecurityConstants.SubjectClaim);
-        return Guid.TryParse(subject, out var userId)
-            ? userId
-            : throw CreateUnauthorizedException();
+        return Guid.TryParse(subject, out var userId) ? userId : throw CreateUnauthorizedException();
     }
 
-    private static ApiException CreateUnauthorizedException() => new(
-        StatusCodes.Status401Unauthorized,
-        ErrorCodes.Unauthorized,
-        "Authentication is required.");
+    private static ApiException CreateUnauthorizedException() =>
+        new(StatusCodes.Status401Unauthorized, ErrorCodes.Unauthorized, "Authentication is required.");
 }

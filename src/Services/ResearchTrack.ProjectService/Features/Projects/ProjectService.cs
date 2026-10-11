@@ -18,7 +18,8 @@ public sealed class ProjectService : IProjectService
     public ProjectService(
         IDbContextFactory<ProjectDbContext> dbContextFactory,
         IAuthUserDirectoryClient userDirectoryClient,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider
+    )
     {
         _dbContextFactory = dbContextFactory;
         _userDirectoryClient = userDirectoryClient;
@@ -32,52 +33,49 @@ public sealed class ProjectService : IProjectService
     public async Task<CreateProjectResponse> CreateAsync(
         Guid supervisorUserId,
         CreateProjectRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         var now = _timeProvider.GetUtcNow().UtcDateTime;
         var today = DateOnly.FromDateTime(now);
 
-        var normalized = ProjectRequestValidator.Validate(
-            request,
-            today);
+        var normalized = ProjectRequestValidator.Validate(request, today);
 
-        var supervisor =
-            await _userDirectoryClient.GetCurrentUserAsync(
-                cancellationToken);
+        var supervisor = await _userDirectoryClient.GetCurrentUserAsync(cancellationToken);
 
-        if (supervisor.Id != supervisorUserId ||
-            !string.Equals(
+        if (
+            supervisor.Id != supervisorUserId
+            || !string.Equals(
                 supervisor.Role,
                 AuthSecurityConstants.Roles.Supervisor,
-                StringComparison.OrdinalIgnoreCase))
+                StringComparison.OrdinalIgnoreCase
+            )
+        )
         {
             throw new ApiException(
                 StatusCodes.Status403Forbidden,
                 ErrorCodes.Forbidden,
-                "Supervisor access is required.");
+                "Supervisor access is required."
+            );
         }
 
-        var students =
-            await _userDirectoryClient.ResolveStudentsAsync(
-                normalized.StudentIds,
-                cancellationToken);
+        var students = await _userDirectoryClient.ResolveStudentsAsync(
+            normalized.StudentIds,
+            cancellationToken
+        );
 
         ProjectRequestValidator.ValidateResolvedStudents(
             normalized.StudentIds,
-            students.Select(student => student.Id).ToArray());
+            students.Select(student => student.Id).ToArray()
+        );
 
-        var studentsById = students.ToDictionary(
-            student => student.Id);
+        var studentsById = students.ToDictionary(student => student.Id);
 
-        var orderedStudents = normalized.StudentIds
-            .Select(id => studentsById[id])
-            .ToArray();
+        var orderedStudents = normalized.StudentIds.Select(id => studentsById[id]).ToArray();
 
         var projectId = Guid.NewGuid();
 
-        var earliestMilestoneDate =
-            normalized.Milestones.Min(
-                milestone => milestone.DueDate);
+        var earliestMilestoneDate = normalized.Milestones.Min(milestone => milestone.DueDate);
 
         var project = new Project
         {
@@ -86,75 +84,59 @@ public sealed class ProjectService : IProjectService
             Summary = normalized.Summary,
             Batch = normalized.Batch,
             Semester = normalized.Semester,
-            LifecycleStatus =
-                ProjectLifecycleStatuses.Planning,
+            LifecycleStatus = ProjectLifecycleStatuses.Planning,
             ProgressPercent = 0,
             SupervisorUserId = supervisorUserId,
-            LeaderStudentUserId =
-                normalized.LeaderStudentId,
+            LeaderStudentUserId = normalized.LeaderStudentId,
             MilestoneDate = earliestMilestoneDate,
             LastActivityAt = now,
             CreatedAt = now,
-            UpdatedAt = now
+            UpdatedAt = now,
         };
 
-        var members = new List<ProjectMember>(
-            orderedStudents.Length + 1);
+        var members = new List<ProjectMember>(orderedStudents.Length + 1);
 
-        members.Add(
-            CreateMember(
-                projectId,
-                supervisor,
-                ProjectMemberRoles.Supervisor,
-                now));
+        members.Add(CreateMember(projectId, supervisor, ProjectMemberRoles.Supervisor, now));
 
         members.AddRange(
             orderedStudents.Select(student =>
-                CreateMember(
-                    projectId,
-                    student,
-                    ProjectMemberRoles.Student,
-                    now)));
+                CreateMember(projectId, student, ProjectMemberRoles.Student, now)
+            )
+        );
 
-        var milestones = normalized.Milestones
-            .Select((milestone, index) =>
-                new ProjectMilestone
-                {
-                    Id = Guid.NewGuid(),
-                    ProjectId = projectId,
-                    Title = milestone.Title,
-                    Description = milestone.Description,
-                    DueDate = milestone.DueDate,
-                    Status =
-                        ProjectMilestoneStatuses.Planned,
-                    SequenceNo = index + 1,
-                    CreatedByUserId = supervisorUserId,
-                    CreatedAt = now,
-                    UpdatedAt = now
-                })
+        var milestones = normalized
+            .Milestones.Select(
+                (milestone, index) =>
+                    new ProjectMilestone
+                    {
+                        Id = Guid.NewGuid(),
+                        ProjectId = projectId,
+                        Title = milestone.Title,
+                        Description = milestone.Description,
+                        DueDate = milestone.DueDate,
+                        Status = ProjectMilestoneStatuses.Planned,
+                        SequenceNo = index + 1,
+                        CreatedByUserId = supervisorUserId,
+                        CreatedAt = now,
+                        UpdatedAt = now,
+                    }
+            )
             .ToArray();
 
-        await using var dbContext =
-            await _dbContextFactory.CreateDbContextAsync(
-                cancellationToken);
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
-        await using var transaction =
-            await dbContext.Database.BeginTransactionAsync(
-                cancellationToken);
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
 
         dbContext.Projects.Add(project);
         dbContext.ProjectMembers.AddRange(members);
         dbContext.ProjectMilestones.AddRange(milestones);
 
-        await dbContext.SaveChangesAsync(
-            cancellationToken);
+        await dbContext.SaveChangesAsync(cancellationToken);
 
-        await transaction.CommitAsync(
-            cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
 
         var leader = normalized.LeaderStudentId is Guid leaderId
-            ? orderedStudents.FirstOrDefault(
-                student => student.Id == leaderId)
+            ? orderedStudents.FirstOrDefault(student => student.Id == leaderId)
             : null;
 
         return new CreateProjectResponse(
@@ -166,15 +148,10 @@ public sealed class ProjectService : IProjectService
             project.LifecycleStatus,
             project.ProgressPercent,
             project.MilestoneDate ?? earliestMilestoneDate,
-            orderedStudents
-                .Select(MapUser)
-                .ToArray(),
-            leader is null
-                ? null
-                : MapUser(leader),
-            milestones
-                .Select(MapMilestone)
-                .ToArray());
+            orderedStudents.Select(MapUser).ToArray(),
+            leader is null ? null : MapUser(leader),
+            milestones.Select(MapMilestone).ToArray()
+        );
     }
 
     // ============================================================
@@ -186,27 +163,41 @@ public sealed class ProjectService : IProjectService
     public async Task<bool> CanSupervisorManageAsync(
         Guid supervisorUserId,
         Guid projectId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
-        await using var dbContext =
-            await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
-        return await dbContext.Projects
-            .AsNoTracking()
+        return await dbContext
+            .Projects.AsNoTracking()
             .AnyAsync(
-                project =>
-                    project.Id == projectId &&
-                    project.SupervisorUserId == supervisorUserId,
-                cancellationToken);
+                project => project.Id == projectId && project.SupervisorUserId == supervisorUserId,
+                cancellationToken
+            );
     }
 
-    public async Task<bool> CanAccessAsync(Guid userId,string role,Guid projectId,CancellationToken cancellationToken)
+    public async Task<bool> CanAccessAsync(
+        Guid userId,
+        string role,
+        Guid projectId,
+        CancellationToken cancellationToken
+    )
     {
-        await using var dbContext=await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-        if(string.Equals(role,AuthSecurityConstants.Roles.Supervisor,StringComparison.OrdinalIgnoreCase))
-            return await dbContext.Projects.AsNoTracking().AnyAsync(p=>p.Id==projectId&&p.SupervisorUserId==userId,cancellationToken);
-        if(string.Equals(role,AuthSecurityConstants.Roles.Student,StringComparison.OrdinalIgnoreCase))
-            return await dbContext.ProjectMembers.AsNoTracking().AnyAsync(m=>m.ProjectId==projectId&&m.UserId==userId&&m.MemberRole==ProjectMemberRoles.Student,cancellationToken);
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+        if (string.Equals(role, AuthSecurityConstants.Roles.Supervisor, StringComparison.OrdinalIgnoreCase))
+            return await dbContext
+                .Projects.AsNoTracking()
+                .AnyAsync(p => p.Id == projectId && p.SupervisorUserId == userId, cancellationToken);
+        if (string.Equals(role, AuthSecurityConstants.Roles.Student, StringComparison.OrdinalIgnoreCase))
+            return await dbContext
+                .ProjectMembers.AsNoTracking()
+                .AnyAsync(
+                    m =>
+                        m.ProjectId == projectId
+                        && m.UserId == userId
+                        && m.MemberRole == ProjectMemberRoles.Student,
+                    cancellationToken
+                );
         return false;
     }
 
@@ -214,39 +205,29 @@ public sealed class ProjectService : IProjectService
     // GET ALL ACCESSIBLE PROJECTS
     // ============================================================
 
-    public async Task<IReadOnlyList<ProjectSummaryResponse>>
-        GetAccessibleProjectsAsync(
-            Guid userId,
-            string role,
-            CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<ProjectSummaryResponse>> GetAccessibleProjectsAsync(
+        Guid userId,
+        string role,
+        CancellationToken cancellationToken
+    )
     {
-        await using var dbContext =
-            await _dbContextFactory.CreateDbContextAsync(
-                cancellationToken);
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
-        IQueryable<Project> projects =
-            dbContext.Projects.AsNoTracking();
+        IQueryable<Project> projects = dbContext.Projects.AsNoTracking();
 
-        if (string.Equals(
-                role,
-                AuthSecurityConstants.Roles.Supervisor,
-                StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(role, AuthSecurityConstants.Roles.Supervisor, StringComparison.OrdinalIgnoreCase))
         {
-            projects = projects.Where(
-                project =>
-                    project.SupervisorUserId == userId);
+            projects = projects.Where(project => project.SupervisorUserId == userId);
         }
-        else if (string.Equals(
-                     role,
-                     AuthSecurityConstants.Roles.Student,
-                     StringComparison.OrdinalIgnoreCase))
+        else if (string.Equals(role, AuthSecurityConstants.Roles.Student, StringComparison.OrdinalIgnoreCase))
         {
             projects = projects.Where(project =>
                 dbContext.ProjectMembers.Any(member =>
-                    member.ProjectId == project.Id &&
-                    member.UserId == userId &&
-                    member.MemberRole ==
-                        ProjectMemberRoles.Student));
+                    member.ProjectId == project.Id
+                    && member.UserId == userId
+                    && member.MemberRole == ProjectMemberRoles.Student
+                )
+            );
         }
         else
         {
@@ -254,31 +235,25 @@ public sealed class ProjectService : IProjectService
         }
 
         return await projects
-            .OrderByDescending(
-                project => project.CreatedAt)
-            .Select(project =>
-                new ProjectSummaryResponse(
-                    project.Id,
-                    project.Title,
-                    project.Summary,
-                    project.LifecycleStatus,
-                    project.Batch,
-                    project.Semester,
-                    project.MilestoneDate,
-                    project.LastActivityAt,
-                    project.ProgressPercent,
-                    dbContext.ProjectMembers.Count(
-                        member =>
-                            member.ProjectId == project.Id),
-                    dbContext.ProjectMembers
-                        .Where(member =>
-                            member.ProjectId == project.Id &&
-                            member.MemberRole ==
-                                ProjectMemberRoles.Supervisor)
-                        .Select(member =>
-                            member.FirstName + " " +
-                            member.LastName)
-                        .FirstOrDefault()))
+            .OrderByDescending(project => project.CreatedAt)
+            .Select(project => new ProjectSummaryResponse(
+                project.Id,
+                project.Title,
+                project.Summary,
+                project.LifecycleStatus,
+                project.Batch,
+                project.Semester,
+                project.MilestoneDate,
+                project.LastActivityAt,
+                project.ProgressPercent,
+                dbContext.ProjectMembers.Count(member => member.ProjectId == project.Id),
+                dbContext
+                    .ProjectMembers.Where(member =>
+                        member.ProjectId == project.Id && member.MemberRole == ProjectMemberRoles.Supervisor
+                    )
+                    .Select(member => member.FirstName + " " + member.LastName)
+                    .FirstOrDefault()
+            ))
             .ToListAsync(cancellationToken);
     }
 
@@ -286,23 +261,18 @@ public sealed class ProjectService : IProjectService
     // GET PROJECT BY ID
     // ============================================================
 
-    public async Task<ProjectResponse?>
-        GetAccessibleProjectAsync(
-            Guid userId,
-            string role,
-            Guid projectId,
-            CancellationToken cancellationToken)
+    public async Task<ProjectResponse?> GetAccessibleProjectAsync(
+        Guid userId,
+        string role,
+        Guid projectId,
+        CancellationToken cancellationToken
+    )
     {
-        await using var dbContext =
-            await _dbContextFactory.CreateDbContextAsync(
-                cancellationToken);
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
-        var project =
-            await dbContext.Projects
-                .AsNoTracking()
-                .SingleOrDefaultAsync(
-                    project => project.Id == projectId,
-                    cancellationToken);
+        var project = await dbContext
+            .Projects.AsNoTracking()
+            .SingleOrDefaultAsync(project => project.Id == projectId, cancellationToken);
 
         if (project is null)
         {
@@ -311,29 +281,21 @@ public sealed class ProjectService : IProjectService
 
         var canAccess = false;
 
-        if (string.Equals(
-                role,
-                AuthSecurityConstants.Roles.Supervisor,
-                StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(role, AuthSecurityConstants.Roles.Supervisor, StringComparison.OrdinalIgnoreCase))
         {
-            canAccess =
-                project.SupervisorUserId == userId;
+            canAccess = project.SupervisorUserId == userId;
         }
-        else if (string.Equals(
-                     role,
-                     AuthSecurityConstants.Roles.Student,
-                     StringComparison.OrdinalIgnoreCase))
+        else if (string.Equals(role, AuthSecurityConstants.Roles.Student, StringComparison.OrdinalIgnoreCase))
         {
-            canAccess =
-                await dbContext.ProjectMembers
-                    .AsNoTracking()
-                    .AnyAsync(
-                        member =>
-                            member.ProjectId == projectId &&
-                            member.UserId == userId &&
-                            member.MemberRole ==
-                                ProjectMemberRoles.Student,
-                        cancellationToken);
+            canAccess = await dbContext
+                .ProjectMembers.AsNoTracking()
+                .AnyAsync(
+                    member =>
+                        member.ProjectId == projectId
+                        && member.UserId == userId
+                        && member.MemberRole == ProjectMemberRoles.Student,
+                    cancellationToken
+                );
         }
 
         if (!canAccess)
@@ -341,44 +303,35 @@ public sealed class ProjectService : IProjectService
             return null;
         }
 
-        var members =
-            await dbContext.ProjectMembers
-                .AsNoTracking()
-                .Where(member =>
-                    member.ProjectId == projectId)
-                .OrderBy(member =>
-                    member.CreatedAt)
-                .Select(member =>
-                    new ProjectMemberResponse(
-                        member.UserId,
-                        member.FirstName,
-                        member.LastName,
-                        member.Email,
-                        member.RegistrationNumber,
-                        member.MemberRole))
-                .ToListAsync(cancellationToken);
+        var members = await dbContext
+            .ProjectMembers.AsNoTracking()
+            .Where(member => member.ProjectId == projectId)
+            .OrderBy(member => member.CreatedAt)
+            .Select(member => new ProjectMemberResponse(
+                member.UserId,
+                member.FirstName,
+                member.LastName,
+                member.Email,
+                member.RegistrationNumber,
+                member.MemberRole
+            ))
+            .ToListAsync(cancellationToken);
 
-        var milestones =
-            await dbContext.ProjectMilestones
-                .AsNoTracking()
-                .Where(milestone =>
-                    milestone.ProjectId == projectId)
-                .OrderBy(milestone =>
-                    milestone.SequenceNo)
-                .Select(milestone =>
-                    new ProjectMilestoneResponse(
-                        milestone.Id,
-                        milestone.Title,
-                        milestone.Description,
-                        milestone.DueDate,
-                        milestone.Status,
-                        milestone.SequenceNo))
-                .ToListAsync(cancellationToken);
+        var milestones = await dbContext
+            .ProjectMilestones.AsNoTracking()
+            .Where(milestone => milestone.ProjectId == projectId)
+            .OrderBy(milestone => milestone.SequenceNo)
+            .Select(milestone => new ProjectMilestoneResponse(
+                milestone.Id,
+                milestone.Title,
+                milestone.Description,
+                milestone.DueDate,
+                milestone.Status,
+                milestone.SequenceNo
+            ))
+            .ToListAsync(cancellationToken);
 
-        return CreateProjectResponse(
-            project,
-            members,
-            milestones);
+        return CreateProjectResponse(project, members, milestones);
     }
 
     // ============================================================
@@ -389,24 +342,23 @@ public sealed class ProjectService : IProjectService
         Guid supervisorUserId,
         Guid projectId,
         UpdateProjectRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         var title = request.Title?.Trim();
         var summary = request.Summary?.Trim();
         var batch = request.Batch?.Trim();
         var semester = ProjectRequestValidator.ValidateSemester(request.Semester);
 
-        var lifecycleStatus =
-            request.LifecycleStatus?
-                .Trim()
-                .ToUpperInvariant();
+        var lifecycleStatus = request.LifecycleStatus?.Trim().ToUpperInvariant();
 
         if (string.IsNullOrWhiteSpace(title))
         {
             throw new ApiException(
                 StatusCodes.Status400BadRequest,
                 ErrorCodes.ValidationError,
-                "Project title is required.");
+                "Project title is required."
+            );
         }
 
         if (string.IsNullOrWhiteSpace(summary))
@@ -414,7 +366,8 @@ public sealed class ProjectService : IProjectService
             throw new ApiException(
                 StatusCodes.Status400BadRequest,
                 ErrorCodes.ValidationError,
-                "Project description is required.");
+                "Project description is required."
+            );
         }
 
         if (string.IsNullOrWhiteSpace(batch))
@@ -422,39 +375,40 @@ public sealed class ProjectService : IProjectService
             throw new ApiException(
                 StatusCodes.Status400BadRequest,
                 ErrorCodes.ValidationError,
-                "Project batch is required.");
+                "Project batch is required."
+            );
         }
 
-
-        if (!string.IsNullOrWhiteSpace(lifecycleStatus) &&
-            lifecycleStatus != ProjectLifecycleStatuses.Planning &&
-            lifecycleStatus != ProjectLifecycleStatuses.Active &&
-            lifecycleStatus != ProjectLifecycleStatuses.AtRisk &&
-            lifecycleStatus != ProjectLifecycleStatuses.Behind &&
-            lifecycleStatus != ProjectLifecycleStatuses.Completed)
+        if (
+            !string.IsNullOrWhiteSpace(lifecycleStatus)
+            && lifecycleStatus != ProjectLifecycleStatuses.Planning
+            && lifecycleStatus != ProjectLifecycleStatuses.Active
+            && lifecycleStatus != ProjectLifecycleStatuses.AtRisk
+            && lifecycleStatus != ProjectLifecycleStatuses.Behind
+            && lifecycleStatus != ProjectLifecycleStatuses.Completed
+        )
         {
             throw new ApiException(
                 StatusCodes.Status400BadRequest,
                 ErrorCodes.ValidationError,
-                "Invalid project lifecycle status.");
+                "Invalid project lifecycle status."
+            );
         }
 
-        await using var dbContext =
-            await _dbContextFactory.CreateDbContextAsync(
-                cancellationToken);
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
-        var project =
-            await dbContext.Projects
-                .SingleOrDefaultAsync(
-                    project => project.Id == projectId,
-                    cancellationToken);
+        var project = await dbContext.Projects.SingleOrDefaultAsync(
+            project => project.Id == projectId,
+            cancellationToken
+        );
 
         if (project is null)
         {
             throw new ApiException(
                 StatusCodes.Status404NotFound,
                 ErrorCodes.NotFound,
-                "The requested project was not found.");
+                "The requested project was not found."
+            );
         }
 
         if (project.SupervisorUserId != supervisorUserId)
@@ -462,11 +416,11 @@ public sealed class ProjectService : IProjectService
             throw new ApiException(
                 StatusCodes.Status403Forbidden,
                 ErrorCodes.Forbidden,
-                "Only the owning Supervisor can update this project.");
+                "Only the owning Supervisor can update this project."
+            );
         }
 
-        var now =
-            _timeProvider.GetUtcNow().UtcDateTime;
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
 
         project.Title = title;
         project.Summary = summary;
@@ -481,13 +435,9 @@ public sealed class ProjectService : IProjectService
         project.UpdatedAt = now;
         project.LastActivityAt = now;
 
-        await dbContext.SaveChangesAsync(
-            cancellationToken);
+        await dbContext.SaveChangesAsync(cancellationToken);
 
-        return await BuildProjectResponseAsync(
-            dbContext,
-            project,
-            cancellationToken);
+        return await BuildProjectResponseAsync(dbContext, project, cancellationToken);
     }
 
     // ============================================================
@@ -498,24 +448,23 @@ public sealed class ProjectService : IProjectService
         Guid supervisorUserId,
         Guid projectId,
         UpdateProjectLeaderRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
-        await using var dbContext =
-            await _dbContextFactory.CreateDbContextAsync(
-                cancellationToken);
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
-        var project =
-            await dbContext.Projects
-                .SingleOrDefaultAsync(
-                    project => project.Id == projectId,
-                    cancellationToken);
+        var project = await dbContext.Projects.SingleOrDefaultAsync(
+            project => project.Id == projectId,
+            cancellationToken
+        );
 
         if (project is null)
         {
             throw new ApiException(
                 StatusCodes.Status404NotFound,
                 ErrorCodes.NotFound,
-                "The requested project was not found.");
+                "The requested project was not found."
+            );
         }
 
         if (project.SupervisorUserId != supervisorUserId)
@@ -523,44 +472,41 @@ public sealed class ProjectService : IProjectService
             throw new ApiException(
                 StatusCodes.Status403Forbidden,
                 ErrorCodes.Forbidden,
-                "Only the owning Supervisor can update the project leader.");
+                "Only the owning Supervisor can update the project leader."
+            );
         }
 
         if (request.LeaderStudentId is Guid leaderStudentId)
         {
-            var isProjectStudent =
-                await dbContext.ProjectMembers
-                    .AsNoTracking()
-                    .AnyAsync(
-                        member =>
-                            member.ProjectId == projectId &&
-                            member.UserId == leaderStudentId &&
-                            member.MemberRole == ProjectMemberRoles.Student,
-                        cancellationToken);
+            var isProjectStudent = await dbContext
+                .ProjectMembers.AsNoTracking()
+                .AnyAsync(
+                    member =>
+                        member.ProjectId == projectId
+                        && member.UserId == leaderStudentId
+                        && member.MemberRole == ProjectMemberRoles.Student,
+                    cancellationToken
+                );
 
             if (!isProjectStudent)
             {
                 throw new ApiException(
                     StatusCodes.Status400BadRequest,
                     ErrorCodes.ValidationError,
-                    "The project leader must be an active Student member of this project.");
+                    "The project leader must be an active Student member of this project."
+                );
             }
         }
 
-        var now =
-            _timeProvider.GetUtcNow().UtcDateTime;
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
 
         project.LeaderStudentUserId = request.LeaderStudentId;
         project.UpdatedAt = now;
         project.LastActivityAt = now;
 
-        await dbContext.SaveChangesAsync(
-            cancellationToken);
+        await dbContext.SaveChangesAsync(cancellationToken);
 
-        return await BuildProjectResponseAsync(
-            dbContext,
-            project,
-            cancellationToken);
+        return await BuildProjectResponseAsync(dbContext, project, cancellationToken);
     }
 
     // ============================================================
@@ -571,27 +517,25 @@ public sealed class ProjectService : IProjectService
         Guid supervisorUserId,
         Guid projectId,
         AddProjectMembersRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
-        var studentIds =
-            ProjectRequestValidator.ValidateMemberStudentIds(request);
+        var studentIds = ProjectRequestValidator.ValidateMemberStudentIds(request);
 
-        await using var dbContext =
-            await _dbContextFactory.CreateDbContextAsync(
-                cancellationToken);
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
-        var project =
-            await dbContext.Projects
-                .SingleOrDefaultAsync(
-                    project => project.Id == projectId,
-                    cancellationToken);
+        var project = await dbContext.Projects.SingleOrDefaultAsync(
+            project => project.Id == projectId,
+            cancellationToken
+        );
 
         if (project is null)
         {
             throw new ApiException(
                 StatusCodes.Status404NotFound,
                 ErrorCodes.NotFound,
-                "The requested project was not found.");
+                "The requested project was not found."
+            );
         }
 
         if (project.SupervisorUserId != supervisorUserId)
@@ -599,59 +543,48 @@ public sealed class ProjectService : IProjectService
             throw new ApiException(
                 StatusCodes.Status403Forbidden,
                 ErrorCodes.Forbidden,
-                "Only the owning Supervisor can manage project members.");
+                "Only the owning Supervisor can manage project members."
+            );
         }
 
-        var students =
-            await _userDirectoryClient.ResolveStudentsAsync(
-                studentIds,
-                cancellationToken);
+        var students = await _userDirectoryClient.ResolveStudentsAsync(studentIds, cancellationToken);
 
         ProjectRequestValidator.ValidateResolvedStudents(
             studentIds,
-            students.Select(student => student.Id).ToArray());
+            students.Select(student => student.Id).ToArray()
+        );
 
-        var existingStudentIds =
-            await dbContext.ProjectMembers
-                .AsNoTracking()
-                .Where(member =>
-                    member.ProjectId == projectId &&
-                    studentIds.Contains(member.UserId))
-                .Select(member => member.UserId)
-                .ToListAsync(cancellationToken);
+        var existingStudentIds = await dbContext
+            .ProjectMembers.AsNoTracking()
+            .Where(member => member.ProjectId == projectId && studentIds.Contains(member.UserId))
+            .Select(member => member.UserId)
+            .ToListAsync(cancellationToken);
 
         if (existingStudentIds.Count > 0)
         {
             throw new ApiException(
                 StatusCodes.Status409Conflict,
                 ErrorCodes.Conflict,
-                "One or more selected students are already members of this project.");
+                "One or more selected students are already members of this project."
+            );
         }
 
-        var studentsById = students.ToDictionary(
-            student => student.Id);
+        var studentsById = students.ToDictionary(student => student.Id);
 
-        var now =
-            _timeProvider.GetUtcNow().UtcDateTime;
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
 
         dbContext.ProjectMembers.AddRange(
             studentIds.Select(studentId =>
-                CreateMember(
-                    projectId,
-                    studentsById[studentId],
-                    ProjectMemberRoles.Student,
-                    now)));
+                CreateMember(projectId, studentsById[studentId], ProjectMemberRoles.Student, now)
+            )
+        );
 
         project.UpdatedAt = now;
         project.LastActivityAt = now;
 
-        await dbContext.SaveChangesAsync(
-            cancellationToken);
+        await dbContext.SaveChangesAsync(cancellationToken);
 
-        return await BuildProjectResponseAsync(
-            dbContext,
-            project,
-            cancellationToken);
+        return await BuildProjectResponseAsync(dbContext, project, cancellationToken);
     }
 
     // ============================================================
@@ -662,24 +595,23 @@ public sealed class ProjectService : IProjectService
         Guid supervisorUserId,
         Guid projectId,
         Guid studentId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
-        await using var dbContext =
-            await _dbContextFactory.CreateDbContextAsync(
-                cancellationToken);
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
-        var project =
-            await dbContext.Projects
-                .SingleOrDefaultAsync(
-                    project => project.Id == projectId,
-                    cancellationToken);
+        var project = await dbContext.Projects.SingleOrDefaultAsync(
+            project => project.Id == projectId,
+            cancellationToken
+        );
 
         if (project is null)
         {
             throw new ApiException(
                 StatusCodes.Status404NotFound,
                 ErrorCodes.NotFound,
-                "The requested project was not found.");
+                "The requested project was not found."
+            );
         }
 
         if (project.SupervisorUserId != supervisorUserId)
@@ -687,24 +619,25 @@ public sealed class ProjectService : IProjectService
             throw new ApiException(
                 StatusCodes.Status403Forbidden,
                 ErrorCodes.Forbidden,
-                "Only the owning Supervisor can manage project members.");
+                "Only the owning Supervisor can manage project members."
+            );
         }
 
-        var member =
-            await dbContext.ProjectMembers
-                .SingleOrDefaultAsync(
-                    item =>
-                        item.ProjectId == projectId &&
-                        item.UserId == studentId &&
-                        item.MemberRole == ProjectMemberRoles.Student,
-                    cancellationToken);
+        var member = await dbContext.ProjectMembers.SingleOrDefaultAsync(
+            item =>
+                item.ProjectId == projectId
+                && item.UserId == studentId
+                && item.MemberRole == ProjectMemberRoles.Student,
+            cancellationToken
+        );
 
         if (member is null)
         {
             throw new ApiException(
                 StatusCodes.Status404NotFound,
                 ErrorCodes.NotFound,
-                "The requested student membership was not found.");
+                "The requested student membership was not found."
+            );
         }
 
         dbContext.ProjectMembers.Remove(member);
@@ -714,31 +647,26 @@ public sealed class ProjectService : IProjectService
             project.LeaderStudentUserId = null;
         }
 
-        var now =
-            _timeProvider.GetUtcNow().UtcDateTime;
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
 
         project.UpdatedAt = now;
         project.LastActivityAt = now;
 
-        await dbContext.SaveChangesAsync(
-            cancellationToken);
+        await dbContext.SaveChangesAsync(cancellationToken);
 
-        return await BuildProjectResponseAsync(
-            dbContext,
-            project,
-            cancellationToken);
+        return await BuildProjectResponseAsync(dbContext, project, cancellationToken);
     }
 
     // ============================================================
     // ADD MILESTONE
     // ============================================================
 
-    public async Task<ProjectMilestoneResponse>
-        AddMilestoneAsync(
-            Guid supervisorUserId,
-            Guid projectId,
-            CreateProjectMilestoneRequest request,
-            CancellationToken cancellationToken)
+    public async Task<ProjectMilestoneResponse> AddMilestoneAsync(
+        Guid supervisorUserId,
+        Guid projectId,
+        CreateProjectMilestoneRequest request,
+        CancellationToken cancellationToken
+    )
     {
         var title = request.Title?.Trim();
         var description = request.Description?.Trim();
@@ -748,7 +676,8 @@ public sealed class ProjectService : IProjectService
             throw new ApiException(
                 StatusCodes.Status400BadRequest,
                 ErrorCodes.ValidationError,
-                "Milestone title is required.");
+                "Milestone title is required."
+            );
         }
 
         if (request.DueDate is null)
@@ -756,34 +685,30 @@ public sealed class ProjectService : IProjectService
             throw new ApiException(
                 StatusCodes.Status400BadRequest,
                 ErrorCodes.ValidationError,
-                "Milestone due date is required.");
+                "Milestone due date is required."
+            );
         }
 
         var dueDate = request.DueDate.Value;
         var now = _timeProvider.GetUtcNow().UtcDateTime;
         var today = DateOnly.FromDateTime(now);
 
-        ProjectMilestonePolicy.ValidateDueDateForStatus(
-            dueDate,
-            ProjectMilestoneStatuses.Planned,
-            today);
+        ProjectMilestonePolicy.ValidateDueDateForStatus(dueDate, ProjectMilestoneStatuses.Planned, today);
 
-        await using var dbContext =
-            await _dbContextFactory.CreateDbContextAsync(
-                cancellationToken);
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
-        var project =
-            await dbContext.Projects
-                .SingleOrDefaultAsync(
-                    project => project.Id == projectId,
-                    cancellationToken);
+        var project = await dbContext.Projects.SingleOrDefaultAsync(
+            project => project.Id == projectId,
+            cancellationToken
+        );
 
         if (project is null)
         {
             throw new ApiException(
                 StatusCodes.Status404NotFound,
                 ErrorCodes.NotFound,
-                "The requested project was not found.");
+                "The requested project was not found."
+            );
         }
 
         if (project.SupervisorUserId != supervisorUserId)
@@ -791,50 +716,41 @@ public sealed class ProjectService : IProjectService
             throw new ApiException(
                 StatusCodes.Status403Forbidden,
                 ErrorCodes.Forbidden,
-                "Only the owning Supervisor can add milestones.");
+                "Only the owning Supervisor can add milestones."
+            );
         }
 
-        var existingMilestones =
-            await dbContext.ProjectMilestones
-                .Where(milestone =>
-                    milestone.ProjectId == projectId)
-                .OrderBy(milestone =>
-                    milestone.SequenceNo)
-                .ToListAsync(cancellationToken);
+        var existingMilestones = await dbContext
+            .ProjectMilestones.Where(milestone => milestone.ProjectId == projectId)
+            .OrderBy(milestone => milestone.SequenceNo)
+            .ToListAsync(cancellationToken);
 
         var previousMilestone = existingMilestones.LastOrDefault();
-        ProjectMilestonePolicy.ValidateChronologyWithPrevious(
-            previousMilestone?.DueDate,
-            dueDate);
+        ProjectMilestonePolicy.ValidateChronologyWithPrevious(previousMilestone?.DueDate, dueDate);
 
         var milestone = new ProjectMilestone
         {
             Id = Guid.NewGuid(),
             ProjectId = projectId,
             Title = title,
-            Description = string.IsNullOrWhiteSpace(description)
-                ? null
-                : description,
+            Description = string.IsNullOrWhiteSpace(description) ? null : description,
             DueDate = dueDate,
             Status = ProjectMilestoneStatuses.Planned,
             SequenceNo = (previousMilestone?.SequenceNo ?? 0) + 1,
             CreatedByUserId = supervisorUserId,
             CreatedAt = now,
-            UpdatedAt = now
+            UpdatedAt = now,
         };
 
         dbContext.ProjectMilestones.Add(milestone);
 
         existingMilestones.Add(milestone);
-        ProjectMilestonePolicy.ApplyAggregates(
-            project,
-            existingMilestones);
+        ProjectMilestonePolicy.ApplyAggregates(project, existingMilestones);
 
         project.UpdatedAt = now;
         project.LastActivityAt = now;
 
-        await dbContext.SaveChangesAsync(
-            cancellationToken);
+        await dbContext.SaveChangesAsync(cancellationToken);
 
         return MapMilestone(milestone);
     }
@@ -843,13 +759,13 @@ public sealed class ProjectService : IProjectService
     // UPDATE MILESTONE
     // ============================================================
 
-    public async Task<ProjectMilestoneResponse>
-    UpdateMilestoneAsync(
+    public async Task<ProjectMilestoneResponse> UpdateMilestoneAsync(
         Guid supervisorUserId,
         Guid projectId,
         Guid milestoneId,
         UpdateProjectMilestoneRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         var title = request.Title?.Trim();
         var description = request.Description?.Trim();
@@ -859,7 +775,8 @@ public sealed class ProjectService : IProjectService
             throw new ApiException(
                 StatusCodes.Status400BadRequest,
                 ErrorCodes.ValidationError,
-                "Milestone title is required.");
+                "Milestone title is required."
+            );
         }
 
         if (request.DueDate is null)
@@ -867,33 +784,30 @@ public sealed class ProjectService : IProjectService
             throw new ApiException(
                 StatusCodes.Status400BadRequest,
                 ErrorCodes.ValidationError,
-                "Milestone due date is required.");
+                "Milestone due date is required."
+            );
         }
 
-        var nextStatus =
-            ProjectMilestonePolicy.NormalizeAndValidateStatus(
-                request.Status);
+        var nextStatus = ProjectMilestonePolicy.NormalizeAndValidateStatus(request.Status);
 
         var requestedDueDate = request.DueDate.Value;
         var now = _timeProvider.GetUtcNow().UtcDateTime;
         var today = DateOnly.FromDateTime(now);
 
-        await using var dbContext =
-            await _dbContextFactory.CreateDbContextAsync(
-                cancellationToken);
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
-        var project =
-            await dbContext.Projects
-                .SingleOrDefaultAsync(
-                    project => project.Id == projectId,
-                    cancellationToken);
+        var project = await dbContext.Projects.SingleOrDefaultAsync(
+            project => project.Id == projectId,
+            cancellationToken
+        );
 
         if (project is null)
         {
             throw new ApiException(
                 StatusCodes.Status404NotFound,
                 ErrorCodes.NotFound,
-                "The requested project was not found.");
+                "The requested project was not found."
+            );
         }
 
         if (project.SupervisorUserId != supervisorUserId)
@@ -901,80 +815,61 @@ public sealed class ProjectService : IProjectService
             throw new ApiException(
                 StatusCodes.Status403Forbidden,
                 ErrorCodes.Forbidden,
-                "Only the owning Supervisor can update milestones.");
+                "Only the owning Supervisor can update milestones."
+            );
         }
 
-        var milestones =
-            await dbContext.ProjectMilestones
-                .Where(item =>
-                    item.ProjectId == projectId)
-                .OrderBy(item =>
-                    item.SequenceNo)
-                .ToListAsync(cancellationToken);
+        var milestones = await dbContext
+            .ProjectMilestones.Where(item => item.ProjectId == projectId)
+            .OrderBy(item => item.SequenceNo)
+            .ToListAsync(cancellationToken);
 
-        var milestone = milestones.SingleOrDefault(
-            item => item.Id == milestoneId);
+        var milestone = milestones.SingleOrDefault(item => item.Id == milestoneId);
 
         if (milestone is null)
         {
             throw new ApiException(
                 StatusCodes.Status404NotFound,
                 ErrorCodes.NotFound,
-                "The requested milestone was not found.");
+                "The requested milestone was not found."
+            );
         }
 
         var currentStatus = milestone.Status;
         var currentDueDate = milestone.DueDate;
-        var statusChanged = !string.Equals(
-            currentStatus,
-            nextStatus,
-            StringComparison.Ordinal);
-        var dueDateChanged =
-            currentDueDate != requestedDueDate;
+        var statusChanged = !string.Equals(currentStatus, nextStatus, StringComparison.Ordinal);
+        var dueDateChanged = currentDueDate != requestedDueDate;
 
         if (statusChanged)
         {
-            ProjectMilestonePolicy.ValidateStatusTransition(
-                currentStatus,
-                nextStatus);
+            ProjectMilestonePolicy.ValidateStatusTransition(currentStatus, nextStatus);
         }
 
         if (statusChanged || dueDateChanged)
         {
-            ProjectMilestonePolicy.ValidateDueDateForStatus(
-                requestedDueDate,
-                nextStatus,
-                today);
+            ProjectMilestonePolicy.ValidateDueDateForStatus(requestedDueDate, nextStatus, today);
         }
 
         if (dueDateChanged)
         {
-            ProjectMilestonePolicy.ValidateChronologyForUpdate(
-                milestones,
-                milestone.Id,
-                requestedDueDate);
+            ProjectMilestonePolicy.ValidateChronologyForUpdate(milestones, milestone.Id, requestedDueDate);
         }
 
         milestone.Title = title;
-        milestone.Description = string.IsNullOrWhiteSpace(description)
-            ? null
-            : description;
+        milestone.Description = string.IsNullOrWhiteSpace(description) ? null : description;
         milestone.DueDate = requestedDueDate;
         milestone.Status = nextStatus;
         milestone.UpdatedAt = now;
 
         if (statusChanged || dueDateChanged)
         {
-            ProjectMilestonePolicy.ApplyAggregates(
-                project,
-                milestones);
+            ProjectMilestonePolicy.ApplyAggregates(project, milestones);
         }
 
         project.UpdatedAt = now;
         project.LastActivityAt = now;
 
-        await dbContext.SaveChangesAsync(
-            cancellationToken);
+        await dbContext.SaveChangesAsync(cancellationToken);
 
         return MapMilestone(milestone);
     }
@@ -983,54 +878,42 @@ public sealed class ProjectService : IProjectService
     // BUILD PROJECT RESPONSE
     // ============================================================
 
-    private static async Task<ProjectResponse>
-        BuildProjectResponseAsync(
-            ProjectDbContext dbContext,
-            Project project,
-            CancellationToken cancellationToken)
+    private static async Task<ProjectResponse> BuildProjectResponseAsync(
+        ProjectDbContext dbContext,
+        Project project,
+        CancellationToken cancellationToken
+    )
     {
-        var members =
-            await dbContext.ProjectMembers
-                .AsNoTracking()
-                .Where(member =>
-                    member.ProjectId == project.Id)
-                .OrderBy(member =>
-                    member.MemberRole == ProjectMemberRoles.Supervisor
-                        ? 0
-                        : 1)
-                .ThenBy(member =>
-                    member.CreatedAt)
-                .Select(member =>
-                    new ProjectMemberResponse(
-                        member.UserId,
-                        member.FirstName,
-                        member.LastName,
-                        member.Email,
-                        member.RegistrationNumber,
-                        member.MemberRole))
-                .ToListAsync(cancellationToken);
+        var members = await dbContext
+            .ProjectMembers.AsNoTracking()
+            .Where(member => member.ProjectId == project.Id)
+            .OrderBy(member => member.MemberRole == ProjectMemberRoles.Supervisor ? 0 : 1)
+            .ThenBy(member => member.CreatedAt)
+            .Select(member => new ProjectMemberResponse(
+                member.UserId,
+                member.FirstName,
+                member.LastName,
+                member.Email,
+                member.RegistrationNumber,
+                member.MemberRole
+            ))
+            .ToListAsync(cancellationToken);
 
-        var milestones =
-            await dbContext.ProjectMilestones
-                .AsNoTracking()
-                .Where(milestone =>
-                    milestone.ProjectId == project.Id)
-                .OrderBy(milestone =>
-                    milestone.SequenceNo)
-                .Select(milestone =>
-                    new ProjectMilestoneResponse(
-                        milestone.Id,
-                        milestone.Title,
-                        milestone.Description,
-                        milestone.DueDate,
-                        milestone.Status,
-                        milestone.SequenceNo))
-                .ToListAsync(cancellationToken);
+        var milestones = await dbContext
+            .ProjectMilestones.AsNoTracking()
+            .Where(milestone => milestone.ProjectId == project.Id)
+            .OrderBy(milestone => milestone.SequenceNo)
+            .Select(milestone => new ProjectMilestoneResponse(
+                milestone.Id,
+                milestone.Title,
+                milestone.Description,
+                milestone.DueDate,
+                milestone.Status,
+                milestone.SequenceNo
+            ))
+            .ToListAsync(cancellationToken);
 
-        return CreateProjectResponse(
-            project,
-            members,
-            milestones);
+        return CreateProjectResponse(project, members, milestones);
     }
 
     // ============================================================
@@ -1040,22 +923,18 @@ public sealed class ProjectService : IProjectService
     private static ProjectResponse CreateProjectResponse(
         Project project,
         IReadOnlyList<ProjectMemberResponse> members,
-        IReadOnlyList<ProjectMilestoneResponse> milestones)
+        IReadOnlyList<ProjectMilestoneResponse> milestones
+    )
     {
-        var supervisorMember =
-            members.FirstOrDefault(
-                member =>
-                    member.MemberRole ==
-                    ProjectMemberRoles.Supervisor);
+        var supervisorMember = members.FirstOrDefault(member =>
+            member.MemberRole == ProjectMemberRoles.Supervisor
+        );
 
-        var leaderMember =
-            project.LeaderStudentUserId is Guid leaderId
-                ? members.FirstOrDefault(
-                    member =>
-                        member.Id == leaderId &&
-                        member.MemberRole ==
-                            ProjectMemberRoles.Student)
-                : null;
+        var leaderMember = project.LeaderStudentUserId is Guid leaderId
+            ? members.FirstOrDefault(member =>
+                member.Id == leaderId && member.MemberRole == ProjectMemberRoles.Student
+            )
+            : null;
 
         return new ProjectResponse(
             project.Id,
@@ -1067,14 +946,11 @@ public sealed class ProjectService : IProjectService
             project.MilestoneDate,
             project.LastActivityAt,
             project.ProgressPercent,
-            supervisorMember is null
-                ? null
-                : MapUser(supervisorMember),
-            leaderMember is null
-                ? null
-                : MapUser(leaderMember),
+            supervisorMember is null ? null : MapUser(supervisorMember),
+            leaderMember is null ? null : MapUser(leaderMember),
             members,
-            milestones);
+            milestones
+        );
     }
 
     // ============================================================
@@ -1085,7 +961,8 @@ public sealed class ProjectService : IProjectService
         Guid projectId,
         AuthDirectoryUser user,
         string memberRole,
-        DateTime now)
+        DateTime now
+    )
     {
         return new ProjectMember
         {
@@ -1096,10 +973,9 @@ public sealed class ProjectService : IProjectService
             FirstName = user.FirstName,
             LastName = user.LastName,
             Email = user.Email,
-            RegistrationNumber =
-                user.RegistrationNumber,
+            RegistrationNumber = user.RegistrationNumber,
             CreatedAt = now,
-            UpdatedAt = now
+            UpdatedAt = now,
         };
     }
 
@@ -1107,34 +983,33 @@ public sealed class ProjectService : IProjectService
     // MAP USER
     // ============================================================
 
-    private static ProjectUserResponse MapUser(
-        AuthDirectoryUser user)
+    private static ProjectUserResponse MapUser(AuthDirectoryUser user)
     {
         return new ProjectUserResponse(
             user.Id,
             user.FirstName,
             user.LastName,
             user.Email,
-            user.RegistrationNumber);
+            user.RegistrationNumber
+        );
     }
 
-    private static ProjectUserResponse MapUser(
-        ProjectMemberResponse user)
+    private static ProjectUserResponse MapUser(ProjectMemberResponse user)
     {
         return new ProjectUserResponse(
             user.Id,
             user.FirstName,
             user.LastName,
             user.Email,
-            user.RegistrationNumber);
+            user.RegistrationNumber
+        );
     }
 
     // ============================================================
     // MAP MILESTONE
     // ============================================================
 
-    private static ProjectMilestoneResponse MapMilestone(
-        ProjectMilestone milestone)
+    private static ProjectMilestoneResponse MapMilestone(ProjectMilestone milestone)
     {
         return new ProjectMilestoneResponse(
             milestone.Id,
@@ -1142,6 +1017,7 @@ public sealed class ProjectService : IProjectService
             milestone.Description,
             milestone.DueDate,
             milestone.Status,
-            milestone.SequenceNo);
+            milestone.SequenceNo
+        );
     }
 }

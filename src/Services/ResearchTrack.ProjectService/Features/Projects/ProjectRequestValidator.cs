@@ -14,9 +14,7 @@ internal static class ProjectRequestValidator
     private const int MilestoneTitleMaxLength = 40;
     private const int MilestoneDescriptionMaxLength = 250;
 
-    public static NormalizedCreateProject Validate(
-        CreateProjectRequest request,
-        DateOnly today)
+    public static NormalizedCreateProject Validate(CreateProjectRequest request, DateOnly today)
     {
         var errors = new List<ApiFieldError>();
         var title = NormalizeRequired(request.Title, "title", "Title", TitleMaxLength, errors);
@@ -35,12 +33,11 @@ internal static class ProjectRequestValidator
             errors.Add(new ApiFieldError("studentIds", ["Duplicate students are not allowed."]));
         }
 
-        if (request.LeaderStudentId is Guid leaderStudentId
-            && !studentIds.Contains(leaderStudentId))
+        if (request.LeaderStudentId is Guid leaderStudentId && !studentIds.Contains(leaderStudentId))
         {
-            errors.Add(new ApiFieldError(
-                "leaderStudentId",
-                ["Leader must be one of the selected students."]));
+            errors.Add(
+                new ApiFieldError("leaderStudentId", ["Leader must be one of the selected students."])
+            );
         }
 
         var milestoneRequests = request.Milestones ?? [];
@@ -61,45 +58,55 @@ internal static class ProjectRequestValidator
                     $"{prefix}.title",
                     "Milestone title",
                     MilestoneTitleMaxLength,
-                    errors);
+                    errors
+                );
                 var description = milestone.Description?.Trim();
                 if (description?.Length > MilestoneDescriptionMaxLength)
                 {
-                    errors.Add(new ApiFieldError(
-                        $"{prefix}.description",
-                        [$"Milestone description must not exceed {MilestoneDescriptionMaxLength} characters."]));
+                    errors.Add(
+                        new ApiFieldError(
+                            $"{prefix}.description",
+                            [
+                                $"Milestone description must not exceed {MilestoneDescriptionMaxLength} characters.",
+                            ]
+                        )
+                    );
                 }
 
                 if (milestone.DueDate is null)
                 {
-                    errors.Add(new ApiFieldError(
-                        $"{prefix}.dueDate",
-                        ["Milestone due date is required."]));
+                    errors.Add(new ApiFieldError($"{prefix}.dueDate", ["Milestone due date is required."]));
                     continue;
                 }
 
                 var dueDate = milestone.DueDate.Value;
                 if (dueDate < today)
                 {
-                    errors.Add(new ApiFieldError(
-                        $"{prefix}.dueDate",
-                        ["Milestone due date cannot be in the past."]));
+                    errors.Add(
+                        new ApiFieldError($"{prefix}.dueDate", ["Milestone due date cannot be in the past."])
+                    );
                 }
 
                 if (previousDueDate is not null && dueDate < previousDueDate.Value)
                 {
-                    errors.Add(new ApiFieldError(
-                        $"{prefix}.dueDate",
-                        ["Milestone due dates must be in chronological order."]));
+                    errors.Add(
+                        new ApiFieldError(
+                            $"{prefix}.dueDate",
+                            ["Milestone due dates must be in chronological order."]
+                        )
+                    );
                 }
 
                 previousDueDate = dueDate;
                 if (!string.IsNullOrWhiteSpace(milestoneTitle))
                 {
-                    milestones.Add(new NormalizedMilestone(
-                        milestoneTitle,
-                        string.IsNullOrWhiteSpace(description) ? null : description,
-                        dueDate));
+                    milestones.Add(
+                        new NormalizedMilestone(
+                            milestoneTitle,
+                            string.IsNullOrWhiteSpace(description) ? null : description,
+                            dueDate
+                        )
+                    );
                 }
             }
         }
@@ -116,7 +123,8 @@ internal static class ProjectRequestValidator
             semester!,
             studentIds,
             request.LeaderStudentId,
-            milestones);
+            milestones
+        );
     }
 
     public static string ValidateSemester(string? value)
@@ -133,35 +141,33 @@ internal static class ProjectRequestValidator
         return semester!;
     }
 
-    private static void ValidateSemester(
-        string? semester,
-        ICollection<ApiFieldError> errors)
+    private static void ValidateSemester(string? semester, ICollection<ApiFieldError> errors)
     {
         if (!string.IsNullOrWhiteSpace(semester) && !ProjectSemesters.IsSupported(semester))
         {
-            errors.Add(new ApiFieldError(
-                "semester",
-                [$"Semester must be either '{ProjectSemesters.Semester1}' or '{ProjectSemesters.Semester2}'."]));
+            errors.Add(
+                new ApiFieldError(
+                    "semester",
+                    [
+                        $"Semester must be either '{ProjectSemesters.Semester1}' or '{ProjectSemesters.Semester2}'.",
+                    ]
+                )
+            );
         }
     }
 
-    public static IReadOnlyList<Guid> ValidateMemberStudentIds(
-        AddProjectMembersRequest request)
+    public static IReadOnlyList<Guid> ValidateMemberStudentIds(AddProjectMembersRequest request)
     {
         var errors = new List<ApiFieldError>();
         var studentIds = (request.StudentIds ?? []).ToArray();
 
         if (studentIds.Length == 0)
         {
-            errors.Add(new ApiFieldError(
-                "studentIds",
-                ["At least one student must be selected."]));
+            errors.Add(new ApiFieldError("studentIds", ["At least one student must be selected."]));
         }
         else if (studentIds.Distinct().Count() != studentIds.Length)
         {
-            errors.Add(new ApiFieldError(
-                "studentIds",
-                ["Duplicate students are not allowed."]));
+            errors.Add(new ApiFieldError("studentIds", ["Duplicate students are not allowed."]));
         }
 
         if (errors.Count > 0)
@@ -174,13 +180,11 @@ internal static class ProjectRequestValidator
 
     public static void ValidateResolvedStudents(
         IReadOnlyCollection<Guid> requestedStudentIds,
-        IReadOnlyCollection<Guid> resolvedStudentIds)
+        IReadOnlyCollection<Guid> resolvedStudentIds
+    )
     {
         var resolved = resolvedStudentIds.ToHashSet();
-        var missing = requestedStudentIds
-            .Where(id => !resolved.Contains(id))
-            .Distinct()
-            .ToArray();
+        var missing = requestedStudentIds.Where(id => !resolved.Contains(id)).Distinct().ToArray();
 
         if (missing.Length == 0)
         {
@@ -190,7 +194,8 @@ internal static class ProjectRequestValidator
         throw new ApiValidationException([
             new ApiFieldError(
                 "studentIds",
-                ["One or more selected students are invalid or are no longer registered as students."])
+                ["One or more selected students are invalid or are no longer registered as students."]
+            ),
         ]);
     }
 
@@ -199,7 +204,8 @@ internal static class ProjectRequestValidator
         string field,
         string displayName,
         int maxLength,
-        ICollection<ApiFieldError> errors)
+        ICollection<ApiFieldError> errors
+    )
     {
         var normalized = value?.Trim();
         var messages = new List<string>();
@@ -227,10 +233,8 @@ internal static class ProjectRequestValidator
         string Semester,
         IReadOnlyList<Guid> StudentIds,
         Guid? LeaderStudentId,
-        IReadOnlyList<NormalizedMilestone> Milestones);
+        IReadOnlyList<NormalizedMilestone> Milestones
+    );
 
-    internal sealed record NormalizedMilestone(
-        string Title,
-        string? Description,
-        DateOnly DueDate);
+    internal sealed record NormalizedMilestone(string Title, string? Description, DateOnly DueDate);
 }

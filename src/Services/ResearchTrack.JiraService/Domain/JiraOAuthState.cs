@@ -1,4 +1,5 @@
 namespace ResearchTrack.JiraService.Domain;
+
 public sealed class JiraOAuthState
 {
     public Guid Id { get; set; }

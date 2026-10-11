@@ -8,4 +8,5 @@ public sealed record JiraProjectSyncStateResponse(
     string? LastSyncError,
     string? WebhookStatus,
     DateTimeOffset? LastWebhookAt,
-    DateTimeOffset? LastReconciledAt);
+    DateTimeOffset? LastReconciledAt
+);

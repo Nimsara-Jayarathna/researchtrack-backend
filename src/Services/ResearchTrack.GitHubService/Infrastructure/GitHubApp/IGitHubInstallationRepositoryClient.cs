@@ -6,10 +6,12 @@ public interface IGitHubInstallationRepositoryClient
         GitHubInstallationToken token,
         int page,
         int perPage,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken
+    );
 
     Task<GitHubInstallationRepository> GetAsync(
         GitHubInstallationToken token,
         long repositoryId,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken
+    );
 }

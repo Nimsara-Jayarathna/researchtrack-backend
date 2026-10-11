@@ -21,8 +21,8 @@ public static class HealthResponseWriter
                 name = entry.Key,
                 status = entry.Value.Status.ToString(),
                 description = entry.Value.Description,
-                durationMs = entry.Value.Duration.TotalMilliseconds
-            })
+                durationMs = entry.Value.Duration.TotalMilliseconds,
+            }),
         };
 
         return context.Response.WriteAsync(JsonSerializer.Serialize(payload, SerializerOptions));

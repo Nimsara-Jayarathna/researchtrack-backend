@@ -17,7 +17,8 @@ public sealed class ProjectGitHubInventoryService : IProjectGitHubInventoryServi
     public ProjectGitHubInventoryService(
         IDbContextFactory<GitHubDbContext> dbContextFactory,
         IProjectAuthorizationClient projectAuthorization,
-        IGitHubInstallationRepositoryService installationRepositoryService)
+        IGitHubInstallationRepositoryService installationRepositoryService
+    )
     {
         _dbContextFactory = dbContextFactory;
         _projectAuthorization = projectAuthorization;
@@ -27,19 +28,18 @@ public sealed class ProjectGitHubInventoryService : IProjectGitHubInventoryServi
     public async Task<ProjectGitHubRepositoryListingResponse> GetAsync(
         Guid userId,
         Guid projectId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         if (projectId == Guid.Empty)
         {
-            throw new ApiValidationException([
-                new ApiFieldError("projectId", ["Project id is required."])
-            ]);
+            throw new ApiValidationException([new ApiFieldError("projectId", ["Project id is required."])]);
         }
 
         await _projectAuthorization.EnsureCanManageAsync(projectId, cancellationToken);
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-        var sources = await dbContext.AccessSources
-            .AsNoTracking()
+        var sources = await dbContext
+            .AccessSources.AsNoTracking()
             .Where(source => source.ProjectId == projectId && source.Active)
             .OrderBy(source => source.CreatedAt)
             .Select(source => source.Id)
@@ -51,7 +51,8 @@ public sealed class ProjectGitHubInventoryService : IProjectGitHubInventoryServi
             var available = await _installationRepositoryService.TryGetAvailableAsync(
                 userId,
                 sourceId,
-                cancellationToken);
+                cancellationToken
+            );
             if (available is not null)
             {
                 inventory.Add(available);

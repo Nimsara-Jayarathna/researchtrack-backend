@@ -11,7 +11,10 @@ namespace ResearchTrack.AuthService.Configuration;
 
 public static class AuthFeatureExtensions
 {
-    public static IServiceCollection AddAuthFeatures(this IServiceCollection services, IConfiguration configuration)
+    public static IServiceCollection AddAuthFeatures(
+        this IServiceCollection services,
+        IConfiguration configuration
+    )
     {
         var registrationOptions = RegistrationOptions.FromConfiguration(configuration);
         var passwordPolicyOptions = PasswordPolicyOptions.FromConfiguration(configuration);
@@ -23,7 +26,9 @@ public static class AuthFeatureExtensions
 
         if (passwordPolicyOptions.MaximumLength < passwordPolicyOptions.MinimumLength)
         {
-            throw new InvalidOperationException("PasswordPolicy:MaximumLength must be greater than or equal to PasswordPolicy:MinimumLength.");
+            throw new InvalidOperationException(
+                "PasswordPolicy:MaximumLength must be greater than or equal to PasswordPolicy:MinimumLength."
+            );
         }
 
         services.AddSingleton(registrationOptions);

@@ -1,8 +1,6 @@
 namespace ResearchTrack.GitHubService.Features.Installation;
 
-public sealed record GitHubInstallationState(
-    string Value,
-    DateTime ExpiresAt);
+public sealed record GitHubInstallationState(string Value, DateTime ExpiresAt);
 
 public sealed record ValidatedGitHubInstallationState(
     Guid ProjectId,
@@ -11,7 +9,8 @@ public sealed record ValidatedGitHubInstallationState(
     string ReturnPath,
     Guid? AccessRequestId,
     long? PendingInstallationId,
-    DateTime? AuthorizationStartedAt);
+    DateTime? AuthorizationStartedAt
+);
 
 public sealed record ConsumedGitHubInstallationState(
     Guid ProjectId,
@@ -20,4 +19,5 @@ public sealed record ConsumedGitHubInstallationState(
     string ReturnPath,
     Guid? AccessRequestId,
     long? PendingInstallationId,
-    DateTime ConsumedAt);
+    DateTime ConsumedAt
+);

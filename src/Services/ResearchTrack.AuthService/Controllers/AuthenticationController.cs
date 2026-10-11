@@ -18,7 +18,8 @@ public sealed class AuthenticationController : ApiControllerBase
 
     public AuthenticationController(
         IUserAuthenticationService authenticationService,
-        IAuthCookieService cookieService)
+        IAuthCookieService cookieService
+    )
     {
         _authenticationService = authenticationService;
         _cookieService = cookieService;
@@ -31,7 +32,8 @@ public sealed class AuthenticationController : ApiControllerBase
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<ApiResponse<LoginResponse>>> Login(
         [FromBody] LoginRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         var result = await _authenticationService.LoginAsync(request, cancellationToken);
         _cookieService.WriteSession(Response, result.AccessToken, result.RefreshToken);
@@ -42,14 +44,14 @@ public sealed class AuthenticationController : ApiControllerBase
     [HttpPost("refresh")]
     [ProducesResponseType<ApiResponse<LoginResponse>>(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public async Task<ActionResult<ApiResponse<LoginResponse>>> Refresh(
-        CancellationToken cancellationToken)
+    public async Task<ActionResult<ApiResponse<LoginResponse>>> Refresh(CancellationToken cancellationToken)
     {
         try
         {
             var result = await _authenticationService.RefreshAsync(
                 _cookieService.ReadRefreshToken(Request) ?? string.Empty,
-                cancellationToken);
+                cancellationToken
+            );
             _cookieService.WriteSession(Response, result.AccessToken, result.RefreshToken);
             return ApiOk(result.Response);
         }
@@ -69,7 +71,8 @@ public sealed class AuthenticationController : ApiControllerBase
         {
             await _authenticationService.RevokeRefreshTokenAsync(
                 _cookieService.ReadRefreshToken(Request),
-                cancellationToken);
+                cancellationToken
+            );
         }
         finally
         {
@@ -83,8 +86,7 @@ public sealed class AuthenticationController : ApiControllerBase
     [HttpGet("me")]
     [ProducesResponseType<ApiResponse<LoginResponse>>(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public async Task<ActionResult<ApiResponse<LoginResponse>>> Me(
-        CancellationToken cancellationToken)
+    public async Task<ActionResult<ApiResponse<LoginResponse>>> Me(CancellationToken cancellationToken)
     {
         var response = await _authenticationService.GetCurrentUserAsync(User, cancellationToken);
         return ApiOk(response);

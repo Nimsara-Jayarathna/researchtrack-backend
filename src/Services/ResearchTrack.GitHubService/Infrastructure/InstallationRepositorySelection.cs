@@ -1,5 +1,3 @@
 namespace ResearchTrack.GitHubService.Infrastructure;
 
-public sealed record InstallationRepositorySelection(
-    Guid Id,
-    long GitHubRepositoryId);
+public sealed record InstallationRepositorySelection(Guid Id, long GitHubRepositoryId);

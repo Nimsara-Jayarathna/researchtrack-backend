@@ -5,7 +5,8 @@ namespace ResearchTrack.GitHubService.Contracts;
 public sealed record GitHubAvailableRepositoriesResponse(
     Guid SourceId,
     IReadOnlyList<GitHubRepositoryOptionResponse> Items,
-    int TotalCount);
+    int TotalCount
+);
 
 public sealed record GitHubRepositoryOptionResponse(
     Guid Id,
@@ -14,4 +15,5 @@ public sealed record GitHubRepositoryOptionResponse(
     string Name,
     string OwnerLogin,
     string? DefaultBranch,
-    string Url);
+    string Url
+);

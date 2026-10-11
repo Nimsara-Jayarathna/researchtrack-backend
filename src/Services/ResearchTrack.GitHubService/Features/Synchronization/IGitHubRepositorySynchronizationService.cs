@@ -5,5 +5,6 @@ public interface IGitHubRepositorySynchronizationService
     Task<GitHubSynchronizationOutcome> SynchronizeAsync(
         Guid linkedRepositoryId,
         string trigger,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken
+    );
 }

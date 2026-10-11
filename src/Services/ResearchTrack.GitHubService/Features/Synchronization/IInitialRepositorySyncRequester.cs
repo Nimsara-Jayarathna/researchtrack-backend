@@ -2,7 +2,5 @@ namespace ResearchTrack.GitHubService.Features.Synchronization;
 
 public interface IInitialRepositorySyncRequester
 {
-    Task RequestAsync(
-        InitialRepositorySyncRequest request,
-        CancellationToken cancellationToken);
+    Task RequestAsync(InitialRepositorySyncRequest request, CancellationToken cancellationToken);
 }

@@ -22,7 +22,12 @@ public sealed class JiraSyncService : IJiraSyncService
     private readonly IJiraTokenProtector _protector;
     private readonly ILogger<JiraSyncService> _logger;
 
-    public JiraSyncService(IDbContextFactory<JiraDbContext> factory, AtlassianClient client, IJiraTokenProtector protector, ILogger<JiraSyncService> logger)
+    public JiraSyncService(
+        IDbContextFactory<JiraDbContext> factory,
+        AtlassianClient client,
+        IJiraTokenProtector protector,
+        ILogger<JiraSyncService> logger
+    )
     {
         _factory = factory;
         _client = client;
@@ -30,7 +35,11 @@ public sealed class JiraSyncService : IJiraSyncService
         _logger = logger;
     }
 
-    public async Task<JiraSyncResponse> SynchronizeAsync(Guid projectId, CancellationToken ct, string trigger = "MANUAL")
+    public async Task<JiraSyncResponse> SynchronizeAsync(
+        Guid projectId,
+        CancellationToken ct,
+        string trigger = "MANUAL"
+    )
     {
         var metricTrigger = JiraOperationalMetrics.Trigger(trigger);
         var syncTimer = Stopwatch.StartNew();
@@ -40,12 +49,21 @@ public sealed class JiraSyncService : IJiraSyncService
         // connection-scoped and therefore coordinates both concurrent requests in this
         // process and JiraService replicas sharing the same database. Keep the unique
         // issue/sprint indexes as the final data-integrity boundary.
-        await using var syncLease = await JiraDatabaseLock.TryAcquireAsync(
-            db, JiraDatabaseLock.ProjectSync(projectId), 120, ct)
-            ?? throw new ApiException(409, ErrorCodes.ValidationError, "A Jira synchronization is already running for this project. Please retry shortly.");
+        await using var syncLease =
+            await JiraDatabaseLock.TryAcquireAsync(db, JiraDatabaseLock.ProjectSync(projectId), 120, ct)
+            ?? throw new ApiException(
+                409,
+                ErrorCodes.ValidationError,
+                "A Jira synchronization is already running for this project. Please retry shortly."
+            );
 
-        var connection = await db.JiraConnections.SingleOrDefaultAsync(x => x.ResearchProjectId == projectId, ct)
-            ?? throw new ApiException(400, ErrorCodes.ValidationError, "Jira is not connected for this project.");
+        var connection =
+            await db.JiraConnections.SingleOrDefaultAsync(x => x.ResearchProjectId == projectId, ct)
+            ?? throw new ApiException(
+                400,
+                ErrorCodes.ValidationError,
+                "Jira is not connected for this project."
+            );
 
         // SYNCING describes the attempt. LastSyncedAt deliberately remains the timestamp of
         // the last fully successful snapshot, so readers can continue to use stale-good data.
@@ -59,12 +77,24 @@ public sealed class JiraSyncService : IJiraSyncService
             // Phase 1: build the complete remote snapshot BEFORE changing mirrored data.
             // A Jira/HTTP failure here leaves the previous local snapshot untouched.
             var fields = await _client.GetFieldsAsync(token, connection.CloudId, ct);
-            var storyPointsField = fields.FirstOrDefault(x =>
-                string.Equals(x.Name, "Story Points", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(x.CustomSchema, "com.pyxis.greenhopper.jira:jsw-story-points", StringComparison.OrdinalIgnoreCase))?.Id;
+            var storyPointsField = fields
+                .FirstOrDefault(x =>
+                    string.Equals(x.Name, "Story Points", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(
+                        x.CustomSchema,
+                        "com.pyxis.greenhopper.jira:jsw-story-points",
+                        StringComparison.OrdinalIgnoreCase
+                    )
+                )
+                ?.Id;
 
             var remoteIssues = await _client.GetProjectIssuesAsync(
-                token, connection.CloudId, connection.JiraProjectKey, storyPointsField, ct);
+                token,
+                connection.CloudId,
+                connection.JiraProjectKey,
+                storyPointsField,
+                ct
+            );
 
             IReadOnlyList<JsonElement> remoteSprints = Array.Empty<JsonElement>();
             var sprintMembers = new Dictionary<long, IReadOnlyList<string>>();
@@ -73,7 +103,12 @@ public sealed class JiraSyncService : IJiraSyncService
             // capability from Jira's board `type` string. The Agile sprint endpoint is the
             // authority: some Jira configurations return a board with an unexpected/unknown
             // type even though /board/{id}/sprint is fully supported.
-            var boards = await _client.GetBoardsAsync(token, connection.CloudId, connection.JiraProjectKey, ct);
+            var boards = await _client.GetBoardsAsync(
+                token,
+                connection.CloudId,
+                connection.JiraProjectKey,
+                ct
+            );
             var selectedBoard = connection.JiraBoardId.HasValue
                 ? boards.FirstOrDefault(x => x.Id == connection.JiraBoardId.Value)
                 : null;
@@ -86,7 +121,9 @@ public sealed class JiraSyncService : IJiraSyncService
             // board (legacy connections), probe every project board and choose the board with
             // the strongest sprint signal: active > future > any historical sprint > empty.
             var candidates = selectedBoard is not null
-                ? new[] { selectedBoard }.Concat(boards.Where(x => x.Id != selectedBoard.Id).OrderBy(x => x.Id)).ToArray()
+                ? new[] { selectedBoard }
+                    .Concat(boards.Where(x => x.Id != selectedBoard.Id).OrderBy(x => x.Id))
+                    .ToArray()
                 : boards.OrderBy(x => x.Id).ToArray();
 
             var bestScore = int.MinValue;
@@ -94,18 +131,38 @@ public sealed class JiraSyncService : IJiraSyncService
             {
                 try
                 {
-                    var candidateSprints = await _client.GetSprintsAsync(token, connection.CloudId, candidate.Id, ct);
-                    var active = candidateSprints.Count(x => string.Equals(S(x, "state"), "active", StringComparison.OrdinalIgnoreCase));
-                    var future = candidateSprints.Count(x => string.Equals(S(x, "state"), "future", StringComparison.OrdinalIgnoreCase));
-                    var closed = candidateSprints.Count(x => string.Equals(S(x, "state"), "closed", StringComparison.OrdinalIgnoreCase));
-                    var score = active > 0 ? 3_000_000 + active * 10_000 + candidateSprints.Count
+                    var candidateSprints = await _client.GetSprintsAsync(
+                        token,
+                        connection.CloudId,
+                        candidate.Id,
+                        ct
+                    );
+                    var active = candidateSprints.Count(x =>
+                        string.Equals(S(x, "state"), "active", StringComparison.OrdinalIgnoreCase)
+                    );
+                    var future = candidateSprints.Count(x =>
+                        string.Equals(S(x, "state"), "future", StringComparison.OrdinalIgnoreCase)
+                    );
+                    var closed = candidateSprints.Count(x =>
+                        string.Equals(S(x, "state"), "closed", StringComparison.OrdinalIgnoreCase)
+                    );
+                    var score =
+                        active > 0 ? 3_000_000 + active * 10_000 + candidateSprints.Count
                         : future > 0 ? 2_000_000 + future * 10_000 + candidateSprints.Count
                         : candidateSprints.Count > 0 ? 1_000_000 + closed * 10_000 + candidateSprints.Count
                         : 0;
 
                     _logger.LogInformation(
                         "Jira sprint capability probe for project {ProjectId}: board {BoardId} {BoardName} type={BoardType}, sprintCount={SprintCount}, active={ActiveCount}, future={FutureCount}, closed={ClosedCount}.",
-                        projectId, candidate.Id, candidate.Name, candidate.Type, candidateSprints.Count, active, future, closed);
+                        projectId,
+                        candidate.Id,
+                        candidate.Name,
+                        candidate.Type,
+                        candidateSprints.Count,
+                        active,
+                        future,
+                        closed
+                    );
 
                     if ((selectedBoard is not null && candidate.Id == selectedBoard.Id) || score > bestScore)
                     {
@@ -123,9 +180,14 @@ public sealed class JiraSyncService : IJiraSyncService
                 catch (Exception ex) when (ex is ApiException)
                 {
                     lastSprintProbeError = ex;
-                    _logger.LogWarning(ex,
+                    _logger.LogWarning(
+                        ex,
                         "Jira board {BoardId} {BoardName} type={BoardType} does not expose a usable sprint endpoint for project {ProjectId}.",
-                        candidate.Id, candidate.Name, candidate.Type, projectId);
+                        candidate.Id,
+                        candidate.Name,
+                        candidate.Type,
+                        projectId
+                    );
                 }
             }
 
@@ -144,9 +206,17 @@ public sealed class JiraSyncService : IJiraSyncService
 
                 foreach (var sprint in remoteSprints)
                 {
-                    if (!sprint.TryGetProperty("id", out var idElement) || !idElement.TryGetInt64(out var sprintId))
+                    if (
+                        !sprint.TryGetProperty("id", out var idElement)
+                        || !idElement.TryGetInt64(out var sprintId)
+                    )
                         continue;
-                    sprintMembers[sprintId] = await _client.GetSprintIssueIdsAsync(token, connection.CloudId, sprintId, ct);
+                    sprintMembers[sprintId] = await _client.GetSprintIssueIdsAsync(
+                        token,
+                        connection.CloudId,
+                        sprintId,
+                        ct
+                    );
                 }
             }
 
@@ -154,7 +224,14 @@ public sealed class JiraSyncService : IJiraSyncService
 
             _logger.LogInformation(
                 "Jira snapshot for project {ProjectId}: {IssueCount} issues, {BoardCount} boards, sprint board {BoardId} ({BoardType}), {SprintCount} sprints, {MembershipCount} sprint memberships.",
-                projectId, remoteIssues.Count, boards.Count, sprintBoard?.Id, sprintBoard?.Type ?? "none", remoteSprints.Count, sprintMembers.Values.Sum(x => x.Count));
+                projectId,
+                remoteIssues.Count,
+                boards.Count,
+                sprintBoard?.Id,
+                sprintBoard?.Type ?? "none",
+                remoteSprints.Count,
+                sprintMembers.Values.Sum(x => x.Count)
+            );
 
             var now = DateTimeOffset.UtcNow;
             var seenIssueIds = new HashSet<string>(StringComparer.Ordinal);
@@ -164,8 +241,8 @@ public sealed class JiraSyncService : IJiraSyncService
             // only happens after all required remote reads have completed successfully.
             await using var transaction = await db.Database.BeginTransactionAsync(ct);
 
-            var existingIssues = await db.JiraIssues
-                .Where(x => x.ResearchProjectId == projectId)
+            var existingIssues = await db
+                .JiraIssues.Where(x => x.ResearchProjectId == projectId)
                 .ToDictionaryAsync(x => x.JiraIssueId, ct);
 
             foreach (var raw in remoteIssues)
@@ -183,7 +260,7 @@ public sealed class JiraSyncService : IJiraSyncService
                         Id = Guid.NewGuid(),
                         JiraConnectionId = connection.Id,
                         ResearchProjectId = projectId,
-                        JiraIssueId = jiraId
+                        JiraIssueId = jiraId,
                     };
                     db.JiraIssues.Add(issue);
                     existingIssues[jiraId] = issue;
@@ -191,32 +268,41 @@ public sealed class JiraSyncService : IJiraSyncService
                 JiraIssueMapper.Map(issue, key, issueFields, storyPointsField, now);
             }
 
-            var staleIssues = existingIssues.Values.Where(x => !seenIssueIds.Contains(x.JiraIssueId)).ToList();
+            var staleIssues = existingIssues
+                .Values.Where(x => !seenIssueIds.Contains(x.JiraIssueId))
+                .ToList();
             if (staleIssues.Count > 0)
             {
                 var staleIds = staleIssues.Select(x => x.Id).ToList();
-                db.JiraIssueSprints.RemoveRange(db.JiraIssueSprints.Where(x => staleIds.Contains(x.JiraIssueId)));
+                db.JiraIssueSprints.RemoveRange(
+                    db.JiraIssueSprints.Where(x => staleIds.Contains(x.JiraIssueId))
+                );
                 db.JiraIssues.RemoveRange(staleIssues);
             }
             await db.SaveChangesAsync(ct);
 
-            var issueIds = await db.JiraIssues
-                .Where(x => x.ResearchProjectId == projectId)
+            var issueIds = await db
+                .JiraIssues.Where(x => x.ResearchProjectId == projectId)
                 .ToDictionaryAsync(x => x.JiraIssueId, x => x.Id, ct);
 
             var projectIssueIds = issueIds.Values.ToList();
             if (projectIssueIds.Count > 0)
-                db.JiraIssueSprints.RemoveRange(db.JiraIssueSprints.Where(x => projectIssueIds.Contains(x.JiraIssueId)));
+                db.JiraIssueSprints.RemoveRange(
+                    db.JiraIssueSprints.Where(x => projectIssueIds.Contains(x.JiraIssueId))
+                );
 
-            var existingSprints = await db.JiraSprints
-                .Where(x => x.ResearchProjectId == projectId)
+            var existingSprints = await db
+                .JiraSprints.Where(x => x.ResearchProjectId == projectId)
                 .ToDictionaryAsync(x => x.JiraSprintId, ct);
 
             if (supportsSprints)
             {
                 foreach (var raw in remoteSprints)
                 {
-                    if (!raw.TryGetProperty("id", out var idElement) || !idElement.TryGetInt64(out var sprintId))
+                    if (
+                        !raw.TryGetProperty("id", out var idElement)
+                        || !idElement.TryGetInt64(out var sprintId)
+                    )
                         continue;
 
                     seenSprintIds.Add(sprintId);
@@ -228,7 +314,7 @@ public sealed class JiraSyncService : IJiraSyncService
                             JiraConnectionId = connection.Id,
                             ResearchProjectId = projectId,
                             JiraSprintId = sprintId,
-                            JiraBoardId = sprintBoard!.Id
+                            JiraBoardId = sprintBoard!.Id,
                         };
                         db.JiraSprints.Add(sprint);
                         existingSprints[sprintId] = sprint;
@@ -248,10 +334,14 @@ public sealed class JiraSyncService : IJiraSyncService
                         continue;
                     foreach (var jiraIssueId in members.Distinct(StringComparer.Ordinal))
                         if (issueIds.TryGetValue(jiraIssueId, out var localIssueId))
-                            db.JiraIssueSprints.Add(new JiraIssueSprint { JiraIssueId = localIssueId, JiraSprintId = sprint.Id });
+                            db.JiraIssueSprints.Add(
+                                new JiraIssueSprint { JiraIssueId = localIssueId, JiraSprintId = sprint.Id }
+                            );
                 }
 
-                var staleSprints = existingSprints.Values.Where(x => !seenSprintIds.Contains(x.JiraSprintId)).ToList();
+                var staleSprints = existingSprints
+                    .Values.Where(x => !seenSprintIds.Contains(x.JiraSprintId))
+                    .ToList();
                 if (staleSprints.Count > 0)
                     db.JiraSprints.RemoveRange(staleSprints);
             }
@@ -262,7 +352,8 @@ public sealed class JiraSyncService : IJiraSyncService
                 // a later refresh can reconcile it once a Scrum board is available again.
                 _logger.LogInformation(
                     "No sprint-capable board is available for Jira project {JiraProjectKey}; sprint snapshot was left unchanged.",
-                    connection.JiraProjectKey);
+                    connection.JiraProjectKey
+                );
             }
 
             JiraSyncStateTransitions.Complete(connection, now);
@@ -277,23 +368,42 @@ public sealed class JiraSyncService : IJiraSyncService
         }
         catch (Exception ex)
         {
-            JiraOperationalMetrics.SyncRuns.WithLabels(metricTrigger, IsAuthorizationFailure(ex) ? "authorization_error" : "failed").Inc();
+            JiraOperationalMetrics
+                .SyncRuns.WithLabels(
+                    metricTrigger,
+                    IsAuthorizationFailure(ex) ? "authorization_error" : "failed"
+                )
+                .Inc();
             // Never move LastSyncedAt on failure. It identifies the last complete, usable snapshot.
             // Clear the tracker so a failed transaction cannot leak partially tracked mirror changes
             // into the failure-status write.
             db.ChangeTracker.Clear();
-            var failedConnection = await db.JiraConnections.SingleAsync(x => x.ResearchProjectId == projectId, CancellationToken.None);
-            JiraSyncStateTransitions.Fail(failedConnection, DateTimeOffset.UtcNow, IsAuthorizationFailure(ex), ex.Message);
+            var failedConnection = await db.JiraConnections.SingleAsync(
+                x => x.ResearchProjectId == projectId,
+                CancellationToken.None
+            );
+            JiraSyncStateTransitions.Fail(
+                failedConnection,
+                DateTimeOffset.UtcNow,
+                IsAuthorizationFailure(ex),
+                ex.Message
+            );
             await db.SaveChangesAsync(CancellationToken.None);
             throw;
         }
         finally
         {
-            JiraOperationalMetrics.SyncDuration.WithLabels(metricTrigger).Observe(syncTimer.Elapsed.TotalSeconds);
+            JiraOperationalMetrics
+                .SyncDuration.WithLabels(metricTrigger)
+                .Observe(syncTimer.Elapsed.TotalSeconds);
         }
     }
 
-    private async Task<string> ValidTokenAsync(JiraDbContext db, JiraConnection connection, CancellationToken ct)
+    private async Task<string> ValidTokenAsync(
+        JiraDbContext db,
+        JiraConnection connection,
+        CancellationToken ct
+    )
     {
         var accessToken = _protector.Unprotect(connection.AccessTokenProtected);
         var changed = false;
@@ -316,14 +426,22 @@ public sealed class JiraSyncService : IJiraSyncService
             }
         }
 
-        if (!connection.TokenExpiresAt.HasValue || connection.TokenExpiresAt.Value > DateTimeOffset.UtcNow.AddMinutes(2))
+        if (
+            !connection.TokenExpiresAt.HasValue
+            || connection.TokenExpiresAt.Value > DateTimeOffset.UtcNow.AddMinutes(2)
+        )
         {
-            if (changed) await db.SaveChangesAsync(ct);
+            if (changed)
+                await db.SaveChangesAsync(ct);
             return accessToken;
         }
 
         if (string.IsNullOrWhiteSpace(refreshToken))
-            throw new ApiException(401, ErrorCodes.Unauthorized, "Jira authorization has expired. Reconnect Jira.");
+            throw new ApiException(
+                401,
+                ErrorCodes.Unauthorized,
+                "Jira authorization has expired. Reconnect Jira."
+            );
 
         var refreshed = await _client.RefreshTokenAsync(refreshToken, ct);
         connection.AccessTokenProtected = _protector.Protect(refreshed.AccessToken);
@@ -336,8 +454,7 @@ public sealed class JiraSyncService : IJiraSyncService
     }
 
     private static bool IsAuthorizationFailure(Exception ex) =>
-        ex is JiraTokenProtectionException ||
-        ex is ApiException api && api.StatusCode == 401;
+        ex is JiraTokenProtectionException || ex is ApiException api && api.StatusCode == 401;
 
     private static string? S(JsonElement element, string name) =>
         element.TryGetProperty(name, out var property) && property.ValueKind == JsonValueKind.String
@@ -345,8 +462,9 @@ public sealed class JiraSyncService : IJiraSyncService
             : null;
 
     private static DateTimeOffset? D(JsonElement element, string name) =>
-        element.TryGetProperty(name, out var property) && property.ValueKind == JsonValueKind.String &&
-        DateTimeOffset.TryParse(property.GetString(), out var date)
+        element.TryGetProperty(name, out var property)
+        && property.ValueKind == JsonValueKind.String
+        && DateTimeOffset.TryParse(property.GetString(), out var date)
             ? date
             : null;
 }

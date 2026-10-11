@@ -20,7 +20,10 @@ public sealed class GitHubAccessSourcesController : ApiControllerBase
     private readonly IRepositoryLinkService _repositoryLinks;
     private readonly IGitHubAccessRequestService _accessRequests;
 
-    public GitHubAccessSourcesController(IRepositoryLinkService repositoryLinks, IGitHubAccessRequestService accessRequests)
+    public GitHubAccessSourcesController(
+        IRepositoryLinkService repositoryLinks,
+        IGitHubAccessRequestService accessRequests
+    )
     {
         _repositoryLinks = repositoryLinks;
         _accessRequests = accessRequests;
@@ -29,16 +32,22 @@ public sealed class GitHubAccessSourcesController : ApiControllerBase
     [HttpPost("request")]
     public async Task<ActionResult<ApiResponse<GitHubAccessRequestCreateResponse>>> CreateRequest(
         [FromBody] CreateGitHubAccessRequestRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
-        var created = await _accessRequests.CreateAsync(GetRequiredUserId(), request.ProjectId, request.OwnerLogin, cancellationToken);
+        var created = await _accessRequests.CreateAsync(
+            GetRequiredUserId(),
+            request.ProjectId,
+            request.OwnerLogin,
+            cancellationToken
+        );
         return ApiCreated(null, created);
     }
 
     [HttpGet("requests")]
-    public async Task<ActionResult<ApiResponse<IReadOnlyList<GitHubAccessRequestSummaryResponse>>>> ListRequests(
-        [FromQuery] Guid projectId,
-        CancellationToken cancellationToken)
+    public async Task<
+        ActionResult<ApiResponse<IReadOnlyList<GitHubAccessRequestSummaryResponse>>>
+    > ListRequests([FromQuery] Guid projectId, CancellationToken cancellationToken)
     {
         return ApiOk(await _accessRequests.ListAsync(GetRequiredUserId(), projectId, cancellationToken));
     }
@@ -47,24 +56,40 @@ public sealed class GitHubAccessSourcesController : ApiControllerBase
     public async Task<ActionResult<ApiResponse<object>>> RevokeRequest(
         Guid requestId,
         [FromQuery] Guid projectId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         await _accessRequests.RevokeAsync(GetRequiredUserId(), projectId, requestId, cancellationToken);
-        return ApiOk<object>(new { projectId, requestId, status = "REVOKED" });
+        return ApiOk<object>(
+            new
+            {
+                projectId,
+                requestId,
+                status = "REVOKED",
+            }
+        );
     }
 
     [HttpDelete("{sourceId:guid}")]
     public async Task<ActionResult<ApiResponse<ProjectGitHubRepositoriesResponse>>> Disconnect(
         Guid sourceId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
-        return ApiOk(await _repositoryLinks.DisconnectSourceAsync(GetRequiredUserId(), sourceId, cancellationToken));
+        return ApiOk(
+            await _repositoryLinks.DisconnectSourceAsync(GetRequiredUserId(), sourceId, cancellationToken)
+        );
     }
 
     private Guid GetRequiredUserId()
     {
         var subject = User.FindFirstValue(AuthSecurityConstants.SubjectClaim);
-        if (Guid.TryParse(subject, out var userId)) return userId;
-        throw new ApiException(StatusCodes.Status401Unauthorized, ErrorCodes.Unauthorized, "Authentication is required.");
+        if (Guid.TryParse(subject, out var userId))
+            return userId;
+        throw new ApiException(
+            StatusCodes.Status401Unauthorized,
+            ErrorCodes.Unauthorized,
+            "Authentication is required."
+        );
     }
 }

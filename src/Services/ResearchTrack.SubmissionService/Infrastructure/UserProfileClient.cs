@@ -13,16 +13,13 @@ public sealed class UserProfileClient : IUserProfileClient
     private readonly HttpClient _httpClient;
     private readonly IHttpContextAccessor _httpContextAccessor;
 
-    public UserProfileClient(
-        HttpClient httpClient,
-        IHttpContextAccessor httpContextAccessor)
+    public UserProfileClient(HttpClient httpClient, IHttpContextAccessor httpContextAccessor)
     {
         _httpClient = httpClient;
         _httpContextAccessor = httpContextAccessor;
     }
 
-    public async Task<string> GetCurrentUserDisplayNameAsync(
-        CancellationToken cancellationToken)
+    public async Task<string> GetCurrentUserDisplayNameAsync(CancellationToken cancellationToken)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, "api/v1/users/me");
         ForwardAuthentication(request);
@@ -32,14 +29,14 @@ public sealed class UserProfileClient : IUserProfileClient
         {
             response = await _httpClient.SendAsync(request, cancellationToken);
         }
-        catch (Exception exception) when (
-            exception is HttpRequestException or TaskCanceledException)
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException)
         {
             throw new ApiException(
                 StatusCodes.Status503ServiceUnavailable,
                 ErrorCodes.DependencyUnavailable,
                 "Auth Service is unavailable.",
-                innerException: exception);
+                innerException: exception
+            );
         }
 
         using (response)
@@ -49,7 +46,8 @@ public sealed class UserProfileClient : IUserProfileClient
                 throw new ApiException(
                     StatusCodes.Status401Unauthorized,
                     ErrorCodes.Unauthorized,
-                    "Authentication is required.");
+                    "Authentication is required."
+                );
             }
 
             if (!response.IsSuccessStatusCode)
@@ -57,24 +55,26 @@ public sealed class UserProfileClient : IUserProfileClient
                 throw new ApiException(
                     StatusCodes.Status503ServiceUnavailable,
                     ErrorCodes.DependencyUnavailable,
-                    "Unable to resolve the authenticated user profile.");
+                    "Unable to resolve the authenticated user profile."
+                );
             }
 
             ApiResponse<UserProfileResponse>? payload;
             try
             {
-                payload = await response.Content
-                    .ReadFromJsonAsync<ApiResponse<UserProfileResponse>>(
-                        cancellationToken);
+                payload = await response.Content.ReadFromJsonAsync<ApiResponse<UserProfileResponse>>(
+                    cancellationToken
+                );
             }
-            catch (Exception exception) when (
-                exception is System.Text.Json.JsonException or NotSupportedException)
+            catch (Exception exception)
+                when (exception is System.Text.Json.JsonException or NotSupportedException)
             {
                 throw new ApiException(
                     StatusCodes.Status503ServiceUnavailable,
                     ErrorCodes.DependencyUnavailable,
                     "Auth Service returned an invalid user profile response.",
-                    innerException: exception);
+                    innerException: exception
+                );
             }
 
             var profile = payload?.Data;
@@ -83,11 +83,11 @@ public sealed class UserProfileClient : IUserProfileClient
                 throw new ApiException(
                     StatusCodes.Status503ServiceUnavailable,
                     ErrorCodes.DependencyUnavailable,
-                    "Auth Service returned no user profile.");
+                    "Auth Service returned no user profile."
+                );
             }
 
-            var displayName =
-                $"{profile.FirstName?.Trim()} {profile.LastName?.Trim()}".Trim();
+            var displayName = $"{profile.FirstName?.Trim()} {profile.LastName?.Trim()}".Trim();
 
             if (string.IsNullOrWhiteSpace(displayName))
             {
@@ -99,7 +99,8 @@ public sealed class UserProfileClient : IUserProfileClient
                 throw new ApiException(
                     StatusCodes.Status503ServiceUnavailable,
                     ErrorCodes.DependencyUnavailable,
-                    "The authenticated user profile does not contain a display name.");
+                    "The authenticated user profile does not contain a display name."
+                );
             }
 
             return displayName.Length <= SubmissionConstants.UserDisplayNameMaxLength
@@ -110,27 +111,31 @@ public sealed class UserProfileClient : IUserProfileClient
 
     private void ForwardAuthentication(HttpRequestMessage request)
     {
-        var incoming = _httpContextAccessor.HttpContext?.Request
+        var incoming =
+            _httpContextAccessor.HttpContext?.Request
             ?? throw new ApiException(
                 StatusCodes.Status503ServiceUnavailable,
                 ErrorCodes.DependencyUnavailable,
-                "Request authentication context is unavailable.");
+                "Request authentication context is unavailable."
+            );
 
         if (incoming.Headers.Authorization.Count > 0)
         {
             request.Headers.TryAddWithoutValidation(
                 "Authorization",
-                incoming.Headers.Authorization.ToArray());
+                incoming.Headers.Authorization.ToArray()
+            );
         }
 
-        if (incoming.Cookies.TryGetValue(
-                AuthSecurityConstants.AccessCookieName,
-                out var accessToken)
-            && !string.IsNullOrWhiteSpace(accessToken))
+        if (
+            incoming.Cookies.TryGetValue(AuthSecurityConstants.AccessCookieName, out var accessToken)
+            && !string.IsNullOrWhiteSpace(accessToken)
+        )
         {
             request.Headers.TryAddWithoutValidation(
                 "Cookie",
-                $"{AuthSecurityConstants.AccessCookieName}={accessToken}");
+                $"{AuthSecurityConstants.AccessCookieName}={accessToken}"
+            );
         }
     }
 
@@ -140,5 +145,6 @@ public sealed class UserProfileClient : IUserProfileClient
         string LastName,
         string Email,
         string? RegistrationNumber,
-        string Role);
+        string Role
+    );
 }

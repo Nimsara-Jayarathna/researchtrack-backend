@@ -27,7 +27,8 @@ public sealed class ResearchSubmissionService : IResearchSubmissionService
         IObjectStorageService storage,
         SubmissionOptions submissionOptions,
         TimeProvider timeProvider,
-        ILogger<ResearchSubmissionService> logger)
+        ILogger<ResearchSubmissionService> logger
+    )
     {
         _dbContextFactory = dbContextFactory;
         _projectAuthorization = projectAuthorization;
@@ -38,59 +39,78 @@ public sealed class ResearchSubmissionService : IResearchSubmissionService
         _logger = logger;
     }
 
-    public async Task<IReadOnlyList<ResearchSubmissionResponse>> ListAsync(Guid projectId, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<ResearchSubmissionResponse>> ListAsync(
+        Guid projectId,
+        CancellationToken cancellationToken
+    )
     {
-        var projectContext = await _projectAuthorization.GetSubmissionContextAsync(projectId, cancellationToken);
+        var projectContext = await _projectAuthorization.GetSubmissionContextAsync(
+            projectId,
+            cancellationToken
+        );
         await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
-        var submissions = await db.ResearchSubmissions.AsNoTracking()
+        var submissions = await db
+            .ResearchSubmissions.AsNoTracking()
             .Where(x => x.ProjectId == projectId)
             .OrderByDescending(x => x.LastSubmittedAt)
             .ToListAsync(cancellationToken);
-        if (submissions.Count == 0) return Array.Empty<ResearchSubmissionResponse>();
+        if (submissions.Count == 0)
+            return Array.Empty<ResearchSubmissionResponse>();
 
         // MySql.EntityFrameworkCore 10 can throw while parameterizing multi-value
         // Guid.Contains(...) predicates. Query by the stable project relationship
         // instead of sending Guid arrays to the provider; resolve dictionaries in memory.
-        var requirementRows = await db.SubmissionRequirements.AsNoTracking()
+        var requirementRows = await db
+            .SubmissionRequirements.AsNoTracking()
             .Where(x => x.ProjectId == projectId)
             .ToListAsync(cancellationToken);
         var requirements = requirementRows.ToDictionary(x => x.Id);
 
         var versions = await (
-                from version in db.SubmissionVersions.AsNoTracking()
-                join submission in db.ResearchSubmissions.AsNoTracking()
-                    on version.SubmissionId equals submission.Id
-                where submission.ProjectId == projectId
-                orderby version.VersionNumber descending
-                select version)
-            .ToListAsync(cancellationToken);
+            from version in db.SubmissionVersions.AsNoTracking()
+            join submission in db.ResearchSubmissions.AsNoTracking()
+                on version.SubmissionId equals submission.Id
+            where submission.ProjectId == projectId
+            orderby version.VersionNumber descending
+            select version
+        ).ToListAsync(cancellationToken);
 
         var reviewRows = await (
-                from review in db.SubmissionReviews.AsNoTracking()
-                join submission in db.ResearchSubmissions.AsNoTracking()
-                    on review.SubmissionId equals submission.Id
-                where submission.ProjectId == projectId
-                select review)
-            .ToListAsync(cancellationToken);
+            from review in db.SubmissionReviews.AsNoTracking()
+            join submission in db.ResearchSubmissions.AsNoTracking()
+                on review.SubmissionId equals submission.Id
+            where submission.ProjectId == projectId
+            select review
+        ).ToListAsync(cancellationToken);
         var reviews = reviewRows.ToDictionary(x => x.VersionId);
         var versionsBySubmission = versions
             .GroupBy(x => x.SubmissionId)
             .ToDictionary(x => x.Key, x => (IReadOnlyList<SubmissionVersion>)x.ToArray());
 
         return submissions
-            .Select(x => BuildResponse(
-                x,
-                requirements[x.RequirementId],
-                versionsBySubmission.GetValueOrDefault(x.Id) ?? Array.Empty<SubmissionVersion>(),
-                reviews,
-                projectContext))
+            .Select(x =>
+                BuildResponse(
+                    x,
+                    requirements[x.RequirementId],
+                    versionsBySubmission.GetValueOrDefault(x.Id) ?? Array.Empty<SubmissionVersion>(),
+                    reviews,
+                    projectContext
+                )
+            )
             .ToArray();
     }
 
-    public async Task<ResearchSubmissionResponse> GetAsync(Guid projectId, Guid submissionId, CancellationToken cancellationToken)
+    public async Task<ResearchSubmissionResponse> GetAsync(
+        Guid projectId,
+        Guid submissionId,
+        CancellationToken cancellationToken
+    )
     {
-        var projectContext = await _projectAuthorization.GetSubmissionContextAsync(projectId, cancellationToken);
+        var projectContext = await _projectAuthorization.GetSubmissionContextAsync(
+            projectId,
+            cancellationToken
+        );
         await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
         return await LoadResponseAsync(db, projectId, submissionId, projectContext, cancellationToken);
     }
@@ -100,21 +120,34 @@ public sealed class ResearchSubmissionService : IResearchSubmissionService
         Guid requirementId,
         Guid userId,
         CreateUploadSessionRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
-        var projectContext = await _projectAuthorization.GetSubmissionContextAsync(projectId, cancellationToken);
+        var projectContext = await _projectAuthorization.GetSubmissionContextAsync(
+            projectId,
+            cancellationToken
+        );
         await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
-        var requirement = await db.SubmissionRequirements.AsNoTracking()
-            .SingleOrDefaultAsync(x => x.Id == requirementId && x.ProjectId == projectId, cancellationToken)
+        var requirement =
+            await db
+                .SubmissionRequirements.AsNoTracking()
+                .SingleOrDefaultAsync(
+                    x => x.Id == requirementId && x.ProjectId == projectId,
+                    cancellationToken
+                )
             ?? throw NotFound("Submission requirement not found.");
         if (requirement.Status != SubmissionConstants.RequirementStatus.Open)
             throw Conflict("This submission requirement is not open for uploads.");
 
         _ = SubmissionResponsibilityRules.EnsureCanSubmit(requirement, projectContext, userId);
 
-        var existingSubmission = await db.ResearchSubmissions.AsNoTracking()
-            .SingleOrDefaultAsync(x => x.ProjectId == projectId && x.RequirementId == requirementId, cancellationToken);
+        var existingSubmission = await db
+            .ResearchSubmissions.AsNoTracking()
+            .SingleOrDefaultAsync(
+                x => x.ProjectId == projectId && x.RequirementId == requirementId,
+                cancellationToken
+            );
 
         Guid submissionId;
         int nextVersionNumber;
@@ -126,12 +159,20 @@ public sealed class ResearchSubmissionService : IResearchSubmissionService
         else
         {
             if (existingSubmission.Status != SubmissionConstants.SubmissionStatus.ChangesRequested)
-                throw Conflict("A revised version can only be submitted after the Supervisor requests changes.");
+                throw Conflict(
+                    "A revised version can only be submitted after the Supervisor requests changes."
+                );
             if (!existingSubmission.CurrentVersionId.HasValue)
-                throw Conflict("The current submission version could not be resolved. Refresh and try again.");
+                throw Conflict(
+                    "The current submission version could not be resolved. Refresh and try again."
+                );
 
-            var latestReview = await db.SubmissionReviews.AsNoTracking()
-                .SingleOrDefaultAsync(x => x.VersionId == existingSubmission.CurrentVersionId.Value, cancellationToken);
+            var latestReview = await db
+                .SubmissionReviews.AsNoTracking()
+                .SingleOrDefaultAsync(
+                    x => x.VersionId == existingSubmission.CurrentVersionId.Value,
+                    cancellationToken
+                );
             if (latestReview?.Decision != SubmissionConstants.ReviewDecision.ChangesRequested)
                 throw Conflict("The current version has not been formally marked for revision.");
 
@@ -140,27 +181,29 @@ public sealed class ResearchSubmissionService : IResearchSubmissionService
         }
 
         var now = _timeProvider.GetUtcNow();
-        var activeSession = await db.SubmissionUploadSessions
-            .SingleOrDefaultAsync(
-                x => x.ProjectId == projectId
-                     && x.RequirementId == requirementId
-                     && x.ExpectedVersionNumber == nextVersionNumber
-                     && x.ActiveSlot == "ACTIVE",
-                cancellationToken);
+        var activeSession = await db.SubmissionUploadSessions.SingleOrDefaultAsync(
+            x =>
+                x.ProjectId == projectId
+                && x.RequirementId == requirementId
+                && x.ExpectedVersionNumber == nextVersionNumber
+                && x.ActiveSlot == "ACTIVE",
+            cancellationToken
+        );
         if (activeSession is not null)
         {
-            var canReplaceStaleSession =
-                activeSession.ExpiresAt <= now || activeSession.CreatedBy != userId;
+            var canReplaceStaleSession = activeSession.ExpiresAt <= now || activeSession.CreatedBy != userId;
             if (!canReplaceStaleSession)
                 throw Conflict("An upload is already in progress for this submission version.");
 
-            activeSession.Status = activeSession.ExpiresAt <= now
-                ? SubmissionConstants.UploadSessionStatus.Expired
-                : SubmissionConstants.UploadSessionStatus.Failed;
+            activeSession.Status =
+                activeSession.ExpiresAt <= now
+                    ? SubmissionConstants.UploadSessionStatus.Expired
+                    : SubmissionConstants.UploadSessionStatus.Failed;
             activeSession.ActiveSlot = null;
-            activeSession.FailureReason = activeSession.ExpiresAt <= now
-                ? "Upload session expired before a new upload started."
-                : "Upload session was replaced after submission responsibility changed.";
+            activeSession.FailureReason =
+                activeSession.ExpiresAt <= now
+                    ? "Upload session expired before a new upload started."
+                    : "Upload session was replaced after submission responsibility changed.";
             await db.SaveChangesAsync(cancellationToken);
             await TryDeleteTemporaryAsync(activeSession.TemporaryObjectKey);
         }
@@ -178,7 +221,8 @@ public sealed class ResearchSubmissionService : IResearchSubmissionService
             VersionId = versionId,
             ExpectedVersionNumber = nextVersionNumber,
             TemporaryObjectKey = $"pending/{sessionId:N}",
-            FinalObjectKey = $"projects/{projectId:N}/requirements/{requirementId:N}/submissions/{submissionId:N}/versions/{versionId:N}",
+            FinalObjectKey =
+                $"projects/{projectId:N}/requirements/{requirementId:N}/submissions/{submissionId:N}/versions/{versionId:N}",
             OriginalFileName = validated.FileName,
             FileExtension = validated.Extension,
             ExpectedContentType = validated.ContentType,
@@ -190,7 +234,7 @@ public sealed class ResearchSubmissionService : IResearchSubmissionService
             Status = SubmissionConstants.UploadSessionStatus.Pending,
             ActiveSlot = "ACTIVE",
             ExpiresAt = now.AddMinutes(_submissionOptions.UploadSessionLifetimeMinutes),
-            CreatedAt = now
+            CreatedAt = now,
         };
 
         db.SubmissionUploadSessions.Add(session);
@@ -204,12 +248,17 @@ public sealed class ResearchSubmissionService : IResearchSubmissionService
                 StatusCodes.Status409Conflict,
                 ErrorCodes.Conflict,
                 "Another upload session was created at the same time. Refresh and try again.",
-                innerException: exception);
+                innerException: exception
+            );
         }
 
         try
         {
-            var grant = await _storage.CreateUploadGrantAsync(session.TemporaryObjectKey, session.ExpectedContentType, cancellationToken);
+            var grant = await _storage.CreateUploadGrantAsync(
+                session.TemporaryObjectKey,
+                session.ExpectedContentType,
+                cancellationToken
+            );
             var expiresAt = grant.ExpiresAt < session.ExpiresAt ? grant.ExpiresAt : session.ExpiresAt;
             return new SubmissionUploadSessionResponse(
                 session.Id,
@@ -217,7 +266,8 @@ public sealed class ResearchSubmissionService : IResearchSubmissionService
                 expiresAt,
                 nextVersionNumber,
                 requirement.MaxFileSizeBytes,
-                grant.RequiredHeaders);
+                grant.RequiredHeaders
+            );
         }
         catch
         {
@@ -233,18 +283,34 @@ public sealed class ResearchSubmissionService : IResearchSubmissionService
         Guid projectId,
         Guid uploadSessionId,
         Guid userId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
-        var projectContext = await _projectAuthorization.GetSubmissionContextAsync(projectId, cancellationToken);
+        var projectContext = await _projectAuthorization.GetSubmissionContextAsync(
+            projectId,
+            cancellationToken
+        );
         await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
-        var session = await db.SubmissionUploadSessions
-            .SingleOrDefaultAsync(x => x.Id == uploadSessionId && x.ProjectId == projectId, cancellationToken)
-            ?? throw NotFound("Upload session not found.");
+        var session =
+            await db.SubmissionUploadSessions.SingleOrDefaultAsync(
+                x => x.Id == uploadSessionId && x.ProjectId == projectId,
+                cancellationToken
+            ) ?? throw NotFound("Upload session not found.");
         if (session.CreatedBy != userId)
-            throw new ApiException(StatusCodes.Status403Forbidden, ErrorCodes.Forbidden, "Only the user who started this upload can finalize it.");
+            throw new ApiException(
+                StatusCodes.Status403Forbidden,
+                ErrorCodes.Forbidden,
+                "Only the user who started this upload can finalize it."
+            );
         if (session.Status == SubmissionConstants.UploadSessionStatus.Completed)
-            return await LoadResponseAsync(db, projectId, session.SubmissionId, projectContext, cancellationToken);
+            return await LoadResponseAsync(
+                db,
+                projectId,
+                session.SubmissionId,
+                projectContext,
+                cancellationToken
+            );
         if (session.Status != SubmissionConstants.UploadSessionStatus.Pending)
             throw Conflict("This upload session is no longer active.");
 
@@ -259,16 +325,27 @@ public sealed class ResearchSubmissionService : IResearchSubmissionService
             throw Conflict("This upload session has expired. Start a new upload.");
         }
 
-        var requirement = await db.SubmissionRequirements.AsNoTracking()
-            .SingleOrDefaultAsync(x => x.Id == session.RequirementId && x.ProjectId == projectId, cancellationToken)
+        var requirement =
+            await db
+                .SubmissionRequirements.AsNoTracking()
+                .SingleOrDefaultAsync(
+                    x => x.Id == session.RequirementId && x.ProjectId == projectId,
+                    cancellationToken
+                )
             ?? throw NotFound("Submission requirement not found.");
         if (requirement.Status != SubmissionConstants.RequirementStatus.Open)
             throw Conflict("The requirement was closed or archived before the upload was finalized.");
 
-        var submitterRoleSnapshot = SubmissionResponsibilityRules.EnsureCanSubmit(requirement, projectContext, userId);
+        var submitterRoleSnapshot = SubmissionResponsibilityRules.EnsureCanSubmit(
+            requirement,
+            projectContext,
+            userId
+        );
 
-        var submission = await db.ResearchSubmissions
-            .SingleOrDefaultAsync(x => x.ProjectId == projectId && x.RequirementId == session.RequirementId, cancellationToken);
+        var submission = await db.ResearchSubmissions.SingleOrDefaultAsync(
+            x => x.ProjectId == projectId && x.RequirementId == session.RequirementId,
+            cancellationToken
+        );
         if (session.ExpectedVersionNumber == 1)
         {
             if (submission is not null)
@@ -285,23 +362,36 @@ public sealed class ResearchSubmissionService : IResearchSubmissionService
             if (submission.VersionCount + 1 != session.ExpectedVersionNumber)
                 throw Conflict("A newer version already exists. Refresh before uploading again.");
 
-            var latestReview = await db.SubmissionReviews.AsNoTracking()
-                .SingleOrDefaultAsync(x => x.VersionId == submission.CurrentVersionId.Value, cancellationToken);
+            var latestReview = await db
+                .SubmissionReviews.AsNoTracking()
+                .SingleOrDefaultAsync(
+                    x => x.VersionId == submission.CurrentVersionId.Value,
+                    cancellationToken
+                );
             if (latestReview?.Decision != SubmissionConstants.ReviewDecision.ChangesRequested)
                 throw Conflict("The current version is no longer marked for revision.");
         }
 
-        if (await db.SubmissionVersions.AnyAsync(
-                x => x.SubmissionId == session.SubmissionId && x.VersionNumber == session.ExpectedVersionNumber,
-                cancellationToken))
+        if (
+            await db.SubmissionVersions.AnyAsync(
+                x =>
+                    x.SubmissionId == session.SubmissionId
+                    && x.VersionNumber == session.ExpectedVersionNumber,
+                cancellationToken
+            )
+        )
             throw Conflict("This version has already been recorded.");
 
-        var metadata = await _storage.GetMetadataAsync(session.TemporaryObjectKey, cancellationToken)
-            ?? throw new ApiValidationException([new ApiFieldError("file", ["The uploaded object could not be found in storage."])]);
+        var metadata =
+            await _storage.GetMetadataAsync(session.TemporaryObjectKey, cancellationToken)
+            ?? throw new ApiValidationException([
+                new ApiFieldError("file", ["The uploaded object could not be found in storage."]),
+            ]);
         ValidateStoredObject(session, metadata);
 
         await _storage.PromoteAsync(session.TemporaryObjectKey, session.FinalObjectKey, cancellationToken);
-        var finalMetadata = await _storage.GetMetadataAsync(session.FinalObjectKey, cancellationToken) ?? metadata;
+        var finalMetadata =
+            await _storage.GetMetadataAsync(session.FinalObjectKey, cancellationToken) ?? metadata;
         var isLate = requirement.DueAt.HasValue && now > requirement.DueAt.Value;
 
         if (submission is null)
@@ -317,7 +407,7 @@ public sealed class ResearchSubmissionService : IResearchSubmissionService
                 LastSubmittedAt = now,
                 ApprovedVersionId = null,
                 ApprovedAt = null,
-                CreatedAt = now
+                CreatedAt = now,
             };
             db.ResearchSubmissions.Add(submission);
         }
@@ -349,7 +439,7 @@ public sealed class ResearchSubmissionService : IResearchSubmissionService
             ResponsibilityModeSnapshot = requirement.ResponsibilityMode,
             SubmissionNote = session.SubmissionNote,
             SubmittedAt = now,
-            IsLate = isLate
+            IsLate = isLate,
         };
 
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
@@ -367,17 +457,25 @@ public sealed class ResearchSubmissionService : IResearchSubmissionService
         {
             await transaction.RollbackAsync(CancellationToken.None);
             await using var retryDb = await _dbContextFactory.CreateDbContextAsync(CancellationToken.None);
-            var currentSession = await retryDb.SubmissionUploadSessions.AsNoTracking()
+            var currentSession = await retryDb
+                .SubmissionUploadSessions.AsNoTracking()
                 .SingleOrDefaultAsync(x => x.Id == uploadSessionId, CancellationToken.None);
             if (currentSession?.Status == SubmissionConstants.UploadSessionStatus.Completed)
-                return await LoadResponseAsync(retryDb, projectId, currentSession.SubmissionId, projectContext, CancellationToken.None);
+                return await LoadResponseAsync(
+                    retryDb,
+                    projectId,
+                    currentSession.SubmissionId,
+                    projectContext,
+                    CancellationToken.None
+                );
 
             await TryDeleteFinalAsync(session.FinalObjectKey);
             throw new ApiException(
                 StatusCodes.Status409Conflict,
                 ErrorCodes.Conflict,
                 "The submission changed while this upload was being finalized. Refresh and try again.",
-                innerException: exception);
+                innerException: exception
+            );
         }
 
         await TryDeleteTemporaryAsync(session.TemporaryObjectKey);
@@ -389,17 +487,33 @@ public sealed class ResearchSubmissionService : IResearchSubmissionService
         Guid submissionId,
         Guid versionId,
         bool inline,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         await _projectAuthorization.EnsureCanAccessAsync(projectId, cancellationToken);
         await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-        var submission = await db.ResearchSubmissions.AsNoTracking()
-            .SingleOrDefaultAsync(x => x.Id == submissionId && x.ProjectId == projectId, cancellationToken)
+        var submission =
+            await db
+                .ResearchSubmissions.AsNoTracking()
+                .SingleOrDefaultAsync(
+                    x => x.Id == submissionId && x.ProjectId == projectId,
+                    cancellationToken
+                )
             ?? throw NotFound("Submission not found.");
-        var version = await db.SubmissionVersions.AsNoTracking()
-            .SingleOrDefaultAsync(x => x.Id == versionId && x.SubmissionId == submission.Id, cancellationToken)
+        var version =
+            await db
+                .SubmissionVersions.AsNoTracking()
+                .SingleOrDefaultAsync(
+                    x => x.Id == versionId && x.SubmissionId == submission.Id,
+                    cancellationToken
+                )
             ?? throw NotFound("Submission version not found.");
-        var grant = await _storage.CreateDownloadGrantAsync(version.ObjectKey, version.OriginalFileName, inline, cancellationToken);
+        var grant = await _storage.CreateDownloadGrantAsync(
+            version.ObjectKey,
+            version.OriginalFileName,
+            inline,
+            cancellationToken
+        );
         return new SubmissionDownloadUrlResponse(grant.Url, grant.ExpiresAt);
     }
 
@@ -408,36 +522,62 @@ public sealed class ResearchSubmissionService : IResearchSubmissionService
         Guid submissionId,
         Guid reviewerId,
         CreateSubmissionReviewRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         await _projectAuthorization.EnsureCanManageAsync(projectId, cancellationToken);
-        var projectContext = await _projectAuthorization.GetSubmissionContextAsync(projectId, cancellationToken);
+        var projectContext = await _projectAuthorization.GetSubmissionContextAsync(
+            projectId,
+            cancellationToken
+        );
         await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
         var decision = NormalizeDecision(request.Decision);
         var feedback = string.IsNullOrWhiteSpace(request.Feedback) ? null : request.Feedback.Trim();
         var errors = new List<ApiFieldError>();
         if (!SubmissionConstants.ReviewDecision.IsKnown(decision))
-            errors.Add(new ApiFieldError("decision", ["Decision must be APPROVED, CHANGES_REQUESTED, or REJECTED."]));
-        if (SubmissionConstants.ReviewDecision.RequiresFeedback(decision) && string.IsNullOrWhiteSpace(feedback))
-            errors.Add(new ApiFieldError("feedback", ["Feedback is required when requesting changes or rejecting a submission."]));
+            errors.Add(
+                new ApiFieldError("decision", ["Decision must be APPROVED, CHANGES_REQUESTED, or REJECTED."])
+            );
+        if (
+            SubmissionConstants.ReviewDecision.RequiresFeedback(decision)
+            && string.IsNullOrWhiteSpace(feedback)
+        )
+            errors.Add(
+                new ApiFieldError(
+                    "feedback",
+                    ["Feedback is required when requesting changes or rejecting a submission."]
+                )
+            );
         if (feedback?.Length > SubmissionConstants.ReviewFeedbackMaxLength)
-            errors.Add(new ApiFieldError("feedback", [$"Feedback must be at most {SubmissionConstants.ReviewFeedbackMaxLength} characters."]));
+            errors.Add(
+                new ApiFieldError(
+                    "feedback",
+                    [$"Feedback must be at most {SubmissionConstants.ReviewFeedbackMaxLength} characters."]
+                )
+            );
         if (request.VersionId == Guid.Empty)
             errors.Add(new ApiFieldError("versionId", ["A version is required for formal review."]));
-        if (errors.Count > 0) throw new ApiValidationException(errors);
+        if (errors.Count > 0)
+            throw new ApiValidationException(errors);
 
-        var submission = await db.ResearchSubmissions
-            .SingleOrDefaultAsync(x => x.Id == submissionId && x.ProjectId == projectId, cancellationToken)
-            ?? throw NotFound("Submission not found.");
+        var submission =
+            await db.ResearchSubmissions.SingleOrDefaultAsync(
+                x => x.Id == submissionId && x.ProjectId == projectId,
+                cancellationToken
+            ) ?? throw NotFound("Submission not found.");
         if (submission.Status != SubmissionConstants.SubmissionStatus.PendingReview)
             throw Conflict("Only a submission that is pending review can receive a formal decision.");
         if (!submission.CurrentVersionId.HasValue || submission.CurrentVersionId.Value != request.VersionId)
-            throw Conflict("This review is stale because the submission's current version changed. Refresh before reviewing.");
+            throw Conflict(
+                "This review is stale because the submission's current version changed. Refresh before reviewing."
+            );
 
-        var versionExists = await db.SubmissionVersions.AsNoTracking()
+        var versionExists = await db
+            .SubmissionVersions.AsNoTracking()
             .AnyAsync(x => x.Id == request.VersionId && x.SubmissionId == submission.Id, cancellationToken);
-        if (!versionExists) throw NotFound("Submission version not found.");
+        if (!versionExists)
+            throw NotFound("Submission version not found.");
         if (await db.SubmissionReviews.AnyAsync(x => x.VersionId == request.VersionId, cancellationToken))
             throw Conflict("This version already has a formal review.");
 
@@ -452,17 +592,20 @@ public sealed class ResearchSubmissionService : IResearchSubmissionService
             Feedback = feedback,
             ReviewedBy = reviewerId,
             ReviewedByName = reviewerName,
-            ReviewedAt = now
+            ReviewedAt = now,
         };
 
         submission.Status = decision switch
         {
             SubmissionConstants.ReviewDecision.Approved => SubmissionConstants.SubmissionStatus.Approved,
-            SubmissionConstants.ReviewDecision.ChangesRequested => SubmissionConstants.SubmissionStatus.ChangesRequested,
+            SubmissionConstants.ReviewDecision.ChangesRequested => SubmissionConstants
+                .SubmissionStatus
+                .ChangesRequested,
             SubmissionConstants.ReviewDecision.Rejected => SubmissionConstants.SubmissionStatus.Rejected,
-            _ => throw new InvalidOperationException("Unknown review decision.")
+            _ => throw new InvalidOperationException("Unknown review decision."),
         };
-        submission.ApprovedVersionId = decision == SubmissionConstants.ReviewDecision.Approved ? request.VersionId : null;
+        submission.ApprovedVersionId =
+            decision == SubmissionConstants.ReviewDecision.Approved ? request.VersionId : null;
         submission.ApprovedAt = decision == SubmissionConstants.ReviewDecision.Approved ? now : null;
         submission.UpdatedAt = now;
 
@@ -480,7 +623,8 @@ public sealed class ResearchSubmissionService : IResearchSubmissionService
                 StatusCodes.Status409Conflict,
                 ErrorCodes.Conflict,
                 "The submission was reviewed or changed by another request. Refresh before trying again.",
-                innerException: exception);
+                innerException: exception
+            );
         }
 
         return await LoadResponseAsync(db, projectId, submission.Id, projectContext, cancellationToken);
@@ -488,19 +632,37 @@ public sealed class ResearchSubmissionService : IResearchSubmissionService
 
     private (string FileName, string Extension, string ContentType, string? Note) ValidateUploadRequest(
         SubmissionRequirement requirement,
-        CreateUploadSessionRequest request)
+        CreateUploadSessionRequest request
+    )
     {
         var errors = new List<ApiFieldError>();
-        var fileName = SubmissionFileRules.SafeOriginalFileName(request.FileName ?? string.Empty, _submissionOptions.MaxFileNameLength);
+        var fileName = SubmissionFileRules.SafeOriginalFileName(
+            request.FileName ?? string.Empty,
+            _submissionOptions.MaxFileNameLength
+        );
         if (fileName.Length == 0)
             errors.Add(new ApiFieldError("fileName", ["File name is required."]));
         else if ((request.FileName ?? string.Empty).Trim().Length > _submissionOptions.MaxFileNameLength)
-            errors.Add(new ApiFieldError("fileName", [$"File name must be at most {_submissionOptions.MaxFileNameLength} characters."]));
+            errors.Add(
+                new ApiFieldError(
+                    "fileName",
+                    [$"File name must be at most {_submissionOptions.MaxFileNameLength} characters."]
+                )
+            );
 
         var extension = SubmissionFileRules.ExtensionFromFileName(fileName) ?? string.Empty;
-        var requirementTypes = SubmissionFileRules.ParseAllowedTypes(requirement.AllowedFileTypes).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var requirementTypes = SubmissionFileRules
+            .ParseAllowedTypes(requirement.AllowedFileTypes)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
         if (extension.Length == 0 || !requirementTypes.Contains(extension))
-            errors.Add(new ApiFieldError("fileName", [$"Allowed file types: {string.Join(", ", requirementTypes.Select(x => x.ToUpperInvariant()))}."]));
+            errors.Add(
+                new ApiFieldError(
+                    "fileName",
+                    [
+                        $"Allowed file types: {string.Join(", ", requirementTypes.Select(x => x.ToUpperInvariant()))}.",
+                    ]
+                )
+            );
 
         var contentType = (request.ContentType ?? string.Empty).Trim().ToLowerInvariant();
         if (extension.Length > 0 && !SubmissionFileRules.ContentTypeMatchesExtension(extension, contentType))
@@ -508,14 +670,32 @@ public sealed class ResearchSubmissionService : IResearchSubmissionService
         if (request.FileSizeBytes <= 0)
             errors.Add(new ApiFieldError("fileSizeBytes", ["File must not be empty."]));
         else if (request.FileSizeBytes > requirement.MaxFileSizeBytes)
-            errors.Add(new ApiFieldError("fileSizeBytes", [$"File size must not exceed {requirement.MaxFileSizeBytes} bytes."]));
+            errors.Add(
+                new ApiFieldError(
+                    "fileSizeBytes",
+                    [$"File size must not exceed {requirement.MaxFileSizeBytes} bytes."]
+                )
+            );
 
         var note = string.IsNullOrWhiteSpace(request.SubmissionNote) ? null : request.SubmissionNote.Trim();
         if (note?.Length > SubmissionConstants.SubmissionNoteMaxLength)
-            errors.Add(new ApiFieldError("submissionNote", [$"Submission note must be at most {SubmissionConstants.SubmissionNoteMaxLength} characters."]));
-        if (errors.Count > 0) throw new ApiValidationException(errors);
+            errors.Add(
+                new ApiFieldError(
+                    "submissionNote",
+                    [
+                        $"Submission note must be at most {SubmissionConstants.SubmissionNoteMaxLength} characters.",
+                    ]
+                )
+            );
+        if (errors.Count > 0)
+            throw new ApiValidationException(errors);
 
-        return (fileName, extension, SubmissionFileRules.CanonicalContentType(extension) ?? contentType, note);
+        return (
+            fileName,
+            extension,
+            SubmissionFileRules.CanonicalContentType(extension) ?? contentType,
+            note
+        );
     }
 
     private static void ValidateStoredObject(SubmissionUploadSession session, StoredObjectMetadata metadata)
@@ -529,7 +709,8 @@ public sealed class ResearchSubmissionService : IResearchSubmissionService
             errors.Add(new ApiFieldError("file", ["Uploaded file size does not match the selected file."]));
         if (!SubmissionFileRules.ContentTypeMatchesExtension(session.FileExtension, metadata.ContentType))
             errors.Add(new ApiFieldError("file", ["Uploaded object content type is invalid."]));
-        if (errors.Count > 0) throw new ApiValidationException(errors);
+        if (errors.Count > 0)
+            throw new ApiValidationException(errors);
     }
 
     private async Task TryDeleteTemporaryAsync(string key)
@@ -552,7 +733,11 @@ public sealed class ResearchSubmissionService : IResearchSubmissionService
         }
         catch (Exception exception)
         {
-            _logger.LogWarning(exception, "Unable to remove orphaned finalized submission object {ObjectKey}", key);
+            _logger.LogWarning(
+                exception,
+                "Unable to remove orphaned finalized submission object {ObjectKey}",
+                key
+            );
         }
     }
 
@@ -561,18 +746,27 @@ public sealed class ResearchSubmissionService : IResearchSubmissionService
         Guid projectId,
         Guid submissionId,
         ProjectSubmissionContext projectContext,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
-        var submission = await db.ResearchSubmissions.AsNoTracking()
-            .SingleOrDefaultAsync(x => x.Id == submissionId && x.ProjectId == projectId, cancellationToken)
+        var submission =
+            await db
+                .ResearchSubmissions.AsNoTracking()
+                .SingleOrDefaultAsync(
+                    x => x.Id == submissionId && x.ProjectId == projectId,
+                    cancellationToken
+                )
             ?? throw NotFound("Submission not found.");
-        var requirement = await db.SubmissionRequirements.AsNoTracking()
+        var requirement = await db
+            .SubmissionRequirements.AsNoTracking()
             .SingleAsync(x => x.Id == submission.RequirementId, cancellationToken);
-        var versions = await db.SubmissionVersions.AsNoTracking()
+        var versions = await db
+            .SubmissionVersions.AsNoTracking()
             .Where(x => x.SubmissionId == submissionId)
             .OrderByDescending(x => x.VersionNumber)
             .ToListAsync(cancellationToken);
-        var reviewRows = await db.SubmissionReviews.AsNoTracking()
+        var reviewRows = await db
+            .SubmissionReviews.AsNoTracking()
             .Where(x => x.SubmissionId == submissionId)
             .ToListAsync(cancellationToken);
         var reviews = reviewRows.ToDictionary(x => x.VersionId);
@@ -584,14 +778,16 @@ public sealed class ResearchSubmissionService : IResearchSubmissionService
         SubmissionRequirement requirement,
         IReadOnlyList<SubmissionVersion> versions,
         IReadOnlyDictionary<Guid, SubmissionReview> reviews,
-        ProjectSubmissionContext projectContext) =>
+        ProjectSubmissionContext projectContext
+    ) =>
         new(
             submission.Id,
             submission.ProjectId,
             submission.RequirementId,
             submission.Status,
             submission.VersionCount,
-            submission.CurrentVersionId ?? throw new InvalidOperationException("Completed submission has no current version."),
+            submission.CurrentVersionId
+                ?? throw new InvalidOperationException("Completed submission has no current version."),
             submission.ApprovedVersionId,
             submission.LastSubmittedAt,
             submission.ApprovedAt,
@@ -603,26 +799,30 @@ public sealed class ResearchSubmissionService : IResearchSubmissionService
                 SubmissionFileRules.ParseAllowedTypes(requirement.AllowedFileTypes),
                 requirement.MaxFileSizeBytes,
                 requirement.Status,
-                SubmissionResponsibilityRules.BuildResponse(requirement, projectContext)),
-            versions.Select(v => new SubmissionVersionResponse(
-                v.Id,
-                v.SubmissionId,
-                v.VersionNumber,
-                v.OriginalFileName,
-                v.FileExtension,
-                v.ContentType,
-                v.FileSizeBytes,
-                v.UploadedBy,
-                v.UploadedByName,
-                v.SubmitterRoleSnapshot,
-                v.ResponsibilityModeSnapshot,
-                v.SubmissionNote,
-                v.SubmittedAt,
-                v.IsLate,
-                submission.CurrentVersionId == v.Id,
-                submission.ApprovedVersionId == v.Id,
-                reviews.TryGetValue(v.Id, out var review) ? BuildReviewResponse(review) : null))
-                .ToArray());
+                SubmissionResponsibilityRules.BuildResponse(requirement, projectContext)
+            ),
+            versions
+                .Select(v => new SubmissionVersionResponse(
+                    v.Id,
+                    v.SubmissionId,
+                    v.VersionNumber,
+                    v.OriginalFileName,
+                    v.FileExtension,
+                    v.ContentType,
+                    v.FileSizeBytes,
+                    v.UploadedBy,
+                    v.UploadedByName,
+                    v.SubmitterRoleSnapshot,
+                    v.ResponsibilityModeSnapshot,
+                    v.SubmissionNote,
+                    v.SubmittedAt,
+                    v.IsLate,
+                    submission.CurrentVersionId == v.Id,
+                    submission.ApprovedVersionId == v.Id,
+                    reviews.TryGetValue(v.Id, out var review) ? BuildReviewResponse(review) : null
+                ))
+                .ToArray()
+        );
 
     private static SubmissionReviewResponse BuildReviewResponse(SubmissionReview review) =>
         new(
@@ -633,9 +833,15 @@ public sealed class ResearchSubmissionService : IResearchSubmissionService
             review.Feedback,
             review.ReviewedBy,
             review.ReviewedByName,
-            review.ReviewedAt);
+            review.ReviewedAt
+        );
 
-    private static string NormalizeDecision(string? value) => (value ?? string.Empty).Trim().ToUpperInvariant();
-    private static ApiException NotFound(string message) => new(StatusCodes.Status404NotFound, ErrorCodes.NotFound, message);
-    private static ApiException Conflict(string message) => new(StatusCodes.Status409Conflict, ErrorCodes.Conflict, message);
+    private static string NormalizeDecision(string? value) =>
+        (value ?? string.Empty).Trim().ToUpperInvariant();
+
+    private static ApiException NotFound(string message) =>
+        new(StatusCodes.Status404NotFound, ErrorCodes.NotFound, message);
+
+    private static ApiException Conflict(string message) =>
+        new(StatusCodes.Status409Conflict, ErrorCodes.Conflict, message);
 }

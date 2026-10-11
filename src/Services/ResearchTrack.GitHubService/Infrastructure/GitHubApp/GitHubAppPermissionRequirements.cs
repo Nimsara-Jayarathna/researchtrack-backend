@@ -19,7 +19,8 @@ public static class GitHubAppPermissionRequirements
         throw new ApiException(
             StatusCodes.Status409Conflict,
             ErrorCodes.Conflict,
-            "The ResearchTrack GitHub App installation is suspended. Unsuspend the installation in GitHub before refreshing or synchronizing repositories.");
+            "The ResearchTrack GitHub App installation is suspended. Unsuspend the installation in GitHub before refreshing or synchronizing repositories."
+        );
     }
 
     public static void EnsureSynchronizationReadPermissions(GitHubInstallationInfo installation)
@@ -49,12 +50,11 @@ public static class GitHubAppPermissionRequirements
         throw new ApiException(
             StatusCodes.Status409Conflict,
             ErrorCodes.Conflict,
-            $"The ResearchTrack GitHub App installation is missing required synchronization permission(s): {string.Join(", ", missing)}. Update the GitHub App repository permissions, approve the permission update in GitHub, then reconnect or retry synchronization.");
+            $"The ResearchTrack GitHub App installation is missing required synchronization permission(s): {string.Join(", ", missing)}. Update the GitHub App repository permissions, approve the permission update in GitHub, then reconnect or retry synchronization."
+        );
     }
 
-    private static bool HasReadOrWrite(
-        IReadOnlyDictionary<string, string> permissions,
-        string name)
+    private static bool HasReadOrWrite(IReadOnlyDictionary<string, string> permissions, string name)
     {
         if (!permissions.TryGetValue(name, out var value) || string.IsNullOrWhiteSpace(value))
         {

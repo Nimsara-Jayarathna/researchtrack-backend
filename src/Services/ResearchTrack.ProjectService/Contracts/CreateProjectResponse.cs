@@ -11,4 +11,5 @@ public sealed record CreateProjectResponse(
     DateOnly MilestoneDate,
     IReadOnlyList<ProjectUserResponse> Students,
     ProjectUserResponse? Leader,
-    IReadOnlyList<ProjectMilestoneResponse> Milestones);
+    IReadOnlyList<ProjectMilestoneResponse> Milestones
+);

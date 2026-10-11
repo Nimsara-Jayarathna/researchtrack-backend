@@ -1,7 +1,6 @@
 namespace ResearchTrack.JiraService.Contracts;
 
-public sealed record JiraDashboardHealthRequest(
-    IReadOnlyList<Guid> ProjectIds);
+public sealed record JiraDashboardHealthRequest(IReadOnlyList<Guid> ProjectIds);
 
 public sealed record JiraDashboardProjectHealthResponse(
     Guid ProjectId,
@@ -12,10 +11,12 @@ public sealed record JiraDashboardProjectHealthResponse(
     int OverdueIssues,
     int HighPriorityOpen,
     string? SyncStatus,
-    DateTimeOffset? LastSyncedAt);
+    DateTimeOffset? LastSyncedAt
+);
 
 public sealed record JiraDashboardHealthResponse(
     int ConnectedCount,
     int AtRiskCount,
     int BehindCount,
-    IReadOnlyList<JiraDashboardProjectHealthResponse> Projects);
+    IReadOnlyList<JiraDashboardProjectHealthResponse> Projects
+);

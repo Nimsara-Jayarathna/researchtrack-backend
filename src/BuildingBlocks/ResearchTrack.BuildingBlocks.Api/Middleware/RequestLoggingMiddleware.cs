@@ -13,7 +13,8 @@ public sealed class RequestLoggingMiddleware
     public RequestLoggingMiddleware(
         RequestDelegate next,
         ILogger<RequestLoggingMiddleware> logger,
-        IHostEnvironment environment)
+        IHostEnvironment environment
+    )
     {
         _next = next;
         _logger = logger;
@@ -29,7 +30,8 @@ public sealed class RequestLoggingMiddleware
             context.Request.Path,
             _environment.ApplicationName,
             _environment.EnvironmentName,
-            context.TraceIdentifier);
+            context.TraceIdentifier
+        );
 
         try
         {
@@ -51,7 +53,8 @@ public sealed class RequestLoggingMiddleware
                 stopwatch.ElapsedMilliseconds,
                 context.TraceIdentifier,
                 routeTemplate,
-                userId);
+                userId
+            );
         }
     }
 }

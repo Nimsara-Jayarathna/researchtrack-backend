@@ -7,7 +7,8 @@ public interface IGitHubInstallationFlowService
     Task<GitHubInstallStartResponse> StartAsync(
         Guid userId,
         StartGitHubInstallationRequest request,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken
+    );
 
     Task<GitHubInstallationCallbackResult> CompleteCallbackAsync(
         string? state,
@@ -15,5 +16,6 @@ public interface IGitHubInstallationFlowService
         string? setupAction,
         string? code,
         string? error,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken
+    );
 }

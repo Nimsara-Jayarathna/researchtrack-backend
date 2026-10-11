@@ -10,11 +10,19 @@ namespace ResearchTrack.JiraService.Persistence;
 internal static class JiraDatabaseLock
 {
     public static string ProjectSync(Guid projectId) => $"rt:jira:sync:{projectId:N}";
+
     public static string ProjectSchedule(Guid projectId) => $"rt:jira:schedule:{projectId:N}";
+
     public static string ProjectWebhook(Guid projectId) => $"rt:jira:webhook:{projectId:N}";
+
     public const string JobClaim = "rt:jira:job-claim";
 
-    public static async Task<IAsyncDisposable?> TryAcquireAsync(JiraDbContext db, string name, int timeoutSeconds, CancellationToken ct)
+    public static async Task<IAsyncDisposable?> TryAcquireAsync(
+        JiraDbContext db,
+        string name,
+        int timeoutSeconds,
+        CancellationToken ct
+    )
     {
         await db.Database.OpenConnectionAsync(ct);
         var connection = db.Database.GetDbConnection();
@@ -43,11 +51,16 @@ internal static class JiraDatabaseLock
         private readonly string _name;
         private bool _released;
 
-        public Lease(JiraDbContext db, string name) { _db = db; _name = name; }
+        public Lease(JiraDbContext db, string name)
+        {
+            _db = db;
+            _name = name;
+        }
 
         public async ValueTask DisposeAsync()
         {
-            if (_released) return;
+            if (_released)
+                return;
             _released = true;
             try
             {

@@ -6,14 +6,17 @@ namespace ResearchTrack.JiraService.Persistence;
 
 public static class JiraPersistenceExtensions
 {
-    public static IServiceCollection AddJiraPersistence(this IServiceCollection services, IConfiguration configuration)
+    public static IServiceCollection AddJiraPersistence(
+        this IServiceCollection services,
+        IConfiguration configuration
+    )
     {
         var connectionString = DatabaseConnectionStringResolver.Resolve(configuration);
 
         services.AddDbContextFactory<JiraDbContext>(options => options.UseMySQL(connectionString));
-        services.AddHealthChecks().AddCheck<DatabaseHealthCheck<JiraDbContext>>(
-            "mysql",
-            tags: new[] { "ready" });
+        services
+            .AddHealthChecks()
+            .AddCheck<DatabaseHealthCheck<JiraDbContext>>("mysql", tags: new[] { "ready" });
 
         return services;
     }

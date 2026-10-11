@@ -4,17 +4,12 @@ using ResearchTrack.MeetingService.Domain;
 namespace ResearchTrack.MeetingService.Contracts;
 
 public sealed record MeetingRecordUpsertRequest(
-    [Required]
-    [MaxLength(10)]
-    string MeetingDate,
-    [Range(1, int.MaxValue)]
-    int DurationMinutes,
-    [Required]
-    [MaxLength(MeetingRecordConstants.DiscussionSummaryMaxLength)]
-    string DiscussionSummary,
-    [MaxLength(MeetingRecordConstants.DiscussionDetailsMaxLength)]
-    string? DiscussionDetails,
-    Guid? ChannelId);
+    [Required] [MaxLength(10)] string MeetingDate,
+    [Range(1, int.MaxValue)] int DurationMinutes,
+    [Required] [MaxLength(MeetingRecordConstants.DiscussionSummaryMaxLength)] string DiscussionSummary,
+    [MaxLength(MeetingRecordConstants.DiscussionDetailsMaxLength)] string? DiscussionDetails,
+    Guid? ChannelId
+);
 
 public sealed record MeetingRecordResponse(
     Guid Id,
@@ -32,4 +27,5 @@ public sealed record MeetingRecordResponse(
     string? ApprovedByName,
     DateTimeOffset? ApprovedAt,
     DateTimeOffset CreatedAt,
-    DateTimeOffset? UpdatedAt);
+    DateTimeOffset? UpdatedAt
+);

@@ -15,7 +15,8 @@ public sealed class GitHubDashboardQueryService : IGitHubDashboardQueryService
 
     public GitHubDashboardQueryService(
         IDbContextFactory<GitHubDbContext> dbContextFactory,
-        IProjectAuthorizationClient projectAuthorization)
+        IProjectAuthorizationClient projectAuthorization
+    )
     {
         _dbContextFactory = dbContextFactory;
         _projectAuthorization = projectAuthorization;
@@ -25,34 +26,39 @@ public sealed class GitHubDashboardQueryService : IGitHubDashboardQueryService
         Guid userId,
         Guid projectId,
         Guid? linkedRepositoryId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         await AuthorizeAsync(projectId, cancellationToken);
         await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
-        var links = await LoadAccessibleEnabledLinksAsync(
-            db,
-            projectId,
-            cancellationToken);
+        var links = await LoadAccessibleEnabledLinksAsync(db, projectId, cancellationToken);
 
-        var hasUnacknowledgedAccess = await db.AccessRequests.AsNoTracking()
-            .AnyAsync(request => request.ProjectId == projectId
-                && request.Status == GitHubAccessRequestStatuses.Completed
-                && request.SourceId != null
-                && request.InstallationId != null
-                && request.AcknowledgedAt == null
-                && db.AccessSources.Any(source => source.Id == request.SourceId && source.Active),
-                cancellationToken);
+        var hasUnacknowledgedAccess = await db
+            .AccessRequests.AsNoTracking()
+            .AnyAsync(
+                request =>
+                    request.ProjectId == projectId
+                    && request.Status == GitHubAccessRequestStatuses.Completed
+                    && request.SourceId != null
+                    && request.InstallationId != null
+                    && request.AcknowledgedAt == null
+                    && db.AccessSources.Any(source => source.Id == request.SourceId && source.Active),
+                cancellationToken
+            );
 
         var selected = SelectLink(links, linkedRepositoryId);
-        var repositories = links.Select(link => new GitHubDashboardRepositoryResponse(
-            link.Id,
-            string.IsNullOrWhiteSpace(link.CustomName) ? link.FullName : link.CustomName!,
-            link.Url,
-            link.DefaultBranch,
-            link.LastSyncedAt,
-            link.LinkedAt,
-            link.UpdatedAt)).ToList();
+        var repositories = links
+            .Select(link => new GitHubDashboardRepositoryResponse(
+                link.Id,
+                string.IsNullOrWhiteSpace(link.CustomName) ? link.FullName : link.CustomName!,
+                link.Url,
+                link.DefaultBranch,
+                link.LastSyncedAt,
+                link.LinkedAt,
+                link.UpdatedAt
+            ))
+            .ToList();
 
         if (selected is null)
         {
@@ -63,55 +69,46 @@ public sealed class GitHubDashboardQueryService : IGitHubDashboardQueryService
                 "NOT_AUTHORIZED",
                 repositories,
                 null,
-                new GitHubDashboardActivitySummaryResponse(
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    null,
-                    null,
-                    null,
-                    null,
-                    "idle"),
+                new GitHubDashboardActivitySummaryResponse(0, 0, 0, 0, 0, 0, null, null, null, null, "idle"),
                 [],
                 [],
                 [],
-                hasUnacknowledgedAccess);
+                hasUnacknowledgedAccess
+            );
         }
 
-        var source = await db.AccessSources.AsNoTracking()
+        var source = await db
+            .AccessSources.AsNoTracking()
             .SingleOrDefaultAsync(source => source.Id == selected.SourceId, cancellationToken);
 
-        var totalCommits = await db.Commits.AsNoTracking()
+        var totalCommits = await db
+            .Commits.AsNoTracking()
             .CountAsync(commit => commit.RepositoryLinkId == selected.Id, cancellationToken);
-        var latestCommitAt = await db.Commits.AsNoTracking()
+        var latestCommitAt = await db
+            .Commits.AsNoTracking()
             .Where(commit => commit.RepositoryLinkId == selected.Id)
             .MaxAsync(commit => (DateTime?)commit.CommittedAt, cancellationToken);
 
-        var pullRequestSummary = await db.PullRequests.AsNoTracking()
+        var pullRequestSummary = await db
+            .PullRequests.AsNoTracking()
             .Where(pullRequest => pullRequest.RepositoryLinkId == selected.Id)
             .GroupBy(_ => 1)
             .Select(group => new
             {
                 Total = group.Count(),
                 Open = group.Count(pullRequest =>
-                    !pullRequest.IsMerged
-                    && !pullRequest.IsDraft
-                    && pullRequest.State == "OPEN"),
+                    !pullRequest.IsMerged && !pullRequest.IsDraft && pullRequest.State == "OPEN"
+                ),
                 Draft = group.Count(pullRequest =>
-                    !pullRequest.IsMerged
-                    && pullRequest.IsDraft
-                    && pullRequest.State == "OPEN"),
+                    !pullRequest.IsMerged && pullRequest.IsDraft && pullRequest.State == "OPEN"
+                ),
                 Merged = group.Count(pullRequest => pullRequest.IsMerged),
-                Closed = group.Count(pullRequest =>
-                    !pullRequest.IsMerged
-                    && pullRequest.State == "CLOSED")
+                Closed = group.Count(pullRequest => !pullRequest.IsMerged && pullRequest.State == "CLOSED"),
             })
             .SingleOrDefaultAsync(cancellationToken);
 
-        var latestPullRequest = await db.PullRequests.AsNoTracking()
+        var latestPullRequest = await db
+            .PullRequests.AsNoTracking()
             .Where(pullRequest => pullRequest.RepositoryLinkId == selected.Id)
             .OrderByDescending(pullRequest => pullRequest.UpdatedAt)
             .ThenByDescending(pullRequest => pullRequest.Number)
@@ -121,24 +118,24 @@ public sealed class GitHubDashboardQueryService : IGitHubDashboardQueryService
                 pullRequest.UpdatedAt,
                 pullRequest.IsMerged,
                 pullRequest.IsDraft,
-                pullRequest.State
+                pullRequest.State,
             })
             .FirstOrDefaultAsync(cancellationToken);
 
         var lastActivityIsPullRequest =
             latestPullRequest is not null
             && (latestCommitAt is null || latestPullRequest.UpdatedAt >= latestCommitAt.Value);
-        var lastActivityAt = lastActivityIsPullRequest
-            ? latestPullRequest!.UpdatedAt
-            : latestCommitAt;
+        var lastActivityAt = lastActivityIsPullRequest ? latestPullRequest!.UpdatedAt : latestCommitAt;
         var lastActivityPullRequestStatus = lastActivityIsPullRequest
             ? NormalizePullRequestStatus(
                 latestPullRequest!.State,
                 latestPullRequest.IsDraft,
-                latestPullRequest.IsMerged)
+                latestPullRequest.IsMerged
+            )
             : null;
 
-        var contributorPreview = await db.Contributors.AsNoTracking()
+        var contributorPreview = await db
+            .Contributors.AsNoTracking()
             .Where(contributor => contributor.RepositoryLinkId == selected.Id)
             .OrderByDescending(contributor => contributor.ObservedCommitCount)
             .ThenByDescending(contributor => contributor.GitHubContributionCount)
@@ -147,14 +144,20 @@ public sealed class GitHubDashboardQueryService : IGitHubDashboardQueryService
                 contributor.Login,
                 contributor.ObservedCommitCount,
                 contributor.Login,
-                contributor.AvatarUrl))
+                contributor.AvatarUrl
+            ))
             .ToListAsync(cancellationToken);
 
         var avatarByLogin = contributorPreview
             .Where(item => !string.IsNullOrWhiteSpace(item.GitHubUsername))
-            .ToDictionary(item => item.GitHubUsername!, item => item.AvatarUrl, StringComparer.OrdinalIgnoreCase);
+            .ToDictionary(
+                item => item.GitHubUsername!,
+                item => item.AvatarUrl,
+                StringComparer.OrdinalIgnoreCase
+            );
 
-        var commitRows = await db.Commits.AsNoTracking()
+        var commitRows = await db
+            .Commits.AsNoTracking()
             .Where(commit => commit.RepositoryLinkId == selected.Id)
             .OrderByDescending(commit => commit.CommittedAt)
             .ThenByDescending(commit => commit.FirstSeenAt)
@@ -162,7 +165,8 @@ public sealed class GitHubDashboardQueryService : IGitHubDashboardQueryService
             .ToListAsync(cancellationToken);
         var recentCommits = commitRows.Select(commit => ToDashboardCommit(commit, avatarByLogin)).ToList();
 
-        var pullRequestsPreview = await db.PullRequests.AsNoTracking()
+        var pullRequestsPreview = await db
+            .PullRequests.AsNoTracking()
             .Where(pullRequest => pullRequest.RepositoryLinkId == selected.Id)
             .OrderByDescending(pullRequest => pullRequest.UpdatedAt)
             .ThenByDescending(pullRequest => pullRequest.Number)
@@ -190,14 +194,15 @@ public sealed class GitHubDashboardQueryService : IGitHubDashboardQueryService
                 pullRequest.ChangedFiles,
                 pullRequest.CommitsCount,
                 pullRequest.CommentsCount,
-                pullRequest.ReviewCommentsCount))
+                pullRequest.ReviewCommentsCount
+            ))
             .ToListAsync(cancellationToken);
 
         var accessScope = links.Count switch
         {
             0 => "NO_REPOSITORIES",
             1 => "SINGLE_REPOSITORY",
-            _ => "MULTIPLE_REPOSITORIES"
+            _ => "MULTIPLE_REPOSITORIES",
         };
 
         return new GitHubDashboardResponse(
@@ -215,14 +220,18 @@ public sealed class GitHubDashboardQueryService : IGitHubDashboardQueryService
                 pullRequestSummary?.Merged ?? 0,
                 pullRequestSummary?.Closed ?? 0,
                 lastActivityAt,
-                lastActivityIsPullRequest ? "pull_request" : latestCommitAt is not null ? "commit" : null,
+                lastActivityIsPullRequest ? "pull_request"
+                    : latestCommitAt is not null ? "commit"
+                    : null,
                 lastActivityIsPullRequest ? latestPullRequest!.Number : null,
                 lastActivityPullRequestStatus,
-                totalCommits > 0 || (pullRequestSummary?.Total ?? 0) > 0 ? "active" : "idle"),
+                totalCommits > 0 || (pullRequestSummary?.Total ?? 0) > 0 ? "active" : "idle"
+            ),
             contributorPreview,
             recentCommits,
             pullRequestsPreview,
-            hasUnacknowledgedAccess);
+            hasUnacknowledgedAccess
+        );
     }
 
     public async Task<GitHubPage<GitHubDashboardCommitResponse>> GetActivityAsync(
@@ -231,7 +240,8 @@ public sealed class GitHubDashboardQueryService : IGitHubDashboardQueryService
         Guid? linkedRepositoryId,
         int page,
         int size,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         ValidatePage(page, size);
         await AuthorizeAsync(projectId, cancellationToken);
@@ -242,31 +252,39 @@ public sealed class GitHubDashboardQueryService : IGitHubDashboardQueryService
             return new GitHubPage<GitHubDashboardCommitResponse>([], page, size, 0, false);
         }
 
-        var total = await db.Commits.AsNoTracking()
+        var total = await db
+            .Commits.AsNoTracking()
             .CountAsync(commit => commit.RepositoryLinkId == selected.Id, cancellationToken);
-        var rows = await db.Commits.AsNoTracking()
+        var rows = await db
+            .Commits.AsNoTracking()
             .Where(commit => commit.RepositoryLinkId == selected.Id)
             .OrderByDescending(commit => commit.CommittedAt)
             .ThenByDescending(commit => commit.FirstSeenAt)
             .Skip((page - 1) * size)
             .Take(size)
             .ToListAsync(cancellationToken);
-        var logins = rows.Where(item => item.AuthorLogin != null).Select(item => item.AuthorLogin!).Distinct().ToList();
-        var avatarRows = await db.Contributors.AsNoTracking()
+        var logins = rows.Where(item => item.AuthorLogin != null)
+            .Select(item => item.AuthorLogin!)
+            .Distinct()
+            .ToList();
+        var avatarRows = await db
+            .Contributors.AsNoTracking()
             .Where(item => item.RepositoryLinkId == selected.Id && logins.Contains(item.Login))
             .Select(item => new { item.Login, item.AvatarUrl })
             .ToListAsync(cancellationToken);
         var avatars = avatarRows.ToDictionary(
             item => item.Login,
             item => item.AvatarUrl,
-            StringComparer.OrdinalIgnoreCase);
+            StringComparer.OrdinalIgnoreCase
+        );
 
         return new GitHubPage<GitHubDashboardCommitResponse>(
             rows.Select(row => ToDashboardCommit(row, avatars)).ToList(),
             page,
             size,
             total,
-            page * size < total);
+            page * size < total
+        );
     }
 
     public async Task<GitHubPage<GitHubDashboardContributorResponse>> GetContributorsAsync(
@@ -275,7 +293,8 @@ public sealed class GitHubDashboardQueryService : IGitHubDashboardQueryService
         Guid? linkedRepositoryId,
         int page,
         int size,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         ValidatePage(page, size);
         await AuthorizeAsync(projectId, cancellationToken);
@@ -286,9 +305,11 @@ public sealed class GitHubDashboardQueryService : IGitHubDashboardQueryService
             return new GitHubPage<GitHubDashboardContributorResponse>([], page, size, 0, false);
         }
 
-        var total = await db.Contributors.AsNoTracking()
+        var total = await db
+            .Contributors.AsNoTracking()
             .CountAsync(item => item.RepositoryLinkId == selected.Id, cancellationToken);
-        var items = await db.Contributors.AsNoTracking()
+        var items = await db
+            .Contributors.AsNoTracking()
             .Where(item => item.RepositoryLinkId == selected.Id)
             .OrderByDescending(item => item.ObservedCommitCount)
             .ThenByDescending(item => item.GitHubContributionCount)
@@ -298,7 +319,8 @@ public sealed class GitHubDashboardQueryService : IGitHubDashboardQueryService
                 item.Login,
                 item.ObservedCommitCount,
                 item.Login,
-                item.AvatarUrl))
+                item.AvatarUrl
+            ))
             .ToListAsync(cancellationToken);
 
         return new GitHubPage<GitHubDashboardContributorResponse>(
@@ -306,7 +328,8 @@ public sealed class GitHubDashboardQueryService : IGitHubDashboardQueryService
             page,
             size,
             total,
-            page * size < total);
+            page * size < total
+        );
     }
 
     private Task AuthorizeAsync(Guid projectId, CancellationToken cancellationToken)
@@ -321,22 +344,27 @@ public sealed class GitHubDashboardQueryService : IGitHubDashboardQueryService
     private static Task<List<ProjectRepositoryLink>> LoadAccessibleEnabledLinksAsync(
         GitHubDbContext db,
         Guid projectId,
-        CancellationToken cancellationToken) =>
-        (from link in db.ProjectRepositoryLinks.AsNoTracking()
-         join source in db.AccessSources.AsNoTracking() on link.SourceId equals source.Id
-         join repository in db.Repositories.AsNoTracking() on link.GitHubRepositoryId equals repository.Id
-         where link.ProjectId == projectId
-             && link.Active
-             && link.Enabled
-             && source.Active
-             && source.ConnectionStatus == GitHubConnectionStatuses.Connected
-             && repository.Available
-         orderby link.Primary descending, link.LinkedAt
-         select link).ToListAsync(cancellationToken);
+        CancellationToken cancellationToken
+    ) =>
+        (
+            from link in db.ProjectRepositoryLinks.AsNoTracking()
+            join source in db.AccessSources.AsNoTracking() on link.SourceId equals source.Id
+            join repository in db.Repositories.AsNoTracking() on link.GitHubRepositoryId equals repository.Id
+            where
+                link.ProjectId == projectId
+                && link.Active
+                && link.Enabled
+                && source.Active
+                && source.ConnectionStatus == GitHubConnectionStatuses.Connected
+                && repository.Available
+            orderby link.Primary descending, link.LinkedAt
+            select link
+        ).ToListAsync(cancellationToken);
 
     private static ProjectRepositoryLink? SelectLink(
         IReadOnlyList<ProjectRepositoryLink> links,
-        Guid? linkedRepositoryId)
+        Guid? linkedRepositoryId
+    )
     {
         if (linkedRepositoryId.HasValue)
         {
@@ -344,7 +372,8 @@ public sealed class GitHubDashboardQueryService : IGitHubDashboardQueryService
                 ?? throw new ApiException(
                     StatusCodes.Status404NotFound,
                     ResearchTrack.BuildingBlocks.Api.Constants.ErrorCodes.NotFound,
-                    "The linked GitHub repository was not found for this project.");
+                    "The linked GitHub repository was not found for this project."
+                );
         }
         return links.FirstOrDefault(link => link.Primary) ?? links.FirstOrDefault();
     }
@@ -353,19 +382,14 @@ public sealed class GitHubDashboardQueryService : IGitHubDashboardQueryService
         GitHubDbContext db,
         Guid projectId,
         Guid? linkedRepositoryId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
-        var links = await LoadAccessibleEnabledLinksAsync(
-            db,
-            projectId,
-            cancellationToken);
+        var links = await LoadAccessibleEnabledLinksAsync(db, projectId, cancellationToken);
         return SelectLink(links, linkedRepositoryId);
     }
 
-    private static string NormalizePullRequestStatus(
-        string state,
-        bool isDraft,
-        bool isMerged)
+    private static string NormalizePullRequestStatus(string state, bool isDraft, bool isMerged)
     {
         if (isMerged)
         {
@@ -387,12 +411,14 @@ public sealed class GitHubDashboardQueryService : IGitHubDashboardQueryService
 
     private static GitHubDashboardCommitResponse ToDashboardCommit(
         GitHubCommit commit,
-        IReadOnlyDictionary<string, string?> avatars)
+        IReadOnlyDictionary<string, string?> avatars
+    )
     {
         var author = commit.AuthorName ?? commit.AuthorLogin ?? "Unknown contributor";
-        var avatar = commit.AuthorLogin is not null && avatars.TryGetValue(commit.AuthorLogin, out var value)
-            ? value
-            : null;
+        var avatar =
+            commit.AuthorLogin is not null && avatars.TryGetValue(commit.AuthorLogin, out var value)
+                ? value
+                : null;
         return new GitHubDashboardCommitResponse(
             commit.Sha,
             commit.Message,
@@ -400,7 +426,8 @@ public sealed class GitHubDashboardQueryService : IGitHubDashboardQueryService
             commit.AuthorLogin,
             avatar,
             commit.CommittedAt,
-            "commit");
+            "commit"
+        );
     }
 
     private static void ValidatePage(int page, int size)
@@ -409,7 +436,7 @@ public sealed class GitHubDashboardQueryService : IGitHubDashboardQueryService
         {
             throw new ApiValidationException([
                 new ApiFieldError("page", ["Page must be at least 1."]),
-                new ApiFieldError("size", ["Size must be between 1 and 100."])
+                new ApiFieldError("size", ["Size must be between 1 and 100."]),
             ]);
         }
     }

@@ -6,4 +6,5 @@ public sealed record GitHubInstallStartResponse(
     Guid ProjectId,
     [property: JsonPropertyName("githubAuthorizeUrl")] string GitHubAuthorizeUrl,
     string FlowType,
-    DateTime ExpiresAt);
+    DateTime ExpiresAt
+);

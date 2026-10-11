@@ -1,8 +1,6 @@
 namespace ResearchTrack.GitHubService.Contracts;
 
-public sealed record LinkProjectGitHubRepositoryRequest(
-    long InstallationId,
-    long RepositoryId);
+public sealed record LinkProjectGitHubRepositoryRequest(long InstallationId, long RepositoryId);
 
 public sealed record ProjectGitHubRepositoryLinkResponse(
     Guid ProjectId,
@@ -13,4 +11,5 @@ public sealed record ProjectGitHubRepositoryLinkResponse(
     string Url,
     string OwnerLogin,
     string? DefaultBranch,
-    DateTime? LastSyncedAt);
+    DateTime? LastSyncedAt
+);

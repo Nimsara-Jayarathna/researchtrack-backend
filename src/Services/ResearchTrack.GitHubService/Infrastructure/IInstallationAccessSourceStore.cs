@@ -10,5 +10,6 @@ public interface IInstallationAccessSourceStore
         GitHubInstallationInfo installation,
         string accessType,
         DateTime now,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken
+    );
 }

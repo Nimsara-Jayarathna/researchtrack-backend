@@ -5,7 +5,8 @@ public sealed record ProjectUserResponse(
     string FirstName,
     string LastName,
     string Email,
-    string? RegistrationNumber);
+    string? RegistrationNumber
+);
 
 public sealed record ProjectMemberResponse(
     Guid Id,
@@ -13,4 +14,5 @@ public sealed record ProjectMemberResponse(
     string LastName,
     string Email,
     string? RegistrationNumber,
-    string MemberRole);
+    string MemberRole
+);

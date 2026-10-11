@@ -15,7 +15,9 @@ public sealed class GitHubInstallationApiClient : IGitHubInstallationApiClient
     {
         if (httpClient.BaseAddress != GitHubApiDefaults.TrustedBaseAddress)
         {
-            throw new InvalidOperationException("The GitHub installation client must use the trusted GitHub API base address.");
+            throw new InvalidOperationException(
+                "The GitHub installation client must use the trusted GitHub API base address."
+            );
         }
 
         _httpClient = httpClient;
@@ -24,11 +26,14 @@ public sealed class GitHubInstallationApiClient : IGitHubInstallationApiClient
     public async Task<JsonDocument> GetAsync(
         string relativePath,
         GitHubInstallationToken token,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
-        if (string.IsNullOrWhiteSpace(relativePath)
+        if (
+            string.IsNullOrWhiteSpace(relativePath)
             || Uri.TryCreate(relativePath, UriKind.Absolute, out _)
-            || relativePath.StartsWith("//", StringComparison.Ordinal))
+            || relativePath.StartsWith("//", StringComparison.Ordinal)
+        )
         {
             throw new ArgumentException("A relative GitHub API path is required.", nameof(relativePath));
         }
@@ -57,7 +62,8 @@ public sealed class GitHubInstallationApiClient : IGitHubInstallationApiClient
                 throw new ApiException(
                     StatusCodes.Status404NotFound,
                     ErrorCodes.NotFound,
-                    "The requested repository is not accessible to this GitHub App installation.");
+                    "The requested repository is not accessible to this GitHub App installation."
+                );
             }
 
             if (!response.IsSuccessStatusCode)
@@ -70,9 +76,11 @@ public sealed class GitHubInstallationApiClient : IGitHubInstallationApiClient
         }
     }
 
-    private static ApiException DependencyFailure(string message, Exception? inner = null) => new(
-        StatusCodes.Status503ServiceUnavailable,
-        ErrorCodes.DependencyUnavailable,
-        message,
-        innerException: inner);
+    private static ApiException DependencyFailure(string message, Exception? inner = null) =>
+        new(
+            StatusCodes.Status503ServiceUnavailable,
+            ErrorCodes.DependencyUnavailable,
+            message,
+            innerException: inner
+        );
 }

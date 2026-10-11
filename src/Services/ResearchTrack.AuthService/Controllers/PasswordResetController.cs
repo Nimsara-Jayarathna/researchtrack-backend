@@ -17,7 +17,8 @@ public sealed class PasswordResetController : ApiControllerBase
 
     public PasswordResetController(
         IPasswordResetService passwordResetService,
-        IAuthCookieService cookieService)
+        IAuthCookieService cookieService
+    )
     {
         _passwordResetService = passwordResetService;
         _cookieService = cookieService;
@@ -28,7 +29,8 @@ public sealed class PasswordResetController : ApiControllerBase
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> ForgotPassword(
         [FromBody] ForgotPasswordRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         await _passwordResetService.RequestResetAsync(request, cancellationToken);
         return NoContent();
@@ -38,7 +40,8 @@ public sealed class PasswordResetController : ApiControllerBase
     [ProducesResponseType<ApiResponse<ValidateResetTokenResponse>>(StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<ValidateResetTokenResponse>>> ValidateResetToken(
         [FromQuery] string? token,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         var response = await _passwordResetService.ValidateTokenAsync(token, cancellationToken);
         return ApiOk(response);
@@ -49,7 +52,8 @@ public sealed class PasswordResetController : ApiControllerBase
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> ResetPassword(
         [FromBody] ResetPasswordRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         await _passwordResetService.ResetPasswordAsync(request, cancellationToken);
         _cookieService.ClearSession(Response);

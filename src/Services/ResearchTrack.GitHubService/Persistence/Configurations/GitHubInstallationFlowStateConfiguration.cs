@@ -23,14 +23,18 @@ public sealed class GitHubInstallationFlowStateConfiguration
         builder.Property(state => state.PendingInstallationId);
         builder.Property(state => state.AuthorizationStartedAt);
 
-        builder.HasIndex(state => state.StateHash)
+        builder
+            .HasIndex(state => state.StateHash)
             .IsUnique()
             .HasDatabaseName("ux_github_installation_flow_states_hash");
-        builder.HasIndex(state => state.ExpiresAt)
+        builder
+            .HasIndex(state => state.ExpiresAt)
             .HasDatabaseName("ix_github_installation_flow_states_expires_at");
-        builder.HasIndex(state => new { state.ProjectId, state.InitiatingUserId })
+        builder
+            .HasIndex(state => new { state.ProjectId, state.InitiatingUserId })
             .HasDatabaseName("ix_github_installation_flow_states_project_user");
-        builder.HasIndex(state => state.AccessRequestId)
+        builder
+            .HasIndex(state => state.AccessRequestId)
             .HasDatabaseName("ix_github_installation_flow_states_access_request");
     }
 }

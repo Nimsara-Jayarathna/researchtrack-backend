@@ -25,7 +25,8 @@ public sealed class GitHubInstallationRepositoryService : IGitHubInstallationRep
         IGitHubAppClient gitHubAppClient,
         IGitHubInstallationRepositoryClient repositoryClient,
         TimeProvider timeProvider,
-        ILogger<GitHubInstallationRepositoryService> logger)
+        ILogger<GitHubInstallationRepositoryService> logger
+    )
     {
         _projectAuthorization = projectAuthorization;
         _store = store;
@@ -39,12 +40,13 @@ public sealed class GitHubInstallationRepositoryService : IGitHubInstallationRep
     public async Task<GitHubAvailableRepositoriesResponse?> TryGetAvailableAsync(
         Guid userId,
         Guid sourceId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         if (sourceId == Guid.Empty)
         {
             throw new ApiValidationException([
-                new ApiFieldError("sourceId", ["Access source id is required."])
+                new ApiFieldError("sourceId", ["Access source id is required."]),
             ]);
         }
 
@@ -56,7 +58,8 @@ public sealed class GitHubInstallationRepositoryService : IGitHubInstallationRep
 
         await _projectAuthorization.EnsureCanManageAsync(source.ProjectId, cancellationToken);
 
-        var response = await _inventoryService.TryRefreshAsync(source.Id, cancellationToken)
+        var response =
+            await _inventoryService.TryRefreshAsync(source.Id, cancellationToken)
             ?? throw NotFound("The GitHub App installation source is no longer active.");
 
         _logger.LogInformation(
@@ -65,7 +68,8 @@ public sealed class GitHubInstallationRepositoryService : IGitHubInstallationRep
             source.Id,
             source.InstallationId,
             response.TotalCount,
-            userId);
+            userId
+        );
 
         return response;
     }
@@ -76,57 +80,55 @@ public sealed class GitHubInstallationRepositoryService : IGitHubInstallationRep
         long installationId,
         int page,
         int size,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         if (projectId == Guid.Empty)
         {
-            throw new ApiValidationException([
-                new ApiFieldError("projectId", ["Project id is required."])
-            ]);
+            throw new ApiValidationException([new ApiFieldError("projectId", ["Project id is required."])]);
         }
         if (installationId <= 0)
         {
             throw new ApiValidationException([
-                new ApiFieldError("installationId", ["Installation id must be positive."])
+                new ApiFieldError("installationId", ["Installation id must be positive."]),
             ]);
         }
         if (page < 1)
         {
-            throw new ApiValidationException([
-                new ApiFieldError("page", ["Page must be at least 1."])
-            ]);
+            throw new ApiValidationException([new ApiFieldError("page", ["Page must be at least 1."])]);
         }
         if (size is < 1 or > 100)
         {
             throw new ApiValidationException([
-                new ApiFieldError("size", ["Page size must be between 1 and 100."])
+                new ApiFieldError("size", ["Page size must be between 1 and 100."]),
             ]);
         }
 
-        var source = await _store.GetSourceByInstallationAsync(
-            projectId,
-            installationId,
-            cancellationToken)
+        var source =
+            await _store.GetSourceByInstallationAsync(projectId, installationId, cancellationToken)
             ?? throw NotFound("The GitHub App installation source was not found for this project.");
 
         await _projectAuthorization.EnsureCanManageAsync(projectId, cancellationToken);
-        var available = await TryGetAvailableAsync(userId, source.Id, cancellationToken)
+        var available =
+            await TryGetAvailableAsync(userId, source.Id, cancellationToken)
             ?? throw NotFound("The GitHub App installation source is no longer active.");
 
         var skip = (long)(page - 1) * size;
-        var items = skip >= available.TotalCount
-            ? new List<GitHubInstallationRepositoryResponse>()
-            : available.Items
-                .Skip((int)skip)
-                .Take(size)
-                .Select(item => new GitHubInstallationRepositoryResponse(
-                    item.GitHubRepoId,
-                    item.Name,
-                    item.FullName,
-                    item.Url,
-                    item.OwnerLogin,
-                    item.DefaultBranch))
-                .ToList();
+        var items =
+            skip >= available.TotalCount
+                ? new List<GitHubInstallationRepositoryResponse>()
+                : available
+                    .Items.Skip((int)skip)
+                    .Take(size)
+                    .Select(item => new GitHubInstallationRepositoryResponse(
+                        item.GitHubRepoId,
+                        item.Name,
+                        item.FullName,
+                        item.Url,
+                        item.OwnerLogin,
+                        item.DefaultBranch
+                    ))
+                    .ToList();
         var hasNext = skip + items.Count < available.TotalCount;
 
         return new GitHubInstallationRepositoriesPageResponse(
@@ -137,7 +139,8 @@ public sealed class GitHubInstallationRepositoryService : IGitHubInstallationRep
             available.TotalCount,
             hasNext,
             page > 1,
-            hasNext ? page + 1 : null);
+            hasNext ? page + 1 : null
+        );
     }
 
     public async Task<LegacyInstallationRepositorySelection> ResolveLegacySelectionAsync(
@@ -145,37 +148,36 @@ public sealed class GitHubInstallationRepositoryService : IGitHubInstallationRep
         Guid projectId,
         long installationId,
         long repositoryId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         if (projectId == Guid.Empty || installationId <= 0 || repositoryId <= 0)
         {
             throw new ApiValidationException([
                 new ApiFieldError(
                     "repository",
-                    ["Project id, installation id, and repository id are required."])
+                    ["Project id, installation id, and repository id are required."]
+                ),
             ]);
         }
 
-        var source = await _store.GetSourceByInstallationAsync(
-            projectId,
-            installationId,
-            cancellationToken)
+        var source =
+            await _store.GetSourceByInstallationAsync(projectId, installationId, cancellationToken)
             ?? throw NotFound("The GitHub App installation source was not found for this project.");
 
         await _projectAuthorization.EnsureCanManageAsync(projectId, cancellationToken);
 
         var token = await _gitHubAppClient.CreateInstallationTokenAsync(
             source.InstallationId,
-            cancellationToken);
-        var authoritative = await GetAccessibleRepositoryAsync(
-            token,
-            repositoryId,
-            cancellationToken);
+            cancellationToken
+        );
+        var authoritative = await GetAccessibleRepositoryAsync(token, repositoryId, cancellationToken);
         var storedRepositoryId = await _store.UpsertVerifiedAsync(
             source.Id,
             authoritative,
             _timeProvider.GetUtcNow().UtcDateTime,
-            cancellationToken);
+            cancellationToken
+        );
 
         _logger.LogInformation(
             "Resolved legacy GitHub installation repository selection. ProjectId={ProjectId} SourceId={SourceId} InstallationId={InstallationId} GitHubRepositoryId={GitHubRepositoryId} UserId={UserId}",
@@ -183,12 +185,10 @@ public sealed class GitHubInstallationRepositoryService : IGitHubInstallationRep
             source.Id,
             source.InstallationId,
             repositoryId,
-            userId);
+            userId
+        );
 
-        return new LegacyInstallationRepositorySelection(
-            source.Id,
-            storedRepositoryId,
-            authoritative.Id);
+        return new LegacyInstallationRepositorySelection(source.Id, storedRepositoryId, authoritative.Id);
     }
 
     public async Task<bool> TryVerifyForLinkAsync(
@@ -196,7 +196,8 @@ public sealed class GitHubInstallationRepositoryService : IGitHubInstallationRep
         Guid projectId,
         Guid sourceId,
         IReadOnlyList<LinkGitHubRepositoryRequestItem> repositories,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         var source = await _store.GetSourceAsync(sourceId, cancellationToken);
         if (source is null)
@@ -218,12 +219,11 @@ public sealed class GitHubInstallationRepositoryService : IGitHubInstallationRep
         var storedSelections = new List<InstallationRepositorySelection>(repositories.Count);
         foreach (var selection in repositories)
         {
-            var stored = await _store.GetSelectionAsync(
-                sourceId,
-                selection.GitHubRepositoryId,
-                cancellationToken)
+            var stored =
+                await _store.GetSelectionAsync(sourceId, selection.GitHubRepositoryId, cancellationToken)
                 ?? throw NotFound(
-                    "The selected repository was not offered by this GitHub App access source.");
+                    "The selected repository was not offered by this GitHub App access source."
+                );
             storedSelections.Add(stored);
         }
 
@@ -232,20 +232,23 @@ public sealed class GitHubInstallationRepositoryService : IGitHubInstallationRep
         // been granted the read-only permissions required by commits and pull requests.
         var installation = await _gitHubAppClient.GetInstallationAsync(
             source.InstallationId,
-            cancellationToken);
+            cancellationToken
+        );
         GitHubAppPermissionRequirements.EnsureSynchronizationReadPermissions(installation);
 
         // Token creation proves the installation is currently accessible by this GitHub App.
         var token = await _gitHubAppClient.CreateInstallationTokenAsync(
             source.InstallationId,
-            cancellationToken);
+            cancellationToken
+        );
 
         foreach (var storedSelection in storedSelections)
         {
             var authoritative = await GetAccessibleRepositoryAsync(
                 token,
                 storedSelection.GitHubRepositoryId,
-                cancellationToken);
+                cancellationToken
+            );
 
             if (authoritative.Id != storedSelection.GitHubRepositoryId)
             {
@@ -256,7 +259,8 @@ public sealed class GitHubInstallationRepositoryService : IGitHubInstallationRep
                 source.Id,
                 authoritative,
                 _timeProvider.GetUtcNow().UtcDateTime,
-                cancellationToken);
+                cancellationToken
+            );
             if (verifiedRepositoryId != storedSelection.Id)
             {
                 throw Conflict("The selected repository identity changed unexpectedly.");
@@ -269,7 +273,8 @@ public sealed class GitHubInstallationRepositoryService : IGitHubInstallationRep
                 source.InstallationId,
                 authoritative.Id,
                 source.AccessType,
-                userId);
+                userId
+            );
         }
 
         return true;
@@ -278,34 +283,27 @@ public sealed class GitHubInstallationRepositoryService : IGitHubInstallationRep
     private async Task<GitHubInstallationRepository> GetAccessibleRepositoryAsync(
         GitHubInstallationToken token,
         long repositoryId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         try
         {
-            return await _repositoryClient.GetAsync(
-                token,
-                repositoryId,
-                cancellationToken);
+            return await _repositoryClient.GetAsync(token, repositoryId, cancellationToken);
         }
         catch (ApiException exception) when (exception.StatusCode == StatusCodes.Status404NotFound)
         {
             throw NotFound(
-                "The selected repository is no longer accessible to this GitHub App installation.");
+                "The selected repository is no longer accessible to this GitHub App installation."
+            );
         }
     }
 
-    private static ApiException NotFound(string message) => new(
-        StatusCodes.Status404NotFound,
-        ErrorCodes.NotFound,
-        message);
+    private static ApiException NotFound(string message) =>
+        new(StatusCodes.Status404NotFound, ErrorCodes.NotFound, message);
 
-    private static ApiException Conflict(string message) => new(
-        StatusCodes.Status409Conflict,
-        ErrorCodes.Conflict,
-        message);
+    private static ApiException Conflict(string message) =>
+        new(StatusCodes.Status409Conflict, ErrorCodes.Conflict, message);
 
-    private static ApiException DependencyFailure(string message) => new(
-        StatusCodes.Status503ServiceUnavailable,
-        ErrorCodes.DependencyUnavailable,
-        message);
+    private static ApiException DependencyFailure(string message) =>
+        new(StatusCodes.Status503ServiceUnavailable, ErrorCodes.DependencyUnavailable, message);
 }

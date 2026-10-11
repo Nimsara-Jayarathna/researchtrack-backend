@@ -4,9 +4,7 @@ namespace ResearchTrack.MeetingService.Domain;
 
 public sealed class MeetingChannel
 {
-    private MeetingChannel()
-    {
-    }
+    private MeetingChannel() { }
 
     public Guid Id { get; private set; }
     public Guid ProjectId { get; private set; }
@@ -30,7 +28,8 @@ public sealed class MeetingChannel
         string linkOrIdentifier,
         Guid supervisorId,
         string supervisorName,
-        DateTimeOffset now)
+        DateTimeOffset now
+    )
     {
         return new MeetingChannel
         {
@@ -47,7 +46,7 @@ public sealed class MeetingChannel
             ApprovedByName = supervisorName,
             ApprovedAt = now,
             CreatedAt = now,
-            UpdatedAt = null
+            UpdatedAt = null,
         };
     }
 
@@ -58,7 +57,8 @@ public sealed class MeetingChannel
         string linkOrIdentifier,
         Guid studentId,
         string studentName,
-        DateTimeOffset now)
+        DateTimeOffset now
+    )
     {
         return new MeetingChannel
         {
@@ -75,14 +75,11 @@ public sealed class MeetingChannel
             ApprovedByName = null,
             ApprovedAt = null,
             CreatedAt = now,
-            UpdatedAt = null
+            UpdatedAt = null,
         };
     }
 
-    public void Update(
-        string channelName,
-        string linkOrIdentifier,
-        DateTimeOffset now)
+    public void Update(string channelName, string linkOrIdentifier, DateTimeOffset now)
     {
         ChannelName = channelName;
         LinkOrIdentifier = linkOrIdentifier;

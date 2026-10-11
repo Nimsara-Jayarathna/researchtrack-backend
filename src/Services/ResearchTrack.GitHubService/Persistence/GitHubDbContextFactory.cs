@@ -9,8 +9,7 @@ public sealed class GitHubDbContextFactory : IDesignTimeDbContextFactory<GitHubD
     public GitHubDbContext CreateDbContext(string[] args)
     {
         var optionsBuilder = new DbContextOptionsBuilder<GitHubDbContext>();
-        optionsBuilder.UseMySQL(
-            DesignTimeDatabase.CreateConnectionString("researchtrack_github_design"));
+        optionsBuilder.UseMySQL(DesignTimeDatabase.CreateConnectionString("researchtrack_github_design"));
 
         return new GitHubDbContext(optionsBuilder.Options);
     }

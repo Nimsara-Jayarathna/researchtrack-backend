@@ -20,7 +20,7 @@ public static class TrustedProxyForwarding
         "192.168.0.0/16",
         "100.64.0.0/10",
         "::1/128",
-        "fc00::/7"
+        "fc00::/7",
     ];
 
     public static IServiceCollection AddTrustedProxyForwarding(this IServiceCollection services)

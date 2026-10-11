@@ -1,8 +1,8 @@
 using Prometheus;
 using ResearchTrack.BuildingBlocks.Api.Extensions;
 using ResearchTrack.BuildingBlocks.Api.Security;
-using ResearchTrack.ProjectService.Persistence;
 using ResearchTrack.ProjectService.Extensions;
+using ResearchTrack.ProjectService.Persistence;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.ConfigureKestrel(options => options.AddServerHeader = false);

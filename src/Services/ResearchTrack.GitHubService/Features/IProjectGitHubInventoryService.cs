@@ -7,5 +7,6 @@ public interface IProjectGitHubInventoryService
     Task<ProjectGitHubRepositoryListingResponse> GetAsync(
         Guid userId,
         Guid projectId,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken
+    );
 }

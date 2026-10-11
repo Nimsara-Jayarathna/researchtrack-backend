@@ -5,4 +5,5 @@ public sealed record GitHubPublicRepositoryProbeResult(
     string Name,
     string FullName,
     string HtmlUrl,
-    string? DefaultBranch);
+    string? DefaultBranch
+);

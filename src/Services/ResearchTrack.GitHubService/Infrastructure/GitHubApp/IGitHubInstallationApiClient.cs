@@ -7,5 +7,6 @@ public interface IGitHubInstallationApiClient
     Task<JsonDocument> GetAsync(
         string relativePath,
         GitHubInstallationToken token,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken
+    );
 }

@@ -21,7 +21,12 @@ internal static class JiraSyncStateTransitions
         connection.UpdatedAt = now;
     }
 
-    public static void Fail(JiraConnection connection, DateTimeOffset now, bool authorizationFailure, string message)
+    public static void Fail(
+        JiraConnection connection,
+        DateTimeOffset now,
+        bool authorizationFailure,
+        string message
+    )
     {
         connection.SyncStatus = authorizationFailure ? "INVALID_AUTH" : "FAILED";
         connection.LastSyncError = Safe(message);

@@ -15,7 +15,8 @@ public sealed class GitHubEvidenceQueryService : IGitHubEvidenceQueryService
 
     public GitHubEvidenceQueryService(
         IDbContextFactory<GitHubDbContext> dbContextFactory,
-        IProjectAuthorizationClient projectAuthorization)
+        IProjectAuthorizationClient projectAuthorization
+    )
     {
         _dbContextFactory = dbContextFactory;
         _projectAuthorization = projectAuthorization;
@@ -27,12 +28,13 @@ public sealed class GitHubEvidenceQueryService : IGitHubEvidenceQueryService
         Guid linkedRepositoryId,
         int page,
         int size,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         await EnsureRepositoryAsync(projectId, linkedRepositoryId, page, size, cancellationToken);
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-        var query = dbContext.Commits
-            .AsNoTracking()
+        var query = dbContext
+            .Commits.AsNoTracking()
             .Where(item => item.RepositoryLinkId == linkedRepositoryId)
             .OrderByDescending(item => item.CommittedAt);
         var total = await query.CountAsync(cancellationToken);
@@ -50,7 +52,8 @@ public sealed class GitHubEvidenceQueryService : IGitHubEvidenceQueryService
                 item.HtmlUrl,
                 item.Additions,
                 item.Deletions,
-                item.ChangedFiles))
+                item.ChangedFiles
+            ))
             .ToListAsync(cancellationToken);
         return Page(items, page, size, total);
     }
@@ -61,12 +64,13 @@ public sealed class GitHubEvidenceQueryService : IGitHubEvidenceQueryService
         Guid linkedRepositoryId,
         int page,
         int size,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         await EnsureRepositoryAsync(projectId, linkedRepositoryId, page, size, cancellationToken);
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-        var query = dbContext.Contributors
-            .AsNoTracking()
+        var query = dbContext
+            .Contributors.AsNoTracking()
             .Where(item => item.RepositoryLinkId == linkedRepositoryId)
             .OrderByDescending(item => item.ObservedCommitCount)
             .ThenBy(item => item.Login);
@@ -86,7 +90,8 @@ public sealed class GitHubEvidenceQueryService : IGitHubEvidenceQueryService
                 item.ObservedChangedFiles,
                 item.FirstCommitAt,
                 item.LastCommitAt,
-                item.LastSyncedAt))
+                item.LastSyncedAt
+            ))
             .ToListAsync(cancellationToken);
         return Page(items, page, size, total);
     }
@@ -99,7 +104,8 @@ public sealed class GitHubEvidenceQueryService : IGitHubEvidenceQueryService
         int size,
         string? status,
         string? search,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         await EnsureRepositoryAsync(projectId, linkedRepositoryId, page, size, cancellationToken);
         var normalizedStatus = NormalizePullRequestStatus(status);
@@ -107,13 +113,13 @@ public sealed class GitHubEvidenceQueryService : IGitHubEvidenceQueryService
         if (normalizedSearch is { Length: > 200 })
         {
             throw new ApiValidationException([
-                new ApiFieldError("search", ["Pull request search text cannot exceed 200 characters."])
+                new ApiFieldError("search", ["Pull request search text cannot exceed 200 characters."]),
             ]);
         }
 
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-        var query = dbContext.PullRequests
-            .AsNoTracking()
+        var query = dbContext
+            .PullRequests.AsNoTracking()
             .Where(item => item.RepositoryLinkId == linkedRepositoryId);
 
         query = normalizedStatus switch
@@ -122,7 +128,7 @@ public sealed class GitHubEvidenceQueryService : IGitHubEvidenceQueryService
             "DRAFT" => query.Where(item => !item.IsMerged && item.IsDraft && item.State == "OPEN"),
             "MERGED" => query.Where(item => item.IsMerged),
             "CLOSED" => query.Where(item => !item.IsMerged && item.State == "CLOSED"),
-            _ => query
+            _ => query,
         };
 
         if (normalizedSearch is not null)
@@ -135,12 +141,11 @@ public sealed class GitHubEvidenceQueryService : IGitHubEvidenceQueryService
                 || (item.AuthorLogin != null && item.AuthorLogin.Contains(normalizedSearch))
                 || item.SourceBranch.Contains(normalizedSearch)
                 || item.TargetBranch.Contains(normalizedSearch)
-                || (hasNumber && item.Number == pullRequestNumber));
+                || (hasNumber && item.Number == pullRequestNumber)
+            );
         }
 
-        query = query
-            .OrderByDescending(item => item.UpdatedAt)
-            .ThenByDescending(item => item.Number);
+        query = query.OrderByDescending(item => item.UpdatedAt).ThenByDescending(item => item.Number);
 
         var total = await query.CountAsync(cancellationToken);
         var items = await query
@@ -169,7 +174,8 @@ public sealed class GitHubEvidenceQueryService : IGitHubEvidenceQueryService
                 item.ChangedFiles,
                 item.CommitsCount,
                 item.CommentsCount,
-                item.ReviewCommentsCount))
+                item.ReviewCommentsCount
+            ))
             .ToListAsync(cancellationToken);
         return Page(items, page, size, total);
     }
@@ -188,7 +194,7 @@ public sealed class GitHubEvidenceQueryService : IGitHubEvidenceQueryService
         }
 
         throw new ApiValidationException([
-            new ApiFieldError("status", ["Status must be one of: all, open, draft, merged, closed."])
+            new ApiFieldError("status", ["Status must be one of: all, open, draft, merged, closed."]),
         ]);
     }
 
@@ -198,12 +204,13 @@ public sealed class GitHubEvidenceQueryService : IGitHubEvidenceQueryService
         Guid linkedRepositoryId,
         int page,
         int size,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         await EnsureRepositoryAsync(projectId, linkedRepositoryId, page, size, cancellationToken);
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-        var query = dbContext.SyncRuns
-            .AsNoTracking()
+        var query = dbContext
+            .SyncRuns.AsNoTracking()
             .Where(item => item.RepositoryLinkId == linkedRepositoryId)
             .OrderByDescending(item => item.StartedAt);
         var total = await query.CountAsync(cancellationToken);
@@ -222,7 +229,8 @@ public sealed class GitHubEvidenceQueryService : IGitHubEvidenceQueryService
                 item.ReviewsFetched,
                 item.BranchesFetched,
                 item.ErrorCode,
-                item.ErrorMessage))
+                item.ErrorMessage
+            ))
             .ToListAsync(cancellationToken);
         return Page(items, page, size, total);
     }
@@ -232,33 +240,34 @@ public sealed class GitHubEvidenceQueryService : IGitHubEvidenceQueryService
         Guid linkedRepositoryId,
         int page,
         int size,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
-        if (projectId == Guid.Empty
-            || linkedRepositoryId == Guid.Empty
-            || page < 1
-            || size is < 1 or > 100)
+        if (projectId == Guid.Empty || linkedRepositoryId == Guid.Empty || page < 1 || size is < 1 or > 100)
         {
             throw new ApiValidationException([
-                new ApiFieldError("query", ["Valid project, repository, page, and size values are required."])
+                new ApiFieldError(
+                    "query",
+                    ["Valid project, repository, page, and size values are required."]
+                ),
             ]);
         }
 
         await _projectAuthorization.EnsureCanViewAsync(projectId, cancellationToken);
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-        var exists = await dbContext.ProjectRepositoryLinks
-            .AsNoTracking()
+        var exists = await dbContext
+            .ProjectRepositoryLinks.AsNoTracking()
             .AnyAsync(
-                item => item.Id == linkedRepositoryId
-                    && item.ProjectId == projectId
-                    && item.Active,
-                cancellationToken);
+                item => item.Id == linkedRepositoryId && item.ProjectId == projectId && item.Active,
+                cancellationToken
+            );
         if (!exists)
         {
             throw new ApiException(
                 StatusCodes.Status404NotFound,
                 ErrorCodes.NotFound,
-                "The linked GitHub repository was not found for this project.");
+                "The linked GitHub repository was not found for this project."
+            );
         }
     }
 

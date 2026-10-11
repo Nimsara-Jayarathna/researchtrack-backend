@@ -5,4 +5,5 @@ namespace ResearchTrack.AuthService.Features.Registration;
 public sealed record RegistrationCompletionResult(
     string AccessToken,
     string RefreshToken,
-    RegistrationCompleteResponse Response);
+    RegistrationCompleteResponse Response
+);
