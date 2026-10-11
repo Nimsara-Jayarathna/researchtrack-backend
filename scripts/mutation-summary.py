@@ -135,12 +135,18 @@ def weighted(results: list[Result]):
 
 
 def default_policy_path(root: Path) -> Path:
-    repo = root.resolve().parents[1] if root.name == "mutation" and root.parent.name == "artifacts" else Path.cwd()
+    # Resolve from this script's repository location rather than from the artifact
+    # path. This is robust under Windows Git Bash/MSYS, where an argument such as
+    # /e/Projects/... is not interpreted by native Windows Python the same way
+    # Bash interprets it.
+    repo = Path(__file__).resolve().parents[1]
     return repo / "config" / "testing" / "mutation-policy.json"
 
 
-def load_policy(path: Path) -> dict:
+def load_policy(path: Path, *, required: bool = False) -> dict:
     if not path.exists():
+        if required:
+            raise FileNotFoundError(f"Mutation regression policy not found: {path}")
         return {"overallFloor": None, "serviceFloors": {}}
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -158,7 +164,7 @@ def main() -> int:
     root = Path(args.artifact_root)
     root.mkdir(parents=True, exist_ok=True)
     policy_path = Path(args.policy) if args.policy else default_policy_path(root)
-    policy = load_policy(policy_path)
+    policy = load_policy(policy_path, required=args.enforce)
     service_floors: dict[str, float] = {k: float(v) for k, v in policy.get("serviceFloors", {}).items()}
     overall_floor = policy.get("overallFloor")
     overall_floor = float(overall_floor) if overall_floor is not None else None
@@ -172,6 +178,7 @@ def main() -> int:
         "# ResearchTrack Mutation Testing — Final Project-Wide Business-Logic Evidence",
         "",
         f"Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}",
+        f"Regression policy: `{policy_path}`",
         "",
         "Mutation testing is intentionally scoped to high-value validation, authorization, security, state-transition, workflow, synchronization, and orchestration logic. Controllers, DTO-only contracts, generated code, migrations, and routine persistence/transport plumbing are excluded from the mutation denominator.",
         "",

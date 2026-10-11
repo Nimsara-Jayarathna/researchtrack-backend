@@ -185,9 +185,9 @@ if (( ${#PYTHON_CMD[@]} == 0 )); then
   echo "WARNING: Python 3 was not found; Stryker reports are complete, but mutation-summary.md was not regenerated." >&2
 else
   if [[ "$TARGET" == "all" ]]; then
-    "${PYTHON_CMD[@]}" "${ROOT_DIR}/scripts/mutation-summary.py" "$ARTIFACT_ROOT" --enforce
+    "${PYTHON_CMD[@]}" "${ROOT_DIR}/scripts/mutation-summary.py" "$ARTIFACT_ROOT" --policy "${ROOT_DIR}/config/testing/mutation-policy.json" --enforce
   else
-    "${PYTHON_CMD[@]}" "${ROOT_DIR}/scripts/mutation-summary.py" "$ARTIFACT_ROOT"
+    "${PYTHON_CMD[@]}" "${ROOT_DIR}/scripts/mutation-summary.py" "$ARTIFACT_ROOT" --policy "${ROOT_DIR}/config/testing/mutation-policy.json"
   fi
 fi
 
