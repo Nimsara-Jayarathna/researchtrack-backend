@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Isolated SonarQube Cloud .NET 10 scan. No test/coverage/mutation/k6 execution.
+# Isolated SonarQube Cloud .NET 10 scan + existing unit-test coverage import.
+# No mutation, load, or unrelated CI workflows are modified.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
@@ -13,7 +14,7 @@ SCANNER="$TOOL_DIR/dotnet-sonarscanner"
 
 usage() {
   cat <<'USAGE'
-ResearchTrack SonarQube Cloud — build-aware production .NET scan
+ResearchTrack SonarQube Cloud — build-aware production .NET scan with unit coverage
 
   bash ./scripts/code-quality/sonar-cloud.sh doctor
   bash ./scripts/code-quality/sonar-cloud.sh setup
@@ -26,7 +27,7 @@ Optional:
   SONAR_REGION=us (EU/sonarcloud.io is the default)
   SONAR_ENFORCE_GATE=true (default false during initial baselining)
 
-Run on the main branch for the first real analysis. No other test workflows run.
+Run from main. The scanner itself collects existing unit test coverage; it never runs mutation/load workflows.
 USAGE
 }
 if [[ "$MODE" == help || "$MODE" == -h || "$MODE" == --help ]]; then usage; exit 0; fi
@@ -53,6 +54,23 @@ PROJECTS=(
 for proj in "${PROJECTS[@]}"; do
   [[ -f "$ROOT/$proj" ]] || { echo "ERROR: missing production project $proj" >&2; exit 2; }
 done
+# Existing xUnit v3 projects already reference coverlet.collector; no changes
+# to unit test projects, other students' test code, or their CI jobs required.
+TEST_PROJECTS=(
+  'tests/ResearchTrack.AuthService.Tests/ResearchTrack.AuthService.Tests.csproj'
+  'tests/ResearchTrack.Gateway.Tests/ResearchTrack.Gateway.Tests.csproj'
+  'tests/ResearchTrack.GitHubService.Tests/ResearchTrack.GitHubService.Tests.csproj'
+  'tests/ResearchTrack.JiraService.Tests/ResearchTrack.JiraService.Tests.csproj'
+  'tests/ResearchTrack.MeetingService.Tests/ResearchTrack.MeetingService.Tests.csproj'
+  'tests/ResearchTrack.ProjectService.Tests/ResearchTrack.ProjectService.Tests.csproj'
+  'tests/ResearchTrack.SubmissionService.Tests/ResearchTrack.SubmissionService.Tests.csproj'
+)
+for proj in "${TEST_PROJECTS[@]}"; do
+  [[ -f "$ROOT/$proj" ]] || { echo "ERROR: missing unit test project $proj" >&2; exit 2; }
+  grep -q 'PackageReference Include="coverlet.collector"' "$ROOT/$proj" || {
+    echo "ERROR: $proj is missing coverlet.collector" >&2; exit 2;
+  }
+done
 mapfile -d '' FOUND < <(find src -name '*.csproj' -type f -print0 | sort -z)
 [[ "${#FOUND[@]}" == 8 ]] || { echo "ERROR: expected exactly 8 production projects, found ${#FOUND[@]}" >&2; exit 2; }
 
@@ -64,7 +82,7 @@ if [[ "$MODE" == doctor || "$MODE" == scan ]]; then
   case "${SONAR_ENFORCE_GATE:-false}" in true|false|'') ;; *) echo 'ERROR: SONAR_ENFORCE_GATE must be true or false' >&2; exit 2 ;; esac
 fi
 if [[ "$MODE" == doctor ]]; then
-  echo "PASS: .NET $SDK; eight production projects; SonarQube credentials available (values hidden)."
+  echo "PASS: .NET $SDK; eight production projects; seven existing coverlet-enabled unit suites; SonarQube credentials available (values hidden)."
   echo "Region: ${SONAR_REGION:-eu}; gate enforcement: ${SONAR_ENFORCE_GATE:-false}"
   exit 0
 fi
@@ -98,19 +116,27 @@ REPORT="$ROOT/artifacts/code-quality/sonar/$RUN"
 mkdir -p "$REPORT"
 install_scanner
 
-# Pre-restore outside the SonarScanner hooks. Do not restore tests or tools.
-# Only eight production projects are passed to `dotnet restore` / `dotnet build`.
-for proj in "${PROJECTS[@]}"; do
+# Pre-restore outside the SonarScanner hooks to avoid scanner-instrumented restores.
+# Restore production and existing unit test dependencies; no mutation suites.
+for proj in "${PROJECTS[@]}" "${TEST_PROJECTS[@]}"; do
   echo "Restoring $proj"
   dotnet restore "$proj" --nologo \
     -p:TreatWarningsAsErrors=false -p:CodeAnalysisTreatWarningsAsErrors=false
 done
 
+# The reports are emitted later by coverlet (format=opencover), while the
+# scanner is active, and SonarQube imports only actual reported execution.
+COVERAGE_DIR="$REPORT/coverage"
+# A repeated local run ID must not accept stale reports from an earlier run.
+rm -rf "$COVERAGE_DIR"
+rm -f "$REPORT/report-task.txt"
+mkdir -p "$COVERAGE_DIR"
 BEGIN=(
   begin "/k:${SONAR_PROJECT_KEY}" "/o:${SONAR_ORGANIZATION}"
   "/d:sonar.token=${SONAR_TOKEN}"
   '/d:sonar.dotnet.excludeTestProjects=true'
   '/d:sonar.scanner.scanAll=false'
+  "/d:sonar.cs.opencover.reportsPaths=artifacts/code-quality/sonar/$RUN/coverage/**/coverage.opencover.xml"
   '/d:sonar.exclusions=**/Migrations/**,**/*.Designer.cs,**/*.g.cs,**/*.generated.cs,**/obj/**,**/bin/**'
   "/d:sonar.qualitygate.wait=${SONAR_ENFORCE_GATE:-false}"
   '/d:sonar.qualitygate.timeout=600'
@@ -132,6 +158,47 @@ for proj in "${PROJECTS[@]}"; do
     -p:TreatWarningsAsErrors=false -p:CodeAnalysisTreatWarningsAsErrors=false
 done
 
-echo 'SonarScanner end: submitting findings to SonarQube Cloud'
+# Unit execution happens between scanner begin/end. SonarQube reads OpenCover
+# files at `end`. Fail closed if any suite or its report is missing.
+COVERAGE_MANIFEST="$REPORT/coverage-files.txt"
+: > "$COVERAGE_MANIFEST"
+for proj in "${TEST_PROJECTS[@]}"; do
+  name="$(basename "$proj" .csproj)"
+  destination="$COVERAGE_DIR/$name"
+  mkdir -p "$destination"
+  echo "Coverage test suite: $name (existing unit/mocking tests only)"
+  dotnet test "$proj" -c Release --no-restore --nologo \
+    -p:TreatWarningsAsErrors=false -p:CodeAnalysisTreatWarningsAsErrors=false \
+    --filter 'Category!=DatabaseIntegration' \
+    --collect:'XPlat Code Coverage;Format=opencover' \
+    --results-directory "$destination"
+  mapfile -d '' REPORTS < <(find "$destination" -type f -name 'coverage.opencover.xml' -print0)
+  if (( ${#REPORTS[@]} != 1 )) || [[ ! -s "${REPORTS[0]:-}" ]]; then
+    echo "ERROR: Expected one non-empty OpenCover report for $name, found ${#REPORTS[@]}." >&2
+    exit 1
+  fi
+  if ! grep -q '<CoverageSession' "${REPORTS[0]}"; then
+    echo "ERROR: Invalid OpenCover document from $name (missing CoverageSession)." >&2
+    exit 1
+  fi
+  printf '%s\n' "${REPORTS[0]#"$ROOT/"}" >> "$COVERAGE_MANIFEST"
+done
+if [[ "$(wc -l < "$COVERAGE_MANIFEST")" != "${#TEST_PROJECTS[@]}" ]]; then
+  echo 'ERROR: coverage manifest does not include all seven suites' >&2; exit 1
+fi
+{
+  echo '# SonarQube unit coverage collection evidence'
+  echo
+  printf 'Existing test suites executed: **%d**\n\n' "${#TEST_PROJECTS[@]}"
+  echo 'Format: **OpenCover XML** collected with `coverlet.collector`.'
+  echo 'Filter: `Category!=DatabaseIntegration` (same as existing group unit workflow).'
+  echo 'Reports are imported by `sonar.cs.opencover.reportsPaths` at SonarScanner end.'
+  echo 'This file records collector output, not an estimated coverage percentage.'
+  echo
+  echo 'Reports:'
+  while IFS= read -r file; do printf -- '- `%s`\n' "$file"; done < "$COVERAGE_MANIFEST"
+} > "$REPORT/coverage-collection-summary.md"
+echo "PASS: ${#TEST_PROJECTS[@]} genuine OpenCover reports generated."
+echo 'SonarScanner end: submitting analysis and importing coverage to SonarQube Cloud'
 "$SCANNER" end "/d:sonar.token=${SONAR_TOKEN}"
-echo 'PASS: SonarScanner analysis submitted. Review metrics after cloud processing.'
+echo 'PASS: SonarScanner analysis submitted. Review actual coverage and gate after cloud processing.'

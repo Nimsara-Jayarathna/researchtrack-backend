@@ -55,7 +55,7 @@ PROJECT="${SONAR_PROJECT_KEY:-$(sed -n 's/^projectKey=//p' "$TASKFILE" | head -1
 [[ -n "$PROJECT" ]] || { echo 'ERROR: project key missing from metadata and environment' >&2; exit 1; }
 curl --fail --silent --show-error --retry 2 -H "$AUTH" --get \
   --data-urlencode "component=$PROJECT" \
-  --data-urlencode 'metricKeys=ncloc,complexity,cognitive_complexity,duplicated_lines_density,code_smells,sqale_index' \
+  --data-urlencode 'metricKeys=ncloc,complexity,cognitive_complexity,duplicated_lines_density,code_smells,sqale_index,coverage,new_coverage' \
   "$HOST/api/measures/component" -o "$REPORT/measures.json"
 
 summary="$REPORT/sonarqube-summary.md"
@@ -76,15 +76,34 @@ summary="$REPORT/sonarqube-summary.md"
     'cognitive_complexity:Cognitive complexity' \
     'duplicated_lines_density:Duplicated lines (%)' \
     'code_smells:Code smells' \
-    'sqale_index:Technical debt (minutes)'; do
+    'sqale_index:Technical debt (minutes)' \
+    'coverage:Overall test coverage (%)' \
+    'new_coverage:Coverage on new code (%)'; do
     key="${item%%:*}" label="${item#*:}"
-    value="$(jq -r --arg k "$key" '[.component.measures[]? | select(.metric == $k) | .value] | first // "not reported"' "$REPORT/measures.json")"
-    printf '| %s | %s |\n' "$label" "$value"
+    value="$(jq -r --arg k "$key" '[.component.measures[]? | select(.metric == $k) | (.value // .period.value // .periods[0].value)] | first // empty' "$REPORT/measures.json")"
+    # For new-code values, the quality-gate condition is the authoritative
+    # fallback when the measures API represents a metric only as a period.
+    if [[ -z "$value" && "$key" == new_coverage ]]; then
+      value="$(jq -r '[.projectStatus.conditions[]? | select(.metricKey == "new_coverage") | .actualValue] | first // empty' "$REPORT/quality-gate.json")"
+    fi
+    printf '| %s | %s |\n' "$label" "${value:-not reported}"
   done
   echo
   echo 'Quality-gate enforcement is controlled by the GitHub Actions variable `SONAR_ENFORCE_GATE`.'
   echo 'This evidence is from the finished cloud analysis, not locally estimated metrics.'
   echo 'Raw JSON files: `ce-task.json`, `quality-gate.json`, `measures.json`.'
+  if [[ -s "$REPORT/coverage-files.txt" ]]; then
+    printf 'Coverage reports produced: **%d** (existing unit-test suites).\n' "$(wc -l < "$REPORT/coverage-files.txt")"
+    echo 'See `coverage-collection-summary.md` and `coverage/` for OpenCover evidence.'
+  fi
+  echo
+  echo '### Quality gate conditions (actual analysis)'
+  echo
+  echo '| Condition | Status | Actual | Threshold |'
+  echo '|---|---|---:|---:|'
+  jq -r '.projectStatus.conditions[]? | "| \(.metricKey) | \(.status) | \(.actualValue // "not reported") | \(.errorThreshold // "not set") |"' "$REPORT/quality-gate.json"
+  echo
+  printf 'Small-change conditions ignored: `%s`\n' "$(jq -r '.projectStatus.ignoredConditions // false' "$REPORT/quality-gate.json")"
 } > "$summary"
 if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then cat "$summary" >> "$GITHUB_STEP_SUMMARY"; fi
 cat "$summary"

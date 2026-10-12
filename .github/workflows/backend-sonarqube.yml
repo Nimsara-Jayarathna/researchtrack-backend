@@ -58,7 +58,7 @@ jobs:
         shell: bash
         run: bash ./scripts/code-quality/sonar-cloud.sh setup
 
-      - name: Restore and analyze all 8 production projects
+      - name: Analyze 8 production projects and collect OpenCover from 7 existing unit suites
         shell: bash
         run: bash ./scripts/code-quality/sonar-cloud.sh scan ci
 
@@ -73,7 +73,7 @@ jobs:
             echo 'Scanner did not upload an analysis; see the scan logs.' >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      - name: Upload SonarQube analysis evidence
+      - name: Upload SonarQube analysis and unit coverage evidence
         if: always()
         uses: actions/upload-artifact@v6
         with:
