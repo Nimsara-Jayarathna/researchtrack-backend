@@ -13,6 +13,28 @@ namespace ResearchTrack.JiraService.Tests.Features;
 
 public sealed class JiraWebhookServiceTests
 {
+    [Theory]
+    [InlineData("[]")]
+    [InlineData("\"payload\"")]
+    [InlineData("42")]
+    [InlineData("true")]
+    [InlineData("null")]
+    [InlineData("{")]
+    [InlineData("[")]
+    [InlineData("")]
+    public async Task ReceiveAsync_MalformedAuthenticatedPayload_IsRejectedBeforePersistence(string payload)
+    {
+        var setup = Setup();
+        var error = await Assert.ThrowsAsync<ResearchTrack.BuildingBlocks.Api.Exceptions.ApiException>(() =>
+            setup.Service.ReceiveAsync(Bearer(setup.Options.ClientSecret), "delivery-1", payload,
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(400, error.StatusCode);
+        Assert.Empty(setup.Scheduler.Requests);
+        await using var db = setup.Factory.CreateDbContext();
+        Assert.Empty(db.JiraWebhookEvents);
+    }
+
     [Fact]
     public async Task ReceiveAsync_MissingBearer_ReturnsFalseWithoutQueueing()
     {

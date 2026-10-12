@@ -40,15 +40,30 @@ case "$args" in
     exit 1 ;;
   "deployment group create"*) touch "$STUB_DIR/rollout-attempted"; exit "${STUB_ROLLOUT_EXIT:-99}" ;;
   "containerapp revision show"*)
-    if [[ "$args" == *"--query properties.active"* ]]; then echo true; exit 0; fi
+    if [[ "$args" == *"--query properties.active"* ]]; then
+      previous=""; revision=""
+      for arg in "$@"; do [[ "$previous" != --revision ]] || revision="$arg"; previous="$arg"; done
+      if [[ -f "$STUB_DIR/active-$revision" ]]; then cat "$STUB_DIR/active-$revision"; else echo true; fi
+      exit 0
+    fi
     [[ "${STUB_REVISION_READ_FAIL:-false}" != true ]] || { echo 'Synthetic revision read failure' >&2; exit 1; }
     while [[ $# -gt 0 && "$1" != "-n" ]]; do shift; done
-    jq '{properties:{provisioningState:"Provisioned", healthState:"Healthy",runningState:"Running", template:.properties.template}}' "$STUB_DIR/apps/$2.json" ;;
+    jq --arg health "${STUB_HEALTH:-Healthy}" --arg provisioning "${STUB_PROVISIONING:-Provisioned}" \
+      --arg mismatch "${STUB_IMAGE_MISMATCH:-false}" \
+      '{properties:{provisioningState:$provisioning, healthState:$health,runningState:"Running", template:.properties.template}} |
+       if $mismatch == "true" then .properties.template.containers[0].image="example.invalid/wrong@sha256:0000" else . end' "$STUB_DIR/apps/$2.json" ;;
+  "containerapp revision activate"*|"containerapp revision deactivate"*)
+    previous=""; revision=""
+    for arg in "$@"; do [[ "$previous" != --revision ]] || revision="$arg"; previous="$arg"; done
+    [[ "$3" != activate ]] || echo true > "$STUB_DIR/active-$revision"
+    [[ "$3" != deactivate ]] || echo false > "$STUB_DIR/active-$revision" ;;
   "containerapp logs show"*) exit 0 ;;
   "containerapp show"*)
     while [[ $# -gt 0 && "$1" != "-n" ]]; do shift; done
     [[ -f "$STUB_DIR/apps/$2.json" ]] || { echo "ResourceNotFound" >&2; exit 3; }
-    cat "$STUB_DIR/apps/$2.json"
+    if [[ "${STUB_NEW_REVISION:-false}" == true && -f "$STUB_DIR/rollout-attempted" ]]; then
+      jq '.properties.latestRevisionName="rt-gateway-prod--new"' "$STUB_DIR/apps/$2.json"
+    else cat "$STUB_DIR/apps/$2.json"; fi
     ;;
   *) echo "unexpected az call: $args" >&2; exit 99 ;;
 esac
@@ -66,6 +81,11 @@ case "$format" in
 esac
 STUB
 chmod +x "$work/bin/az" "$work/bin/docker"
+cat > "$work/bin/sleep" <<'STUB'
+#!/bin/sh
+echo "$*" >> "$STUB_DIR/sleeps"
+STUB
+chmod +x "$work/bin/sleep"
 
 tag_for() { echo "src-$(printf '%s' "$1" | shasum | cut -c1-40)"; }
 digest_for() { echo "sha256:$(printf 'new-%s' "$1" | shasum -a 256 | cut -c1-64)"; }
@@ -131,7 +151,7 @@ run_deployer() {
 fail() { echo "FAIL: $*" >&2; echo "--- output:" >&2; cat "$work/out" >&2; exit 1; }
 pass() { echo "ok - $*"; }
 
-reset_state() { rm -f "$work/apps/"* "$work/images/"*; }
+reset_state() { rm -f "$work/apps/"* "$work/images/"* "$work/rollout-attempted" "$work/"active-* "$work/sleeps"; }
 
 # 1. The incident: apps run old digests, only gateway was rebuilt in this run.
 #    Every service must still move to the image for its current source.
@@ -260,6 +280,27 @@ run_deployer env IMAGE_TAGS="$(image_tags)" PLAN_ONLY=false STUB_ROLLOUT_EXIT=0 
 grep -q 'Application deployment: PASS; 1 changed applications' "$work/summary.md" || fail "successful rollout not reported"
 pass "successful ARM and healthy matching revision still report deployment success"
 
+for mode in failed unhealthy wrong-image; do
+  rm -f "$work/rollout-attempted" "$work/"active-* "$work/sleeps"
+  case "$mode" in
+    failed) extra=(STUB_NEW_REVISION=true STUB_PROVISIONING=Failed) ;;
+    unhealthy) extra=(STUB_NEW_REVISION=true STUB_HEALTH=Unhealthy) ;;
+    wrong-image) extra=(STUB_IMAGE_MISMATCH=true) ;;
+  esac
+  if run_deployer env IMAGE_TAGS="$(image_tags)" PLAN_ONLY=false STUB_ROLLOUT_EXIT=0 "${extra[@]}"; then fail "$mode revision accepted"; fi
+  grep -q 'Application deployment: FAIL' "$work/summary.md" || fail "$mode revision reported success"
+  grep -q 'kept on previous healthy revision rt-gateway-prod--old' "$work/out" || fail "$mode lost previous revision"
+  if [[ "$mode" == unhealthy ]]; then
+    [[ "$(wc -l < "$work/sleeps" | tr -d ' ')" == 60 ]] || fail "revision wait was not bounded to 60 polls"
+    grep -q 'Timed out waiting for rt-gateway-prod revision' "$work/out" || fail "timeout phase absent"
+  fi
+  if [[ "$mode" != wrong-image ]]; then
+    [[ "$(cat "$work/active-rt-gateway-prod--new")" == false ]] || fail "$mode revision not deactivated"
+  fi
+  [[ ! -d "$work/specs" ]] || fail "secret-bearing rendered specs retained after $mode"
+  pass "$mode revision fails, retains previous revision and removes rendered specs"
+done
+
 # 10. Rollback is idempotent: an already-active previous revision is success.
 rollback_fns="$(sed -n '/^revision_active() {/,/^}/p; /^set_revision_active() {/,/^}/p; /^rollback() {/,/^}/p' "$deployer")"
 cat > "$work/bin/az" <<'STUB'
@@ -272,9 +313,12 @@ state_file="$STUB_DIR/revisions/$revision"
 case "$2 $3" in
   "revision show") cat "$state_file" ;;
   "revision activate")
+    [[ "${STUB_ACTIVATE_FAIL:-false}" != true ]] || exit 7
     [[ "$(cat "$state_file")" == true ]] && { echo "ERROR: (RevisionAlreadyInRequestedState) Revision $revision is already active!" >&2; exit 1; }
+    [[ "${STUB_NO_STATE_CHANGE:-false}" != true ]] || exit 0
     echo true > "$state_file" ;;
   "revision deactivate")
+    [[ "${STUB_DEACTIVATE_FAIL:-false}" != true ]] || exit 7
     [[ "$(cat "$state_file")" == false ]] && { echo "ERROR: (RevisionAlreadyInRequestedState) Revision $revision is already inactive!" >&2; exit 1; }
     echo false > "$state_file" ;;
   *) echo "unexpected az call: $*" >&2; exit 99 ;;
@@ -288,9 +332,12 @@ run_rollback() {
     set -Eeuo pipefail
     summary=/dev/null
     declare -A previous_revision=([jira]=rt-jira-prod--prev) target_image=([jira]=img) deploy_reason=([jira]=r) source_commit=([jira]=c)
-    summary_row() { :; }
+    if [[ "${STUB_NO_PREVIOUS:-false}" == true ]]; then previous_revision[jira]=""; fi
+    summary_row() { echo "summary action: $2"; }
     '"$rollback_fns"'
-    rollback jira rt-jira-prod rt-jira-prod--new' > "$work/out" 2>&1
+    failed=rt-jira-prod--new
+    if [[ "${STUB_UNKNOWN_FAILED:-false}" == true ]]; then failed=""; fi
+    rollback jira rt-jira-prod "$failed"' > "$work/out" 2>&1
 }
 echo true > "$work/revisions/rt-jira-prod--prev"; echo true > "$work/revisions/rt-jira-prod--new"
 run_rollback || fail "rollback with previous already active failed"
@@ -306,5 +353,25 @@ run_rollback || fail "rollback with inactive previous failed"
 [[ "$(cat "$work/revisions/rt-jira-prod--prev")" == true ]] || fail "previous revision not re-activated"
 grep -q 'revision deactivate' "$work/az.log" && fail "deactivate called for an already-inactive revision"
 pass "rollback re-activates an inactive previous revision"
+
+for mode in activation-failure deactivation-failure no-state-change; do
+  echo false > "$work/revisions/rt-jira-prod--prev"; echo true > "$work/revisions/rt-jira-prod--new"
+  case "$mode" in
+    activation-failure) export STUB_ACTIVATE_FAIL=true ;;
+    deactivation-failure) export STUB_DEACTIVATE_FAIL=true ;;
+    no-state-change) export STUB_NO_STATE_CHANGE=true ;;
+  esac
+  run_rollback || fail "rollback diagnostics aborted for $mode"
+  grep -q 'summary action: .*rollback incomplete' "$work/out" || fail "$mode falsely claimed completed rollback"
+  unset STUB_ACTIVATE_FAIL STUB_DEACTIVATE_FAIL STUB_NO_STATE_CHANGE
+  pass "$mode is reported as incomplete revision recovery"
+done
+
+STUB_NO_PREVIOUS=true run_rollback || fail "missing-target diagnostics aborted"
+grep -q 'summary action: .*no previous healthy revision' "$work/out" || fail "missing target claimed rollback success"
+pass "first deployment failure explicitly reports no previous revision"
+STUB_UNKNOWN_FAILED=true run_rollback || fail "unknown-revision diagnostics aborted"
+grep -q 'summary action: .*rollback incomplete' "$work/out" || fail "unknown failed revision claimed complete recovery"
+pass "unknown failed revision requires manual verification"
 
 echo "All deploy image-selection tests passed."

@@ -104,10 +104,12 @@ jobs:
             [[ -n "${!key:-}" ]] || { echo "$key is not configured for the production environment." >&2; exit 1; }
           done
           # runner.temp is not available in job-level env.
-          echo "ENV_DIR=$RUNNER_TEMP/researchtrack-env" >> "$GITHUB_ENV"
-          echo "WORK_DIR=$RUNNER_TEMP/researchtrack-specs" >> "$GITHUB_ENV"
-          echo "RUNTIME_STATE_FILE=$RUNNER_TEMP/researchtrack-runtime-before-deploy.json" >> "$GITHUB_ENV"
-          echo "RUNTIME_ACTIVE_FILE=$RUNNER_TEMP/researchtrack-runtime-deploy.active" >> "$GITHUB_ENV"
+          {
+            echo "ENV_DIR=$RUNNER_TEMP/researchtrack-env"
+            echo "WORK_DIR=$RUNNER_TEMP/researchtrack-specs"
+            echo "RUNTIME_STATE_FILE=$RUNNER_TEMP/researchtrack-runtime-before-deploy.json"
+            echo "RUNTIME_ACTIVE_FILE=$RUNNER_TEMP/researchtrack-runtime-deploy.active"
+          } >> "$GITHUB_ENV"
 
       - name: Materialize environment files
         shell: bash

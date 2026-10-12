@@ -207,6 +207,58 @@ public static class IsolatedKafkaFixture
         await SaveEvidenceAsync(options.Service + "-recovered", registry, ct);
     }
 
+    // Prove an acknowledged backlog survives an ordinary stop/start before any
+    // business consumer reads it. Inspect offsets only; never assign/seek/reset.
+    public static async Task<Offset> VerifyRetainedBatchRestartAsync(KafkaRuntimeOptions options,
+        int count, CancellationToken ct)
+    {
+        Require(Enabled && options.BootstrapServers == "localhost:19092" && count is > 0 and <= 256,
+            "Retained-batch restart requires the bounded disposable fixture.");
+        var partition = new TopicPartition(options.Topic, new Partition(0));
+        using var reader = Factory(options).CreateConsumer();
+        var before = await ReadBrokerAsync(() => reader.QueryWatermarkOffsets(partition, TimeSpan.FromSeconds(3)), ct);
+        var committed = await ReadBrokerAsync(() => reader.Committed([partition], TimeSpan.FromSeconds(3)).Single().Offset, ct);
+        var first = new Offset(before.High.Value - count);
+        Require(first.Value >= before.Low.Value && committed == first,
+            "Expected the complete acknowledged batch immediately after the committed group offset.");
+        var beforeSnapshot = await ControlBrokerAsync("snapshot", ct);
+        try { await ControlBrokerAsync("stop", ct); }
+        finally
+        {
+            using var recovery = new CancellationTokenSource(TimeSpan.FromMinutes(4));
+            await ControlBrokerAsync("start", recovery.Token);
+        }
+        var after = await ReadBrokerAsync(() => reader.QueryWatermarkOffsets(partition, TimeSpan.FromSeconds(3)), ct);
+        var afterCommit = await ReadBrokerAsync(() => reader.Committed([partition], TimeSpan.FromSeconds(3)).Single().Offset, ct);
+        Require(before.Low == after.Low && before.High == after.High && committed == afterCommit,
+            "Restart changed retained log boundaries or committed group offsets.");
+        var afterSnapshot = await ControlBrokerAsync("snapshot", ct);
+        using (var original = JsonDocument.Parse(beforeSnapshot))
+        using (var recovered = JsonDocument.Parse(afterSnapshot))
+        {
+            Require(original.RootElement.GetProperty("metadata_sha256").GetString() ==
+                recovered.RootElement.GetProperty("metadata_sha256").GetString(), "Restart changed persisted KRaft metadata.");
+            var originalContainers = original.RootElement.GetProperty("containers");
+            var recoveredContainers = recovered.RootElement.GetProperty("containers");
+            Require(originalContainers.GetProperty("kafka").GetString()!.Split(' ')[0] ==
+                recoveredContainers.GetProperty("kafka").GetString()!.Split(' ')[0], "Restart recreated the broker container.");
+            foreach (var service in new[] { "mysql", "prometheus", "metric-snapshots" })
+                Require(originalContainers.GetProperty(service).GetString() == recoveredContainers.GetProperty(service).GetString(),
+                    "Unrelated fixture dependency restarted: " + service);
+        }
+        await WaitForMetricAsync("researchtrack_kafka_broker_healthy", x => x == 1, ct);
+        await WaitForMetricAsync("absent(ALERTS{alertname=~\"ResearchTrackKafka(Broker|Exporter)Unavailable\",alertstate=\"firing\"})", x => x == 1, ct);
+        await WriteEvidenceAsync(options.Service + "-retained-restart", new
+        {
+            topic = options.Topic, group = options.ConsumerGroupId, acknowledgedRecords = count,
+            firstOffset = first.Value, beforeLow = before.Low.Value, beforeHigh = before.High.Value,
+            afterLow = after.Low.Value, afterHigh = after.High.Value,
+            committedBefore = committed.Value, committedAfter = afterCommit.Value,
+            sameBrokerContainer = true, metadataPreserved = true, unrelatedContainersPreserved = true
+        }, ct);
+        return first;
+    }
+
     public static async Task<TopicPartitionOffset> RecoverConsumerCommitAsync(
         IKafkaClientFactory factory, KafkaRuntimeOptions options, Microsoft.Extensions.DependencyInjection.IServiceScopeFactory businessScopes,
         KafkaMetrics metrics, Prometheus.CollectorRegistry registry, CancellationToken ct)
@@ -303,7 +355,8 @@ public static class IsolatedKafkaFixture
         foreach (var path in new[] { "/health/live", "/health/ready", "/swagger/v1/swagger.json" })
         {
             using var response = await client.GetAsync(path, ct);
-            Require(response.StatusCode == HttpStatusCode.OK, "Unrelated HTTP route unavailable: " + path);
+            Require(response.StatusCode == HttpStatusCode.OK,
+                $"Unrelated HTTP route unavailable: {path} returned {(int)response.StatusCode} {response.ReasonPhrase}.");
             evidence[path] = (int)response.StatusCode;
             if (path == "/health/ready")
             {

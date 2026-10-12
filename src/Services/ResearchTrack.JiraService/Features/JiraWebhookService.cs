@@ -9,6 +9,8 @@ using ResearchTrack.JiraService.Domain;
 using ResearchTrack.JiraService.Infrastructure;
 using ResearchTrack.JiraService.Persistence;
 using ResearchTrack.BuildingBlocks.Kafka;
+using ResearchTrack.BuildingBlocks.Api.Constants;
+using ResearchTrack.BuildingBlocks.Api.Exceptions;
 
 namespace ResearchTrack.JiraService.Features;
 
@@ -58,7 +60,7 @@ public sealed class JiraWebhookService : IJiraWebhookService
                 return false;
             }
 
-            using var doc=JsonDocument.Parse(payload);
+            using var doc=ParseWebhookPayload(payload);
             var root=doc.RootElement;
             var eventType=Get(root,"webhookEvent")??Get(root,"issue_event_type_name")??"unknown";
             var metricEvent=JiraOperationalMetrics.Event(eventType);
@@ -149,6 +151,15 @@ public sealed class JiraWebhookService : IJiraWebhookService
             {
                 var eventDeliveryId=BuildProjectDeliveryId(baseDeliveryId,connection.ResearchProjectId,targetList.Count);
                 var existing=await db.JiraWebhookEvents.SingleOrDefaultAsync(x=>x.DeliveryId==eventDeliveryId,ct);
+                if(existing is not null &&
+                    (existing.CloudId!=connection.CloudId || existing.ResearchProjectId!=connection.ResearchProjectId) &&
+                    !(existing.Status=="IGNORED" && existing.CloudId=="unknown" && existing.ResearchProjectId is null))
+                {
+                    // Provider identifiers are tenant-local. Preserve legacy delivery IDs,
+                    // but never deduplicate another cloud/project's event under that ID.
+                    eventDeliveryId=BuildScopedDeliveryId(baseDeliveryId,connection);
+                    existing=await db.JiraWebhookEvents.SingleOrDefaultAsync(x=>x.DeliveryId==eventDeliveryId,ct);
+                }
                 if(existing is null)
                 {
                     var acceptedEvent = new JiraWebhookEvent
@@ -280,6 +291,27 @@ public sealed class JiraWebhookService : IJiraWebhookService
 
     private static string BuildProjectDeliveryId(string baseDeliveryId,Guid projectId,int targetCount)
         => targetCount<=1?baseDeliveryId:$"{baseDeliveryId}:{projectId:N}";
+
+    private static string BuildScopedDeliveryId(string baseDeliveryId,JiraConnection connection)
+        => "scoped-"+Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
+            JsonSerializer.Serialize(new[]{connection.CloudId,connection.ResearchProjectId.ToString("N"),baseDeliveryId}))));
+
+    private static JsonDocument ParseWebhookPayload(string payload)
+    {
+        JsonDocument document;
+        try { document=JsonDocument.Parse(payload); }
+        catch(JsonException) { throw InvalidWebhookPayload(); }
+        if(document.RootElement.ValueKind==JsonValueKind.Object)return document;
+        document.Dispose();
+        throw InvalidWebhookPayload();
+    }
+
+    private static ApiException InvalidWebhookPayload()
+    {
+        JiraOperationalMetrics.WebhookEvents.WithLabels("unknown","rejected_payload").Inc();
+        return new ApiException(StatusCodes.Status400BadRequest,ErrorCodes.BadRequest,
+            "Jira webhook payload must be a valid JSON object.");
+    }
 
     private bool ValidateBearer(string? authorizationHeader)
     {

@@ -152,6 +152,8 @@ printf 'INFRA_PRIVATE_IP=10.20.10.4\nKAFKA_RETENTION_HOURS=72\n' > "$work/opt/ru
 sed -e 's/__INFRA_PRIVATE_IP__/10.20.10.4/g' -e 's/__KAFKA_RETENTION_HOURS__/72/g' \
   -e 's/__KAFKA_KEYSTORE_PASSWORD__/SYNTHETIC_TEST_ONLY/g' "$repo_root/deploy/azure/vm/kafka/server.properties.template" > "$work/opt/runtime/kafka/server.properties"
 cp "$repo_root/deploy/azure/vm/kafka/client-ssl.properties" "$work/opt/kafka/"
+cp "$work/opt/runtime/kafka/server.properties" "$work/broker-properties-baseline"
+cp "$work/opt/kafka/client-ssl.properties" "$work/client-properties-baseline"
 printf 'abcdefghijklmnopqrstuv\n' > "$work/data/kafka/cluster-id"
 printf 'cluster.id=abcdefghijklmnopqrstuv\n' > "$work/data/kafka/data/meta.properties"
 
@@ -183,6 +185,18 @@ PY
 run_case() {
   local mode="$1" flag="$2" expected="$3" output rc
   rm -f "$work/restarted" "$work/calls" "$work/produced"
+  cp "$work/broker-properties-baseline" "$work/opt/runtime/kafka/server.properties"
+  cp "$work/client-properties-baseline" "$work/opt/kafka/client-ssl.properties"
+  case "$mode" in
+    duplicate-advertised)
+      printf '\nadvertised.listeners=EXTERNAL://public.example.invalid:9092,INTERNAL://kafka:29092\n' >> "$work/opt/runtime/kafka/server.properties" ;;
+    duplicate-client-verification)
+      printf '\nssl.endpoint.identification.algorithm=\n' >> "$work/opt/kafka/client-ssl.properties" ;;
+    alternate-client-verification)
+      printf '\n  ssl.endpoint.identification.algorithm: \n' >> "$work/opt/kafka/client-ssl.properties" ;;
+    escaped-client-verification)
+      printf '\n\\u0073sl.endpoint.identification.algorithm=\n' >> "$work/opt/kafka/client-ssl.properties" ;;
+  esac
   fixture "$mode"
   set +e
   output="$(MODE="$mode" bash "$scripts/verify-kafka.sh" "$flag" 2>&1)"; rc=$?
@@ -194,12 +208,18 @@ run_case() {
   fi
   if [[ "$expected" != 0 && "$mode" != lost-message && "$mode" != unrelated-restart && "$mode" != no-recovery ]]; then
     [[ ! -e "$work/restarted" ]] || fail 'restart despite failed preflight'
+    [[ ! -e "$work/produced" ]] || fail 'smoke write despite failed preflight'
   fi
 }
 run_case ok --check 0
 run_case image-volumes --check 0
 for mode in named-image-volume extra-host-bind extra-shadow-mount duplicate-destination writable-config missing-required; do
   run_case "$mode" --check 1
+done
+for mode in duplicate-advertised duplicate-client-verification alternate-client-verification escaped-client-verification; do
+  run_case "$mode" --check 1
+  run_case "$mode" --smoke 1
+  run_case "$mode" --restart 1
 done
 run_case ok --smoke 0
 run_case ok --restart 0

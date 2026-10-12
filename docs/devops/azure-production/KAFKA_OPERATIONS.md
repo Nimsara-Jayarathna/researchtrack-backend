@@ -1,5 +1,17 @@
 # Kafka operations — ResearchTrack Azure Production
 
+## Infrastructure verification — 2026-10-12
+
+The [TASK 05 report](../KAFKA_INFRASTRUCTURE_VERIFICATION.md) records fresh isolated
+operational, topic, network and monitoring results, plus read-only live evidence commands.
+The corrected five-bind/two-image-volume mount predicate remains unchanged. Property
+verification now rejects duplicates and noncanonical syntax that could conceal an
+overridden advertised listener or disabled hostname verification. It accepts the existing
+generated single-line `key=value` configuration; manual alternate separators, escaped keys
+or continuations require review rather than a false PASS. A property FAIL is not permission
+to regenerate trust, reformat storage, restart Kafka or clear pending events. No live
+verification or script installation was performed for TASK 05.
+
 ## Current verification — 2026-10-11
 
 The [final audit](../FINAL_DEVOPS_SPRINTS_1_TO_4_AUDIT.md) records the five-test isolated

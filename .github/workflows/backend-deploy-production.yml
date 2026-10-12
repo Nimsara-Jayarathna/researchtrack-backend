@@ -72,6 +72,7 @@ jobs:
     with:
       profile: smoke
       execution_mode: automatic-post-deploy
+      deployment_result: ${{ needs.deploy.result }}
       confirmation: ''
       # Automatic Smoke intentionally uses normal Gateway rate limiting. Heavy
       # manual capacity profiles can still opt into the scoped VPS exemption.

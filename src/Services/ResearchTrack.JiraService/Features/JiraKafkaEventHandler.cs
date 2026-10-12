@@ -50,7 +50,8 @@ public sealed class JiraKafkaEventHandler(IDbContextFactory<JiraDbContext> facto
                     // A running durable job may already cover this webhook. Do not create
                     // another sync just because Kafka arrived after the polling worker.
                     var covered = await db.JiraSyncJobs.AnyAsync(x => x.ResearchProjectId == projectId &&
-                        x.Status == "RUNNING" && x.StartedAt >= record.ReceivedAt, ct);
+                        x.Status == "RUNNING" && db.JiraWebhookEvents.Any(webhook =>
+                            webhook.Id == value.EventId && x.StartedAt >= webhook.ReceivedAt), ct);
                     if (!covered)
                         await JiraSyncScheduler.StageAsync(db, projectId, "WEBHOOK", DateTimeOffset.UtcNow, record.JiraIssueId, ct);
                     outcome = covered ? "existing_running_job" : "durable_sync_job";

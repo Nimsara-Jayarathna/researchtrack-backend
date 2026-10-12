@@ -82,6 +82,24 @@ check 'runtime broker config permissions' test "$(stat -c '%u:%g:%a' "$opt/runti
 check 'mounted keystore permissions' test "$(stat -c '%u:%g:%a' "$data/kafka/tls/container/broker.p12" 2>/dev/null)" = 0:1000:440
 check 'CA private-key permissions' test "$(stat -c '%u:%g:%a' "$data/kafka/tls/ca.key" 2>/dev/null)" = 0:0:600
 check 'keystore password permissions' test "$(stat -c '%u:%g:%a' "$data/kafka/tls/keystore.pass" 2>/dev/null)" = 0:0:600
+# Reconciliation generates canonical, single-line key=value properties. Merely
+# finding an expected line is unsafe: Java Properties accepts later overrides,
+# colon/whitespace separators, escaped keys and continuations. Fail closed on
+# duplicates or unsupported syntax rather than claiming an overridden value is
+# effective. Inspect without printing any values (broker config has passwords).
+config_matches() {
+  local expected="$1" file="$2"
+  awk -v expected="$expected" '
+    /^[[:space:]]*([#!]|$)/ { next }
+    !/^[A-Za-z0-9_.-]+=/ || /\\$/ { invalid=1; next }
+    {
+      key=$0; sub(/=.*/, "", key)
+      if (++seen[key] > 1) invalid=1
+      if ($0 == expected) found=1
+    }
+    END { exit (invalid || !found) }
+  ' "$file"
+}
 props="$opt/runtime/kafka/server.properties"
 for expected in 'process.roles=broker,controller' 'node.id=1' 'controller.quorum.voters=1@localhost:9093' \
   'controller.listener.names=CONTROLLER' 'inter.broker.listener.name=INTERNAL' \
@@ -92,11 +110,11 @@ for expected in 'process.roles=broker,controller' 'node.id=1' 'controller.quorum
   'ssl.keystore.location=/etc/researchtrack/kafka-tls/broker.p12' \
   'log.dirs=/var/lib/kafka/data' 'default.replication.factor=1' \
   "log.retention.hours=$KAFKA_RETENTION_HOURS"; do
-  check "broker setting ${expected%%=*}" grep -Fxq -- "$expected" "$props"
+  check "broker setting ${expected%%=*}" config_matches "$expected" "$props"
 done
 for expected in 'security.protocol=SSL' 'ssl.truststore.type=PEM' \
   'ssl.truststore.location=/etc/researchtrack/kafka-tls/ca.crt' 'ssl.endpoint.identification.algorithm=https'; do
-  check "TLS client setting ${expected%%=*}" grep -Fxq -- "$expected" "$opt/kafka/client-ssl.properties"
+  check "TLS client setting ${expected%%=*}" config_matches "$expected" "$opt/kafka/client-ssl.properties"
 done
 if openssl verify -CAfile "$data/kafka/tls/ca.crt" "$data/kafka/tls/broker.crt" >/dev/null 2>&1; then pass 'broker certificate chain'; else fail 'broker certificate chain'; fi
 if openssl verify -CAfile "$data/kafka/tls/ca.crt" -verify_ip "$INFRA_PRIVATE_IP" "$data/kafka/tls/broker.crt" >/dev/null 2>&1; then pass 'broker certificate private-IP identity'; else fail 'broker certificate private-IP identity'; fi

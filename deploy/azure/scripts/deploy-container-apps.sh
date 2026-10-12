@@ -294,25 +294,44 @@ set_revision_active() {
     echo "   $revision already ${verb}d" >&2
     return 0
   fi
-  az containerapp revision "$verb" -g "$RESOURCE_GROUP" -n "$app" --revision "$revision" -o none && return 0
-  # Lost a race with the platform: accept it if the state is now as requested.
+  az containerapp revision "$verb" -g "$RESOURCE_GROUP" -n "$app" --revision "$revision" -o none || true
+  # Verify the resulting state even after CLI success. A lost race is also
+  # acceptable only if the revision is actually in the requested state.
   [[ "$(revision_active "$app" "$revision")" == "$want" ]]
 }
 
 rollback() {
   local service="$1" app="$2" failed="$3" previous="${previous_revision[$1]}"
+  local recovered=true action="**failed, rolled back**"
   echo "   rolling back $app" >&2
-  if [[ -n "$failed" && "$failed" != "$previous" ]]; then
-    set_revision_active "$app" "$failed" false || echo "   WARNING: could not deactivate failed revision $failed" >&2
+  if [[ -z "$failed" ]]; then
+    recovered=false
+    echo "   WARNING: failed revision identity is unknown; recovery requires manual verification." >&2
+  elif [[ "$failed" != "$previous" ]]; then
+    if ! set_revision_active "$app" "$failed" false; then
+      recovered=false
+      echo "   WARNING: could not verify failed revision $failed is inactive" >&2
+    fi
   fi
   if [[ -n "$previous" ]]; then
     if set_revision_active "$app" "$previous" true; then
       echo "   $app kept on previous healthy revision $previous" >&2
     else
+      recovered=false
       echo "   WARNING: previous revision $previous of $app is not active; check the app manually." >&2
     fi
+    if ! $recovered; then
+      action="**failed; rollback incomplete**"
+    elif [[ "$failed" == "$previous" ]]; then
+      action="**failed; previous revision retained**"
+    fi
+  else
+    action="**failed; no previous healthy revision**"
+    echo "   WARNING: $app has no captured previous healthy revision; no rollback target exists." >&2
   fi
-  summary_row "$service" "**failed, rolled back**" "${deploy_reason[$service]}" "${failed:-none}"
+  # Revision activation is not proof of traffic, schema compatibility or full
+  # application health. Preserve deployment failure regardless of recovery.
+  summary_row "$service" "$action" "${deploy_reason[$service]}" "${failed:-none}"
 }
 
 wait_for_revision() {

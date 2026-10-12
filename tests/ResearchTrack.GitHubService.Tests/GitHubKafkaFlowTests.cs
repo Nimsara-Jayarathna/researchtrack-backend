@@ -173,6 +173,7 @@ public sealed class GitHubKafkaFlowTests
         var factory = IsolatedKafkaFixture.Factory(options);
         using (var publisher = new KafkaEventPublisher(factory, options))
             for (var i = 0; i < 128; i++) await publisher.PublishAsync(row, Ct);
+        var firstOffset = await IsolatedKafkaFixture.VerifyRetainedBatchRestartAsync(options, 128, Ct);
         var brokenHandler = Substitute.For<IKafkaEventHandler>();
         brokenHandler.HandleAsync(Arg.Any<WebhookReadyEvent>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromException(new InvalidOperationException("synthetic failure")));
@@ -193,6 +194,9 @@ public sealed class GitHubKafkaFlowTests
                 await IsolatedKafkaFixture.WaitForMetricAsync("sum(kafka_consumergroup_lag{consumergroup=\"researchtrack-github-webhook-v1\"})", x => x >= 128, Ct);
                 foreach (var name in new[] { "ConsumerHeld", "ConsumerLagHigh", "EventProcessingFailures" })
                     await IsolatedKafkaFixture.WaitForMetricAsync($"sum(ALERTS{{alertname=\"ResearchTrackKafka{name}\",alertstate=\"firing\"}})", x => x == 1, Ct);
+                using var reader = factory.CreateConsumer();
+                Assert.Equal(firstOffset, await IsolatedKafkaFixture.ReadBrokerAsync(() =>
+                    reader.Committed([new TopicPartition(options.Topic, new Partition(0))], TimeSpan.FromSeconds(3)).Single().Offset, Ct));
             }
             finally { await held.StopAsync(Ct); }
         }
@@ -207,9 +211,19 @@ public sealed class GitHubKafkaFlowTests
         {
             consumer.Subscribe(options.Topic);
             for (var i = 0; i < 128; i++)
-                await worker.HandleAndCommitAsync(consumer, await IsolatedKafkaFixture.ReceiveAsync(consumer, row.EventId, Ct), Ct);
+            {
+                var record = await IsolatedKafkaFixture.ReceiveAsync(consumer, row.EventId, Ct);
+                Assert.Equal(firstOffset.Value + i, record.Offset.Value);
+                Assert.Equal(0, record.Partition.Value);
+                Assert.Equal(row.MessageKey, record.Message.Key);
+                Assert.Equal(row.PayloadJson, record.Message.Value);
+                await worker.HandleAndCommitAsync(consumer, record, Ct);
+            }
             consumer.Close();
         }
+        using (var reader = factory.CreateConsumer())
+            Assert.Equal(new Offset(firstOffset.Value + 128), await IsolatedKafkaFixture.ReadBrokerAsync(() =>
+                reader.Committed([new TopicPartition(options.Topic, new Partition(0))], TimeSpan.FromSeconds(3)).Single().Offset, Ct));
         await new KafkaOutboxMetricsWorker(new KafkaOutboxStore<GitHubDbContext>(database), recovered, NullLogger<KafkaOutboxMetricsWorker>.Instance).SampleAsync(Ct);
         var text = await KafkaMetricSnapshot.ExportAsync(recoveredRegistry, Ct);
         Assert.Equal(128, KafkaMetricSnapshot.Value(text, "researchtrack_kafka_consume_total", ("stage", "process"), ("outcome", "duplicate")));
@@ -222,6 +236,12 @@ public sealed class GitHubKafkaFlowTests
         await using var db = database.CreateDbContext();
         Assert.Single(await db.SyncRuns.ToListAsync(Ct));
         Assert.Single(await db.Set<KafkaInboxReceipt>().ToListAsync(Ct));
+        await IsolatedKafkaFixture.WriteEvidenceAsync("github-retained-batch-processed", new
+        {
+            recordsVerified = 128, firstOffset = firstOffset.Value, committedNextOffset = firstOffset.Value + 128,
+            contiguousOffsets = true, exactKeysAndPayloads = true,
+            syncRuns = await db.SyncRuns.CountAsync(Ct), inboxReceipts = await db.Set<KafkaInboxReceipt>().CountAsync(Ct)
+        }, Ct);
     }
 
     [Fact(Skip = "Requires isolated loopback MySQL.", SkipUnless = nameof(IsolatedKafkaAvailable))]

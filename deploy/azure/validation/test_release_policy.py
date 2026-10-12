@@ -1,8 +1,15 @@
 #!/usr/bin/env python3
 """Offline release trust boundary regressions; no GitHub or Azure calls."""
 import importlib.util
+import contextlib
+import io
+import json
+import os
 from pathlib import Path
+import runpy
+import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[3]
 spec = importlib.util.spec_from_file_location('release_policy', ROOT / 'deploy/azure/scripts/release-policy.py')
@@ -76,12 +83,78 @@ class ReleasePolicy(unittest.TestCase):
             source = (workflows / filename).read_text()
             self.assertEqual(source.count('uses: actions/checkout@v4'), source.count('ref: ${{ github.sha }}'), filename)
 
-    def test_legacy_deployment_requires_build_success_and_rechecks_before_ssh(self):
+    def test_vps_deployment_requires_successful_test_target_and_build(self):
         legacy = (ROOT / '.github/workflows/backend-deploy-reusable.yml').read_text()
         deploy = legacy.split('  deploy:', 1)[1]
         self.assertIn("needs.build.result == 'success'", deploy.split('    name:', 1)[0])
-        self.assertIn("needs.validate-production.result == 'success'", deploy.split('    name:', 1)[0])
-        self.assertLess(deploy.index('Recheck production source'), deploy.index('Configure SSH'))
+        self.assertIn("needs.validate-target.result == 'success'", deploy.split('    name:', 1)[0])
+        self.assertIn('    environment: test\n', deploy)
+        self.assertNotIn('environment: ${{ inputs.environment_name }}', legacy)
+        self.assertNotIn('validate-production:', legacy)
+
+
+class OperationAuthorization(unittest.TestCase):
+    setUp = ReleasePolicy.setUp
+    def test_manual_operations_preserve_main_and_temporary_integration(self):
+        for branch in ['main', policy.BRANCH]:
+            with self.subTest(branch=branch):
+                context = dict(self.context, SOURCE_EVENT='workflow_dispatch',
+                               SOURCE_REF='refs/heads/' + branch, CI_RESULT='')
+                remote = dict(name=branch, commit=dict(sha='a' * 40))
+                self.assertEqual('a' * 40, policy.verify_operation(context, remote))
+
+    def test_operation_rejects_forks_pr_tags_other_branches_and_stale_sha(self):
+        context = dict(self.context, SOURCE_EVENT='workflow_dispatch')
+        overrides = [dict(SOURCE_REPOSITORY='fork/researchtrack-backend'),
+                     dict(SOURCE_REF='refs/heads/develop'), dict(SOURCE_REF='refs/tags/main'),
+                     dict(SOURCE_SHA='b' * 40), dict(SOURCE_SHA='main')]
+        overrides += [dict(SOURCE_EVENT=event) for event in
+                      ['push', 'pull_request', 'pull_request_target', 'workflow_run', 'repository_dispatch', '']]
+        for override in overrides:
+            with self.subTest(override=override), self.assertRaises(ValueError):
+                policy.verify_operation(dict(context, **override), self.remote)
+
+    def test_untrusted_release_and_operation_rejected_before_authenticated_api(self):
+        for operation in [False, True]:
+            with self.subTest(operation=operation), patch.dict(os.environ, dict(self.context,
+                    SOURCE_EVENT='workflow_dispatch', SOURCE_REPOSITORY='fork/researchtrack-backend',
+                    GH_TOKEN='synthetic-token'), clear=True), patch.object(policy.urllib.request, 'urlopen') as request:
+                with self.assertRaises(ValueError):
+                    policy.main(operation=operation)
+                request.assert_not_called()
+
+    def test_readonly_head_check_and_operation_summary_do_not_claim_ci(self):
+        with tempfile.TemporaryDirectory() as directory:
+            summary_path = Path(directory) / 'summary'
+            context = dict(self.context, SOURCE_EVENT='workflow_dispatch', SOURCE_REF='refs/heads/main',
+                           GH_TOKEN='synthetic-token', GITHUB_STEP_SUMMARY=str(summary_path))
+            with patch.dict(os.environ, context, clear=True), patch.object(policy.urllib.request, 'urlopen') as request:
+                request.return_value.__enter__.return_value = io.StringIO(json.dumps(
+                    dict(name='main', commit=dict(sha='a' * 40))))
+                with contextlib.redirect_stdout(io.StringIO()) as output:
+                    policy.main(operation=True)
+                self.assertNotIn('synthetic-token', output.getvalue())
+                call = request.call_args.args[0]
+                self.assertEqual('GET', call.get_method())
+                self.assertTrue(call.full_url.endswith('/branches/main'))
+                self.assertIn('not release CI evidence', summary_path.read_text())
+
+    def test_cli_network_errors_do_not_print_tokens_or_response_bodies(self):
+        # HTTP header validation can raise ValueError containing a header value.
+        # Only our fixed policy messages, not arbitrary ValueErrors, are safe.
+        for error_type in [RuntimeError, ValueError]:
+            with self.subTest(error_type=error_type.__name__), \
+                 patch.dict(os.environ, dict(self.context, GH_TOKEN='secret-sentinel'), clear=True), \
+                 patch('sys.argv', ['release-policy.py']), \
+                 patch.object(policy.urllib.request, 'urlopen', side_effect=error_type('secret-sentinel response-body')), \
+                 contextlib.redirect_stderr(io.StringIO()) as errors:
+                with self.assertRaises(SystemExit) as exit_result:
+                    runpy.run_path(str(ROOT / 'deploy/azure/scripts/release-policy.py'), run_name='__main__')
+                self.assertEqual(1, exit_result.exception.code)
+                self.assertIn(error_type.__name__, errors.getvalue())
+                self.assertNotIn('secret-sentinel', errors.getvalue())
+                self.assertNotIn('response-body', errors.getvalue())
+
 
 
 class ReleaseSummary(unittest.TestCase):
@@ -166,6 +239,56 @@ class ReleaseSummary(unittest.TestCase):
         self.assertIn('SMOKE_RESULT: ${{ needs.performance_smoke.result }}', entry)
         for path in ['backend-deploy-production.yml', 'backend-deploy-azure-production.yml', 'azure-performance-k6-reusable.yml']:
             self.assertNotIn('continue-on-error:', (ROOT / '.github/workflows' / path).read_text())
+
+    def test_metadata_unavailable_retains_failure_and_never_leaks_api_error(self):
+        for deploy, smoke in [('failure', 'skipped'), ('success', 'cancelled'), ('success', 'success')]:
+            with self.subTest(deploy=deploy, smoke=smoke), tempfile.TemporaryDirectory() as directory:
+                target = Path(directory) / 'summary.md'
+                env = dict(GITHUB_REPOSITORY=summary.REPOSITORY, GITHUB_SHA='a' * 40,
+                           GITHUB_RUN_ID='123', GITHUB_RUN_ATTEMPT='2', GH_TOKEN='secret-sentinel',
+                           DEPLOY_RESULT=deploy, SMOKE_RESULT=smoke, GITHUB_STEP_SUMMARY=str(target))
+                with patch.dict(os.environ, env, clear=True), \
+                     patch.object(summary.urllib.request, 'urlopen', side_effect=RuntimeError('secret-sentinel response-body')), \
+                     contextlib.redirect_stderr(io.StringIO()) as errors:
+                    with self.assertRaises(SystemExit) as result:
+                        runpy.run_path(str(ROOT / 'deploy/azure/scripts/release-summary.py'), run_name='__main__')
+                self.assertEqual(1, result.exception.code)
+                report = target.read_text()
+                self.assertIn('INCOMPLETE', report)
+                self.assertIn('NOT VERIFIED', report)
+                self.assertNotIn('**PASS**', report)
+                self.assertNotIn('secret-sentinel', report + errors.getvalue())
+                self.assertNotIn('response-body', report + errors.getvalue())
+                if deploy == 'failure' or smoke == 'cancelled':
+                    self.assertIn('**FAIL', report)
+
+    def test_wrong_run_sha_fails_and_marks_summary_incomplete(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / 'summary.md'
+            env = dict(GITHUB_REPOSITORY=summary.REPOSITORY, GITHUB_SHA='a' * 40,
+                       GITHUB_RUN_ID='123', GITHUB_RUN_ATTEMPT='1', GH_TOKEN='synthetic-token',
+                       DEPLOY_RESULT='success', SMOKE_RESULT='skipped', GITHUB_STEP_SUMMARY=str(target))
+            with patch.dict(os.environ, env, clear=True), patch.object(summary.urllib.request, 'urlopen') as request, \
+                 contextlib.redirect_stderr(io.StringIO()):
+                request.return_value.__enter__.return_value = io.StringIO(json.dumps({'head_sha': 'b' * 40}))
+                with self.assertRaises(SystemExit) as result:
+                    runpy.run_path(str(ROOT / 'deploy/azure/scripts/release-summary.py'), run_name='__main__')
+            self.assertEqual(1, result.exception.code)
+            self.assertEqual(1, request.call_count)
+            self.assertIn('FINAL ACCEPTANCE NOT VERIFIED', target.read_text())
+
+    def test_unavailable_summary_output_still_fails_without_sensitive_error(self):
+        env = dict(GITHUB_REPOSITORY=summary.REPOSITORY, GITHUB_SHA='a' * 40,
+                   GITHUB_RUN_ID='123', GITHUB_RUN_ATTEMPT='1', GH_TOKEN='secret-sentinel',
+                   DEPLOY_RESULT='failure', SMOKE_RESULT='skipped')
+        with patch.dict(os.environ, env, clear=True), \
+             patch.object(summary.urllib.request, 'urlopen', side_effect=RuntimeError('secret-sentinel')), \
+             contextlib.redirect_stderr(io.StringIO()) as errors:
+            with self.assertRaises(SystemExit) as result:
+                runpy.run_path(str(ROOT / 'deploy/azure/scripts/release-summary.py'), run_name='__main__')
+        self.assertEqual(1, result.exception.code)
+        self.assertIn('Release failure summary unavailable: KeyError', errors.getvalue())
+        self.assertNotIn('secret-sentinel', errors.getvalue())
 
 
 if __name__ == '__main__':

@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using Prometheus;
@@ -114,6 +115,54 @@ public sealed class KafkaMessagingTests
         Assert.Empty(await db.JiraSyncJobs.ToListAsync(Ct));
     }
 
+    [Theory]
+    [InlineData(-10, false)]
+    [InlineData(0, true)]
+    [InlineData(10, true)]
+    public async Task RunningJobCoverageUsesExactPersistedTimestampWhenMaterializationLosesMicroseconds(int startedAtTicks, bool covered)
+    {
+        using var database = new KafkaTestDatabase<JiraDbContext>(options => new(
+            new DbContextOptionsBuilder<JiraDbContext>(options)
+                .AddInterceptors(new WebhookTimestampMaterialization()).Options));
+        var project = await SeedAsync(database, Ct);
+        var receivedAt = new DateTimeOffset(2026, 10, 12, 0, 0, 0, TimeSpan.Zero).AddTicks(1_234_560);
+        var id = Guid.NewGuid();
+        var value = new WebhookReadyEvent(id, "jira.webhook.ready", "1", receivedAt, id,
+            new() { WebhookRecordId = id, ResearchProjectId = project, CloudId = "fixture-cloud", EventType = "jira:issue_updated" });
+        await using var db = database.CreateDbContext();
+        db.JiraWebhookEvents.Add(new()
+        {
+            Id = id, DeliveryId = "precision-delivery", CloudId = "fixture-cloud", ResearchProjectId = project,
+            EventType = "jira:issue_updated", PayloadJson = Payload, ReceivedAt = receivedAt, Status = "RECEIVED"
+        });
+        db.Set<KafkaOutboxMessage>().Add(KafkaOutboxMessage.Create(value, Options));
+        db.JiraSyncJobs.Add(new()
+        {
+            Id = Guid.NewGuid(), ResearchProjectId = project, Reason = "WEBHOOK", Status = "RUNNING",
+            StartedAt = receivedAt.AddTicks(startedAtTicks), RequestedAt = receivedAt.AddMinutes(-1), AvailableAt = receivedAt.AddMinutes(-1)
+        });
+        await db.SaveChangesAsync(Ct);
+
+        await Handler(database).HandleAsync(value, Ct);
+
+        Assert.Equal(covered ? "existing_running_job" : "durable_sync_job", (await db.Set<KafkaInboxReceipt>().SingleAsync(Ct)).Outcome);
+        Assert.Equal(covered ? 0 : 1, await db.JiraSyncJobs.CountAsync(x => x.Status == "PENDING", Ct));
+        Assert.Single(await db.JiraSyncJobs.Where(x => x.Status == "RUNNING").ToListAsync(Ct));
+    }
+
+    // Model the existing Connector/NET read limitation without changing stored timestamps.
+    // Contract validation and scheduling must still use the exact persisted datetime(6).
+    private sealed class WebhookTimestampMaterialization : IMaterializationInterceptor
+    {
+        public object InitializedInstance(MaterializationInterceptionData materializationData, object entity)
+        {
+            if (entity is JiraWebhookEvent webhook)
+                webhook.ReceivedAt = new DateTimeOffset(
+                    webhook.ReceivedAt.UtcTicks - webhook.ReceivedAt.UtcTicks % TimeSpan.TicksPerMillisecond, TimeSpan.Zero);
+            return entity;
+        }
+    }
+
     [Fact]
     public async Task DuplicateWebhookDoesNotCreateAnotherOutboxEvent()
     {
@@ -125,6 +174,39 @@ public sealed class KafkaMessagingTests
         await using var db = database.CreateDbContext();
         Assert.Single(await db.Set<KafkaOutboxMessage>().ToListAsync(Ct));
         Assert.Single(await db.JiraWebhookEvents.ToListAsync(Ct));
+    }
+
+    [Fact]
+    public async Task SameDeliveryIdentifierInDifferentCloudsRetainsBothEventsAndDeduplicatesEach()
+    {
+        using var database = new KafkaTestDatabase<JiraDbContext>(options => new(options));
+        var firstProject = await SeedAsync(database, Ct);
+        var secondProject = await SeedAsync(database, Ct);
+        await using var db = database.CreateDbContext();
+        var second = await db.JiraConnections.SingleAsync(x => x.ResearchProjectId == secondProject, Ct);
+        second.CloudId = "second-cloud";
+        second.WebhookId = 9002;
+        second.JiraProjectKey = "BT";
+        second.JiraProjectId = "20000";
+        await db.SaveChangesAsync(Ct);
+        var service = Service(database);
+        const string secondPayload = """{"webhookEvent":"jira:issue_updated","matchedWebhookIds":[9002],"issue":{"id":"456","key":"BT-1","fields":{"project":{"id":"20000","key":"BT"}}}}""";
+
+        Assert.True(await service.ReceiveAsync(Bearer(), "tenant-local-delivery", Payload, Ct));
+        Assert.True(await service.ReceiveAsync(Bearer(), "tenant-local-delivery", secondPayload, Ct));
+        Assert.True(await service.ReceiveAsync(Bearer(), "tenant-local-delivery", Payload, Ct));
+        Assert.True(await service.ReceiveAsync(Bearer(), "tenant-local-delivery", secondPayload, Ct));
+
+        var events = await db.JiraWebhookEvents.AsNoTracking().ToListAsync(Ct);
+        Assert.Equal(2, events.Count);
+        Assert.Contains(events, x => x.ResearchProjectId == firstProject && x.CloudId == "fixture-cloud");
+        Assert.Contains(events, x => x.ResearchProjectId == secondProject && x.CloudId == "second-cloud");
+        var outbox = await db.Set<KafkaOutboxMessage>().AsNoTracking().ToListAsync(Ct);
+        Assert.Equal(2, outbox.Count);
+        foreach (var row in outbox)
+            await Handler(database).HandleAsync(KafkaWebhookContract.Parse(row.PayloadJson, row.MessageKey, "jira", "1"), Ct);
+        Assert.Equal(2, await db.Set<KafkaInboxReceipt>().CountAsync(Ct));
+        Assert.Equal(2, await db.JiraSyncJobs.CountAsync(Ct));
     }
 
     [Fact]

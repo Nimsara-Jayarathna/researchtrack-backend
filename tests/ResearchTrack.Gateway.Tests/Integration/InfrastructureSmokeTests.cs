@@ -1,6 +1,9 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
+using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using ResearchTrack.Gateway;
 using ResearchTrack.Testing;
 using Yarp.ReverseProxy.Configuration;
@@ -24,6 +27,41 @@ public sealed class InfrastructureSmokeTests : IAsyncLifetime
     {
         var response = await Client.GetAsync("/health/live", TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Readiness_endpoint_is_anonymous_and_does_not_aggregate_downstream_dependencies()
+    {
+        using var client = Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        using var response = await client.GetAsync("/health/ready", TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("application/json", response.Content.Headers.ContentType?.MediaType);
+        var payload = await response.Content.ReadFromJsonAsync<JsonElement>(TestContext.Current.CancellationToken);
+        Assert.Equal("Healthy", payload.GetProperty("status").GetString());
+        Assert.Empty(payload.GetProperty("checks").EnumerateArray());
+    }
+
+    [Theory]
+    [InlineData(HealthStatus.Healthy, HttpStatusCode.OK)]
+    [InlineData(HealthStatus.Degraded, HttpStatusCode.OK)]
+    [InlineData(HealthStatus.Unhealthy, HttpStatusCode.ServiceUnavailable)]
+    public async Task Readiness_preserves_health_status_and_filters_checks_by_ready_tag(
+        HealthStatus healthStatus, HttpStatusCode expectedStatus)
+    {
+        // Synthetic checks use the actual Gateway pipeline without contacting
+        // any downstream service, database or Kafka broker.
+        await using var factory = new ResearchTrackWebApplicationFactory<GatewayAssemblyMarker>(
+            configureServices: services => services.AddHealthChecks()
+                .AddCheck("synthetic-ready", () => new HealthCheckResult(healthStatus), tags: ["ready"])
+                .AddCheck("unrelated-check", () => HealthCheckResult.Unhealthy()));
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        using var response = await client.GetAsync("/health/ready", TestContext.Current.CancellationToken);
+        Assert.Equal(expectedStatus, response.StatusCode);
+        var payload = await response.Content.ReadFromJsonAsync<JsonElement>(TestContext.Current.CancellationToken);
+        Assert.Equal(healthStatus.ToString(), payload.GetProperty("status").GetString());
+        var check = Assert.Single(payload.GetProperty("checks").EnumerateArray());
+        Assert.Equal("synthetic-ready", check.GetProperty("name").GetString());
+        Assert.Equal(healthStatus.ToString(), check.GetProperty("status").GetString());
     }
 
     [Fact]

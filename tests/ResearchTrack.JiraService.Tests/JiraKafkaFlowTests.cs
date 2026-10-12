@@ -71,6 +71,10 @@ public sealed class JiraKafkaFlowTests
         // materialization in Connector/NET does not. Require exact DB identity.
         var timestamp = await db.Database.SqlQuery<DateTime>($"SELECT ReceivedAt AS Value FROM jira_webhook_events WHERE Id = {row.EventId}").SingleAsync(Ct);
         Assert.Equal(contract.OccurredAtUtc.UtcDateTime, timestamp);
+        Assert.False(await db.JiraWebhookEvents.AnyAsync(x => x.Id == row.EventId &&
+            x.ReceivedAt == contract.OccurredAtUtc.AddTicks(10), Ct));
+        Assert.False(await db.JiraWebhookEvents.AnyAsync(x => x.Id == row.EventId &&
+            x.ReceivedAt <= contract.OccurredAtUtc.AddTicks(-10), Ct));
         var factory = IsolatedKafkaFixture.Factory(options);
         var outboxStore = new KafkaOutboxStore<JiraDbContext>(database);
         var messagingHealth = new KafkaMessagingHealth(outboxStore, metrics);

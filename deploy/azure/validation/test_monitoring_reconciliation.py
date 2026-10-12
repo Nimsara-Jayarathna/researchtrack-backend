@@ -116,7 +116,7 @@ fi
         self.assertIn('"MONITORING_ONLY=$MONITORING_ONLY"', workflow)
         self.assertIn('inputs.monitoring_only || false', workflow)
         self.assertIn('Require an already-running VM', workflow)
-    def test_application_and_reusable_jobs_enforce_selected_branch(self):
+    def test_application_branch_and_test_only_reusable_authorization(self):
         branch = DEPLOYMENT_BRANCH
         guard = "    if: ${{ github.ref == 'refs/heads/" + branch + "' }}\n"
         paths = ROOT / '.github/workflows'
@@ -126,11 +126,19 @@ fi
         self.assertIn('  deploy:\n' + guard, application)
         azure = (paths / 'backend-deploy-azure-production.yml').read_text()
         legacy = (paths / 'backend-deploy-reusable.yml').read_text()
-        legacy_guard = "    if: ${{ !cancelled() && (inputs.environment_name != 'production' || (github.ref == 'refs/heads/" + branch + "' && needs.validate-production.result == 'success')) }}\n"
         for name in ['build', 'deploy']:
             self.assertIn(guard, azure.split('  ' + name + ':\n', 1)[1].split('    name:', 1)[0])
-            expected = legacy_guard if name == 'build' else legacy_guard.replace("!cancelled() &&", "!cancelled() && needs.build.result == 'success' &&")
-            self.assertIn(expected, legacy.split('  ' + name + ':\n', 1)[1].split('    name:', 1)[0])
+        # TASK 03 retired the reusable VPS production route. Preserve its
+        # stronger Test-only authorization instead of requiring the old route.
+        self.assertIn('  build:\n    needs: validate-target\n', legacy)
+        self.assertIn("[[ \"$DEPLOY_ENVIRONMENT\" == test ]]", legacy)
+        self.assertIn("[[ \"$SOURCE_REF\" == refs/heads/develop ]]", legacy)
+        deploy = legacy.split('  deploy:\n', 1)[1]
+        self.assertIn("    if: ${{ needs.build.result == 'success' && needs.validate-target.result == 'success' }}\n", deploy)
+        self.assertIn('    needs: [build, validate-target]\n', deploy)
+        self.assertIn('    environment: test\n', deploy)
+        self.assertNotIn('environment: ${{ inputs.environment_name }}', legacy)
+        self.assertNotIn('environment: production', legacy)
         self.assertIn('branches: ["develop"]', (paths / 'backend-deploy-test.yml').read_text())
 
     def test_ci_is_reused_by_production_and_preserves_pull_request_checks(self):

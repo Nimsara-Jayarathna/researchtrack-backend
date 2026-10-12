@@ -1,6 +1,6 @@
 # GitHub Environments, Secrets and Variables
 
-This is the authoritative inventory, derived from `secrets.*` and `vars.*` references in `.github/workflows/*.yml`. Secret inventory was last verified 2026-09-24; deployment-branch policy was updated 2026-10-11.
+This is the inventory derived from `secrets.*` and `vars.*` references in `.github/workflows/*.yml`. Secret inventory was last verified 2026-09-24; temporary deployment scope and read-only GitHub metadata were reviewed 2026-10-12. See [CI/CD Security Verification](../CICD_SECURITY_VERIFICATION.md) for current evidence and OIDC assumptions.
 
 ## Environments
 
@@ -10,7 +10,7 @@ This is the authoritative inventory, derived from `secrets.*` and `vars.*` refer
 | `production` | `integration/main-kafka-production-20261011` (push) or manual on that branch | `backend-deploy-production.yml` | `backend-deploy-azure-production.yml` | Azure Container Apps + infrastructure VM |
 | `production` | `integration/main-kafka-production-20261011` pushes touching infrastructure paths, or manual on that branch | `azure-infrastructure.yml` | same file | Azure infrastructure (Bicep) + VM stack |
 
-> Both Production workflows select `integration/main-kafka-production-20261011` (see `../azure-production/DECISIONS.md`). The OIDC federated credential is bound to the `production` Environment, not a branch. An owner should restrict the Environment's deployment branches to that exact branch, preserving secrets, reviewers and OIDC; remote settings were not changed. See the runbook for other branches' old workflow copies.
+> `main` is the permanent default branch. Both production deployment workflows temporarily select `integration/main-kafka-production-20261011`. Manual runtime/performance operations permit main and integration in the revised workflows. No new integration ruleset or GitHub setting change is required by TASK 02. Expected OIDC trust is Environment-based; actual Azure federation must be inventoried separately. GitHub now reports immutable subject claims, so the older name-only bootstrap subject must not be assumed correct. Remote settings were not changed.
 
 `backend-ci.yml` (reused by production entrypoints; independently on pull requests) and `backend-build-images.yml` use no environment secrets. Image pushes use the automatic `GITHUB_TOKEN`.
 
@@ -114,7 +114,9 @@ These are no longer read by any Production workflow. They were used by the old V
 | Kafka CA, broker certificate, keystore password, cluster ID | VM `/data/researchtrack/kafka/` | Generated on the VM by `reconcile-stack.sh`; never in GitHub |
 | `RT_BOOTSTRAP_RESOURCE_GROUP`, `RT_DEPLOY_IDENTITY_NAME` | Local shell when running `bootstrap-oidc.sh` | Optional overrides of `rg-researchtrack-bootstrap` and `id-researchtrack-github-prod` |
 
-## Owner protection checklist — verified 2026-10-11
+## Historical owner protection proposal — 2026-10-11
+
+**Superseded scope (2026-10-12):** The proposal below records earlier hardening guidance, not required actions for temporary integration testing. Do not create its integration ruleset or apply its integration-only Environment restriction as part of TASK 02. Main remains the permanent default with its existing protection; current findings and optional future proposals are in [CI/CD Security Verification](../CICD_SECURITY_VERIFICATION.md). The name-only OIDC subject below is historical and differs from current GitHub immutable-subject metadata. No Azure federation change is authorized by this audit.
 
 Read-only GitHub evidence at `a26cfd2b2b2093a8be45ef4a80c493af3d29958e` still shows
 integration `protected:false` and production `deployment_branch_policy:null`,
@@ -188,8 +190,11 @@ Nginx routing and anonymous `GET https://<hostname>/health/ready` contract while
 already available through an approved access context. Expected HTTP 200; redirects, TLS
 errors and 4xx/5xx must fail. Readiness may report Degraded with 200 under the existing
 policy; this check does not establish healthy Kafka processing. Then set the production
-Environment variable **PRODUCTION_VERIFY_PUBLIC_ENDPOINT=true** through the UI. The exact
-string `true` enables it; unset/false disables it. No variable was changed here.
+Environment variable **PRODUCTION_VERIFY_PUBLIC_ENDPOINT=true** through the UI. Use the
+lowercase value `true`; GitHub's string equality also accepts case variants such as
+`True`. Unset/false disables it. No variable was changed here. Follow the read-only
+DNS/TLS/response-contract checks and exact operator steps in
+[Public API readiness verification](../PUBLIC_API_READINESS_VERIFICATION.md) before enabling it.
 
 The reusable caller's `K6_AUTO_SMOKE_ENABLED` job condition is evaluated before its callee
 enters production: keep that flag in repository/organization variable scope if required

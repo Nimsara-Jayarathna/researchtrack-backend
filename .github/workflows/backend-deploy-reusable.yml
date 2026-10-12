@@ -1,9 +1,13 @@
 name: Backend Deploy Reusable
 
+# The VPS deployment implementation is Test-only. Azure Production has its own
+# same-SHA release gate, production lock and runtime restoration workflow.
+
 on:
   workflow_call:
     inputs:
       environment_name:
+        description: Must be test; production is deployed by the Azure workflow.
         required: true
         type: string
       force_full_build:
@@ -16,15 +20,42 @@ permissions:
   packages: read
 
 jobs:
-  validate-production:
-    if: ${{ inputs.environment_name == 'production' && github.ref == 'refs/heads/integration/main-kafka-production-20261011' }}
-    uses: ./.github/workflows/backend-release-validation.yml
-    permissions:
-      contents: read
+  validate-target:
+    name: Validate trusted Test deployment target
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Reject production and untrusted VPS deployment requests
+        shell: bash
+        env:
+          DEPLOY_ENVIRONMENT: ${{ inputs.environment_name }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
+          SOURCE_EVENT: ${{ github.event_name }}
+          SOURCE_REF: ${{ github.ref }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$DEPLOY_ENVIRONMENT" == test ]] || {
+            echo 'This VPS workflow supports only Test. Use the Azure workflow for Production.' >&2; exit 1;
+          }
+          [[ "$SOURCE_REPOSITORY" == Nimsara-Jayarathna/researchtrack-backend ]] || {
+            echo 'Untrusted deployment repository.' >&2; exit 1;
+          }
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo 'Invalid immutable deployment source SHA.' >&2; exit 1;
+          }
+          case "$SOURCE_EVENT" in
+            push)
+              [[ "$SOURCE_REF" == refs/heads/develop ]] || {
+                echo 'Automatic Test deployment requires develop.' >&2; exit 1;
+              }
+              ;;
+            workflow_dispatch) ;; # Retain trusted operator-selected Test refs.
+            *) echo 'Untrusted deployment event.' >&2; exit 1 ;;
+          esac
 
   build:
-    needs: validate-production
-    if: ${{ !cancelled() && (inputs.environment_name != 'production' || (github.ref == 'refs/heads/integration/main-kafka-production-20261011' && needs.validate-production.result == 'success')) }}
+    needs: validate-target
     name: Build Changed Images
     uses: ./.github/workflows/backend-build-images.yml
     with:
@@ -35,11 +66,11 @@ jobs:
       packages: write
 
   deploy:
-    if: ${{ !cancelled() && needs.build.result == 'success' && (inputs.environment_name != 'production' || (github.ref == 'refs/heads/integration/main-kafka-production-20261011' && needs.validate-production.result == 'success')) }}
-    name: Deploy ${{ inputs.environment_name }}
-    needs: [build, validate-production]
+    if: ${{ needs.build.result == 'success' && needs.validate-target.result == 'success' }}
+    name: Deploy Test
+    needs: [build, validate-target]
     runs-on: ubuntu-latest
-    environment: ${{ inputs.environment_name }}
+    environment: test
 
     permissions:
       contents: read
@@ -66,17 +97,6 @@ jobs:
             config/env
           sparse-checkout-cone-mode: false
 
-      - name: Recheck production source before SSH access
-        if: ${{ inputs.environment_name == 'production' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-          CI_RESULT: ${{ needs.validate-production.result }}
-          SOURCE_SHA: ${{ github.sha }}
-          SOURCE_REF: ${{ github.ref }}
-          SOURCE_REPOSITORY: ${{ github.repository }}
-          SOURCE_EVENT: ${{ github.event_name }}
-        run: python3 deploy/azure/scripts/release-policy.py
-
       - name: Validate deployment configuration
         shell: bash
         run: |
@@ -96,8 +116,8 @@ jobs:
           fi
 
           case "${{ inputs.environment_name }}" in
-            test|production) ;;
-            *) echo "environment_name must be 'test' or 'production'." >&2; exit 1 ;;
+            test) ;;
+            *) echo "environment_name must be 'test'." >&2; exit 1 ;;
           esac
 
           if [[ ! "$DEPLOY_ROOT" =~ ^/ ]]; then

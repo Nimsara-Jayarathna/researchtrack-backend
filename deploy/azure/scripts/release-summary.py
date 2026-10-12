@@ -120,9 +120,38 @@ def main():
         output.write(summary)
 
 
+def report_unavailable(error):
+    """Retain caller conclusions without inventing missing API evidence."""
+    statuses = {'success': 'PASS', 'failure': 'FAIL', 'cancelled': 'CANCELLED',
+                'skipped': 'SKIPPED', 'timed_out': 'TIMED OUT'}
+    deploy = statuses.get(os.environ.get('DEPLOY_RESULT'), 'INCOMPLETE')
+    smoke = statuses.get(os.environ.get('SMOKE_RESULT'), 'INCOMPLETE')
+    sha = os.environ.get('GITHUB_SHA', '')
+    if os.environ.get('GITHUB_REPOSITORY') != REPOSITORY or not re.fullmatch('[0-9a-f]{40}', sha):
+        sha = 'UNAVAILABLE'
+    failed = deploy in ('FAIL', 'CANCELLED', 'TIMED OUT') or smoke in ('FAIL', 'CANCELLED', 'TIMED OUT')
+    result = ('FAIL — RELEASE REPORT INCOMPLETE' if failed
+              else 'REPORTING INCOMPLETE — FINAL ACCEPTANCE NOT VERIFIED')
+    text = ('### Production release result\n\n'
+            f'Release commit: `{sha}`\n\n**{result}**\n\n'
+            f'Deployment job result: {deploy}. k6 smoke job result: {smoke}.\n\n'
+            f'Release metadata/report generation unavailable ({type(error).__name__}). '
+            'Required CI, phase results and durations are NOT VERIFIED. '
+            'Skipped smoke is not full acceptance.\n\n'
+            'The reporting job remains failed. Retain the deployment/migration tables, '
+            'workflow logs and Azure/Gateway recovery artifacts. Check restoration first; '
+            'do not infer or automatically roll back application/schema state from missing metadata.\n')
+    with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as output:
+        output.write(text)
+
+
 if __name__ == '__main__':
     try:
         main()
     except Exception as error:
         print('Release reporting failed: ' + type(error).__name__, file=sys.stderr)
+        try:
+            report_unavailable(error)
+        except Exception as summary_error:
+            print('Release failure summary unavailable: ' + type(summary_error).__name__, file=sys.stderr)
         sys.exit(1)

@@ -1887,6 +1887,110 @@ tests:
   - eval_time: 8m
     alertname: ResearchTrackKafkaOutboxMetricsUnavailable
     exp_alerts: []
+- name: offset commit rolling window recovery
+  interval: 1m
+  input_series:
+  - series: researchtrack_kafka_enabled{job="researchtrack-services",service="jira",environment="production",instance="jira:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_consume_total{job="researchtrack-services",service="jira",environment="production",instance="jira:8080",stage="commit",outcome="failed"}
+    values: 0+2x5 10x29
+  alert_rule_test:
+  - eval_time: 1m
+    alertname: ResearchTrackKafkaOffsetCommitFailures
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaOffsetCommitFailures
+    exp_alerts:
+    - exp_labels:
+        service: jira
+        environment: production
+        severity: warning
+        category: kafka
+        component: application
+      exp_annotations:
+        summary: Repeated Kafka offset-commit failures
+        description: Durable handoff succeeded but at least three offset commits failed within ten minutes. Inspect broker/group health and rejoin logs; replay is deduplicated, never skip offsets.
+  - eval_time: 20m
+    alertname: ResearchTrackKafkaOffsetCommitFailures
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ResearchTrackKafkaEventProcessingFailures
+    exp_alerts: []
+
+- name: failed outbox recovery with fresh samples
+  interval: 1m
+  input_series:
+  - series: researchtrack_kafka_enabled{job="researchtrack-services",service="jira",environment="production",instance="jira:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_success{job="researchtrack-services",service="jira",environment="production",instance="jira:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_timestamp_seconds{job="researchtrack-services",service="jira",environment="production",instance="jira:8080"}
+    values: 0+60x35
+  - series: researchtrack_kafka_outbox_messages{job="researchtrack-services",service="jira",environment="production",instance="jira:8080",status="failed"}
+    values: 1x3 0x31
+  alert_rule_test:
+  - eval_time: 1m
+    alertname: ResearchTrackKafkaOutboxFailed
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaOutboxFailed
+    exp_alerts:
+    - exp_labels:
+        job: researchtrack-services
+        instance: jira:8080
+        service: jira
+        environment: production
+        status: failed
+        severity: warning
+        category: kafka
+        component: outbox
+      exp_annotations:
+        summary: Kafka outbox retains permanently failed work
+        description: One or more events exhausted publication attempts or failed permanently. Diagnose before approved replay; failed rows block later events with the same key.
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaOutboxFailed
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaOutboxMetricsUnavailable
+    exp_alerts: []
+
+- name: outbox sampler recovery restores trustworthy depths
+  interval: 1m
+  input_series:
+  - series: researchtrack_kafka_enabled{job="researchtrack-services",service="jira",environment="production",instance="jira:8080"}
+    values: 1x35
+  - series: researchtrack_kafka_outbox_sample_success{job="researchtrack-services",service="jira",environment="production",instance="jira:8080"}
+    values: 0x6 1x28
+  - series: researchtrack_kafka_outbox_sample_timestamp_seconds{job="researchtrack-services",service="jira",environment="production",instance="jira:8080"}
+    values: 0x6 420+60x28
+  alert_rule_test:
+  - eval_time: 3m
+    alertname: ResearchTrackKafkaOutboxMetricsUnavailable
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ResearchTrackKafkaOutboxMetricsUnavailable
+    exp_alerts:
+    - exp_labels:
+        job: researchtrack-services
+        instance: jira:8080
+        service: jira
+        environment: production
+        severity: warning
+        category: kafka
+        component: outbox
+      exp_annotations:
+        summary: Kafka outbox monitoring unavailable or stale
+        description: Bounded database sampling has failed or become stale. Backlog depth is unknown, not healthy zero. Check application sampler/database availability without querying the database on each scrape.
+  - eval_time: 9m
+    alertname: ResearchTrackKafkaOutboxMetricsUnavailable
+    exp_alerts: []
+  promql_expr_test:
+  - expr: researchtrack_kafka_outbox_sample_success{service="jira"} == 1 and on(service,environment) (time() - researchtrack_kafka_outbox_sample_timestamp_seconds{service="jira"}) < 180
+    eval_time: 9m
+    exp_samples:
+    - labels: '{__name__="researchtrack_kafka_outbox_sample_success",job="researchtrack-services",instance="jira:8080",service="jira",environment="production"}'
+      value: 1
+
 - name: legacy Test has no provisioned Kafka exporter and no enabled app
   interval: 1m
   input_series:

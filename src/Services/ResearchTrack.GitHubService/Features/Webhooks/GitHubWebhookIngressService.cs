@@ -77,6 +77,10 @@ public sealed class GitHubWebhookIngressService : IGitHubWebhookIngressService
             payloadJson = Encoding.UTF8.GetString(payload);
             using var document = JsonDocument.Parse(payload);
             var root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
+            {
+                throw new JsonException("GitHub webhook payload must be a JSON object.");
+            }
             action = ReadString(root, "action");
             installationId = ReadNestedInt64(root, "installation", "id");
             repositoryId = ReadNestedInt64(root, "repository", "id");
@@ -87,7 +91,7 @@ public sealed class GitHubWebhookIngressService : IGitHubWebhookIngressService
             throw new ApiException(
                 StatusCodes.Status400BadRequest,
                 ErrorCodes.BadRequest,
-                "GitHub webhook payload is not valid JSON.",
+                "GitHub webhook payload must be a valid JSON object with numeric identifiers.",
                 innerException: exception);
         }
 
@@ -152,12 +156,15 @@ public sealed class GitHubWebhookIngressService : IGitHubWebhookIngressService
     {
         if (!root.TryGetProperty(parent, out var parentValue)
             || parentValue.ValueKind != JsonValueKind.Object
-            || !parentValue.TryGetProperty(child, out var childValue)
-            || !childValue.TryGetInt64(out var result))
+            || !parentValue.TryGetProperty(child, out var childValue))
         {
             return null;
         }
-        return result;
+        if (childValue.ValueKind != JsonValueKind.Number)
+        {
+            throw new JsonException("GitHub webhook identifier must be numeric.");
+        }
+        return childValue.TryGetInt64(out var result) ? result : null;
     }
 
     private static ApiException BadRequest(string message) => new(
