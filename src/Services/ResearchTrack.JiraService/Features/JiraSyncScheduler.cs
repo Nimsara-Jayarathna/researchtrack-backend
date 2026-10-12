@@ -1,4 +1,3 @@
-
 using Microsoft.EntityFrameworkCore;
 using ResearchTrack.JiraService.Domain;
 using ResearchTrack.JiraService.Persistence;
@@ -42,24 +41,12 @@ public sealed class JiraSyncScheduler : IJiraSyncScheduler
         await using var db = await _factory.CreateDbContextAsync(ct);
 
         await using var lease =
-            await JiraDatabaseLock.TryAcquireAsync(
-                db,
-                JiraDatabaseLock.ProjectSchedule(projectId),
-                10,
-                ct
-            )
+            await JiraDatabaseLock.TryAcquireAsync(db, JiraDatabaseLock.ProjectSchedule(projectId), 10, ct)
             ?? throw new InvalidOperationException(
                 $"Could not acquire Jira sync scheduling lock for project {projectId}."
             );
 
-        await StageAsync(
-            db,
-            projectId,
-            reason,
-            availableAt,
-            entityId,
-            ct
-        );
+        await StageAsync(db, projectId, reason, availableAt, entityId, ct);
 
         // Persist the scheduled job while holding the project lock.
         await db.SaveChangesAsync(ct);
@@ -87,41 +74,25 @@ public sealed class JiraSyncScheduler : IJiraSyncScheduler
         var trigger = JiraOperationalMetrics.Trigger(reason);
 
         var connection = await db
-            .JiraConnections
-            .AsNoTracking()
-            .SingleOrDefaultAsync(
-                x => x.ResearchProjectId == projectId,
-                ct
-            );
+            .JiraConnections.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.ResearchProjectId == projectId, ct);
 
         if (connection is null)
         {
-            JiraOperationalMetrics.SyncRequests
-                .WithLabels(trigger, "ignored_disconnected")
-                .Inc();
+            JiraOperationalMetrics.SyncRequests.WithLabels(trigger, "ignored_disconnected").Inc();
 
             return;
         }
 
-        if (string.Equals(
-            connection.SyncStatus,
-            "INVALID_AUTH",
-            StringComparison.Ordinal
-        ))
+        if (string.Equals(connection.SyncStatus, "INVALID_AUTH", StringComparison.Ordinal))
         {
-            JiraOperationalMetrics.SyncRequests
-                .WithLabels(trigger, "ignored_invalid_auth")
-                .Inc();
+            JiraOperationalMetrics.SyncRequests.WithLabels(trigger, "ignored_invalid_auth").Inc();
 
             return;
         }
 
         var pendingJobs = await db
-            .JiraSyncJobs
-            .Where(x =>
-                x.ResearchProjectId == projectId
-                && x.Status == "PENDING"
-            )
+            .JiraSyncJobs.Where(x => x.ResearchProjectId == projectId && x.Status == "PENDING")
             .OrderBy(x => x.RequestedAt)
             .ToListAsync(ct);
 
@@ -133,9 +104,7 @@ public sealed class JiraSyncScheduler : IJiraSyncScheduler
             // Repair duplicate pending jobs from older implementations.
             if (pendingJobs.Count > 1)
             {
-                db.JiraSyncJobs.RemoveRange(
-                    pendingJobs.Skip(1)
-                );
+                db.JiraSyncJobs.RemoveRange(pendingJobs.Skip(1));
             }
 
             // Coalesce the request without delaying earlier work.
@@ -146,21 +115,13 @@ public sealed class JiraSyncScheduler : IJiraSyncScheduler
                 pending.AvailableAt = availableAt;
             }
 
-            pending.Reason = MergeReason(
-                pending.Reason,
-                reason
-            );
+            pending.Reason = MergeReason(pending.Reason, reason);
 
-            pending.EntityId =
-                pending.EntityId == entityId
-                    ? entityId
-                    : null;
+            pending.EntityId = pending.EntityId == entityId ? entityId : null;
 
             pending.LastError = null;
 
-            JiraOperationalMetrics.SyncRequests
-                .WithLabels(trigger, "coalesced")
-                .Inc();
+            JiraOperationalMetrics.SyncRequests.WithLabels(trigger, "coalesced").Inc();
 
             return;
         }
@@ -177,24 +138,13 @@ public sealed class JiraSyncScheduler : IJiraSyncScheduler
                 EntityId = entityId,
                 Status = "PENDING",
                 RequestedAt = now,
-                AvailableAt = availableAt
+                AvailableAt = availableAt,
             }
         );
 
-        JiraOperationalMetrics.SyncRequests
-            .WithLabels(trigger, "queued")
-            .Inc();
+        JiraOperationalMetrics.SyncRequests.WithLabels(trigger, "queued").Inc();
     }
 
-    private static string MergeReason(
-        string current,
-        string incoming
-    ) =>
-        string.Equals(
-            current,
-            incoming,
-            StringComparison.Ordinal
-        )
-            ? current
-            : "COALESCED";
+    private static string MergeReason(string current, string incoming) =>
+        string.Equals(current, incoming, StringComparison.Ordinal) ? current : "COALESCED";
 }

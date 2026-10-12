@@ -1,4 +1,3 @@
-
 using Prometheus;
 using ResearchTrack.BuildingBlocks.Api.Extensions;
 using ResearchTrack.BuildingBlocks.Api.Security;
@@ -9,9 +8,7 @@ using ResearchTrack.JiraService.Persistence;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.WebHost.ConfigureKestrel(options =>
-    options.AddServerHeader = false
-);
+builder.WebHost.ConfigureKestrel(options => options.AddServerHeader = false);
 
 // Kafka runtime configuration.
 // Validates production-specific Kafka requirements.
@@ -24,9 +21,7 @@ builder.Services.AddResearchTrackKafkaConfiguration(
 // Existing API and authentication configuration.
 builder.Services.AddResearchTrackApi("ResearchTrack Jira Service");
 
-builder.Services.AddResearchTrackJwtAuthentication(
-    builder.Configuration
-);
+builder.Services.AddResearchTrackJwtAuthentication(builder.Configuration);
 
 // Existing Jira database and feature registrations.
 builder.Services.AddJiraPersistence(builder.Configuration);

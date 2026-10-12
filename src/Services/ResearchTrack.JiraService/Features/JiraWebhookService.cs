@@ -4,13 +4,13 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.EntityFrameworkCore;
+using ResearchTrack.BuildingBlocks.Api.Constants;
+using ResearchTrack.BuildingBlocks.Api.Exceptions;
+using ResearchTrack.BuildingBlocks.Kafka;
 using ResearchTrack.JiraService.Configuration;
 using ResearchTrack.JiraService.Domain;
 using ResearchTrack.JiraService.Infrastructure;
 using ResearchTrack.JiraService.Persistence;
-using ResearchTrack.BuildingBlocks.Kafka;
-using ResearchTrack.BuildingBlocks.Api.Constants;
-using ResearchTrack.BuildingBlocks.Api.Exceptions;
 
 namespace ResearchTrack.JiraService.Features;
 
@@ -326,12 +326,18 @@ public sealed class JiraWebhookService : IJiraWebhookService
                     x => x.DeliveryId == eventDeliveryId,
                     ct
                 );
-                if (existing is not null
-                    && (existing.CloudId != connection.CloudId
-                        || existing.ResearchProjectId != connection.ResearchProjectId)
-                    && !(existing.Status == "IGNORED"
+                if (
+                    existing is not null
+                    && (
+                        existing.CloudId != connection.CloudId
+                        || existing.ResearchProjectId != connection.ResearchProjectId
+                    )
+                    && !(
+                        existing.Status == "IGNORED"
                         && existing.CloudId == "unknown"
-                        && existing.ResearchProjectId is null))
+                        && existing.ResearchProjectId is null
+                    )
+                )
                 {
                     // Webhook identifiers can be tenant-local. Do not deduplicate across tenants.
                     eventDeliveryId = BuildScopedDeliveryId(baseDeliveryId, connection);
@@ -353,7 +359,7 @@ public sealed class JiraWebhookService : IJiraWebhookService
                         IssueKey = issueKey,
                         PayloadJson = payload,
                         ReceivedAt = now,
-                        Status = "RECEIVED"
+                        Status = "RECEIVED",
                     };
                     db.JiraWebhookEvents.Add(acceptedEvent);
                     AddKafkaOutbox(db, acceptedEvent);
@@ -449,7 +455,7 @@ public sealed class JiraWebhookService : IJiraWebhookService
                 WebhookRecordId = record.Id,
                 ResearchProjectId = record.ResearchProjectId,
                 CloudId = record.CloudId,
-                EventType = record.EventType
+                EventType = record.EventType,
             }
         );
         db.Set<KafkaOutboxMessage>().Add(KafkaOutboxMessage.Create(value, _kafka));
@@ -516,25 +522,48 @@ public sealed class JiraWebhookService : IJiraWebhookService
     private static string BuildProjectDeliveryId(string baseDeliveryId, Guid projectId, int targetCount) =>
         targetCount <= 1 ? baseDeliveryId : $"{baseDeliveryId}:{projectId:N}";
 
-    private static string BuildScopedDeliveryId(string baseDeliveryId, JiraConnection connection)
-        => "scoped-" +Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
-            JsonSerializer.Serialize(new[]{connection.CloudId,connection.ResearchProjectId.ToString("N"),baseDeliveryId}))));
+    private static string BuildScopedDeliveryId(string baseDeliveryId, JiraConnection connection) =>
+        "scoped-"
+        + Convert.ToHexString(
+            SHA256.HashData(
+                Encoding.UTF8.GetBytes(
+                    JsonSerializer.Serialize(
+                        new[]
+                        {
+                            connection.CloudId,
+                            connection.ResearchProjectId.ToString("N"),
+                            baseDeliveryId,
+                        }
+                    )
+                )
+            )
+        );
 
     private static JsonDocument ParseWebhookPayload(string payload)
     {
         JsonDocument document;
-        try { document=JsonDocument.Parse(payload); }
-        catch(JsonException) { throw InvalidWebhookPayload(); }
-        if(document.RootElement.ValueKind==JsonValueKind.Object)return document;
+        try
+        {
+            document = JsonDocument.Parse(payload);
+        }
+        catch (JsonException)
+        {
+            throw InvalidWebhookPayload();
+        }
+        if (document.RootElement.ValueKind == JsonValueKind.Object)
+            return document;
         document.Dispose();
         throw InvalidWebhookPayload();
     }
 
     private static ApiException InvalidWebhookPayload()
     {
-        JiraOperationalMetrics.WebhookEvents.WithLabels("unknown","rejected_payload").Inc();
-        return new ApiException(StatusCodes.Status400BadRequest,ErrorCodes.BadRequest,
-            "Jira webhook payload must be a valid JSON object.");
+        JiraOperationalMetrics.WebhookEvents.WithLabels("unknown", "rejected_payload").Inc();
+        return new ApiException(
+            StatusCodes.Status400BadRequest,
+            ErrorCodes.BadRequest,
+            "Jira webhook payload must be a valid JSON object."
+        );
     }
 
     private bool ValidateBearer(string? authorizationHeader)

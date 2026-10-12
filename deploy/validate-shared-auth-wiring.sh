@@ -51,15 +51,30 @@ declare -A program_files=(
   [submission]='src/Services/ResearchTrack.SubmissionService/Program.cs'
 )
 
+# Registration may be wrapped by the production formatter. Inspect the same
+# canonical call independent of whitespace, excluding comments/string literals
+# so documentation cannot satisfy a missing authentication registration.
+mapfile -t jwt_programs < <(python3 - <<'PY'
+from pathlib import Path
+import re
+
+ignored = re.compile(r'''//[^\n]*|/\*.*?\*/|@?"(?:""|\\.|[^"\\])*"|'(?:\\.|[^'\\])*' ''', re.S | re.X)
+registration = re.compile(r'\bAddResearchTrackJwtAuthentication\s*\(\s*builder\s*\.\s*Configuration\s*\)')
+for path in sorted(Path('src').rglob('Program.cs')):
+    if any(part.lower() in {'bin', 'obj'} for part in path.parts):
+        continue
+    if registration.search(ignored.sub(' ', path.read_text())):
+        print(path.as_posix())
+PY
+)
 for service in "${protected_services[@]}"; do
   program="${program_files[$service]}"
-  grep -Fq 'AddResearchTrackJwtAuthentication(builder.Configuration)' "$program" \
+  printf '%s\n' "${jwt_programs[@]}" | grep -Fxq "$program" \
     || die "$program does not register AddResearchTrackJwtAuthentication."
 done
 
 # The protected set is exactly the services registering shared JWT validation,
 # so a newly protected service cannot be left out of the lists above.
-mapfile -t jwt_programs < <(grep -rl --include=Program.cs 'AddResearchTrackJwtAuthentication(builder.Configuration)' src | sort)
 mapfile -t expected_programs < <(printf '%s\n' "${program_files[@]}" | sort)
 [[ "${jwt_programs[*]}" == "${expected_programs[*]}" ]] \
   || die "services registering AddResearchTrackJwtAuthentication (${jwt_programs[*]}) differ from the protected list."

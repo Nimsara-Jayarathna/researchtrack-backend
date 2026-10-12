@@ -25,8 +25,12 @@ public sealed class KafkaOutboxMessage
         KafkaWebhookContract.Parse(payload, key, value.EventName.Split('.')[0], options.ContractVersion);
         return new()
         {
-            EventId = value.EventId, Topic = options.Topic, MessageKey = key, PayloadJson = payload,
-            CreatedAtUtc = value.OccurredAtUtc.UtcDateTime, NextAttemptAtUtc = value.OccurredAtUtc.UtcDateTime
+            EventId = value.EventId,
+            Topic = options.Topic,
+            MessageKey = key,
+            PayloadJson = payload,
+            CreatedAtUtc = value.OccurredAtUtc.UtcDateTime,
+            NextAttemptAtUtc = value.OccurredAtUtc.UtcDateTime,
         };
     }
 }
@@ -43,10 +47,17 @@ public static class KafkaPersistence
 {
     public static async Task AssertOwnedAsync(DbContext db, WebhookReadyEvent value, CancellationToken ct)
     {
-        var outbox = await db.Set<KafkaOutboxMessage>().AsNoTracking().SingleOrDefaultAsync(x => x.EventId == value.EventId, ct);
-        if (outbox is null || outbox.PayloadJson != KafkaWebhookContract.Serialize(value) || outbox.MessageKey != KafkaWebhookContract.Key(value))
+        var outbox = await db.Set<KafkaOutboxMessage>()
+            .AsNoTracking()
+            .SingleOrDefaultAsync(x => x.EventId == value.EventId, ct);
+        if (
+            outbox is null
+            || outbox.PayloadJson != KafkaWebhookContract.Serialize(value)
+            || outbox.MessageKey != KafkaWebhookContract.Key(value)
+        )
             throw new KafkaContractException();
     }
+
     public static void Configure(ModelBuilder builder)
     {
         builder.Entity<KafkaOutboxMessage>(entity =>
@@ -72,20 +83,33 @@ public static class KafkaPersistence
         });
     }
 
-    public static async Task<bool> AlreadyHandledAsync(DbContext db, WebhookReadyEvent value, CancellationToken ct)
+    public static async Task<bool> AlreadyHandledAsync(
+        DbContext db,
+        WebhookReadyEvent value,
+        CancellationToken ct
+    )
     {
-        var receipt = await db.Set<KafkaInboxReceipt>().AsNoTracking().SingleOrDefaultAsync(x => x.EventId == value.EventId, ct);
-        if (receipt is null) return false;
-        if (receipt.PayloadHash != KafkaWebhookContract.Hash(value)) throw new KafkaContractException();
+        var receipt = await db.Set<KafkaInboxReceipt>()
+            .AsNoTracking()
+            .SingleOrDefaultAsync(x => x.EventId == value.EventId, ct);
+        if (receipt is null)
+            return false;
+        if (receipt.PayloadHash != KafkaWebhookContract.Hash(value))
+            throw new KafkaContractException();
         return true;
     }
 
     public static void AddReceipt(DbContext db, WebhookReadyEvent value, string outcome) =>
-        db.Set<KafkaInboxReceipt>().Add(new()
-        {
-            EventId = value.EventId, PayloadHash = KafkaWebhookContract.Hash(value),
-            Outcome = outcome, HandedOffAtUtc = DateTime.UtcNow
-        });
+        db.Set<KafkaInboxReceipt>()
+            .Add(
+                new()
+                {
+                    EventId = value.EventId,
+                    PayloadHash = KafkaWebhookContract.Hash(value),
+                    Outcome = outcome,
+                    HandedOffAtUtc = DateTime.UtcNow,
+                }
+            );
 }
 
 public sealed record KafkaOutboxSnapshot(long Pending, long Failed);
@@ -96,48 +120,90 @@ public interface IKafkaOutboxStore
     Task<bool> HasHeldMessagesAsync(CancellationToken ct);
     Task<KafkaOutboxMessage?> ClaimAsync(DateTime now, CancellationToken ct);
     Task CompleteAsync(KafkaOutboxMessage message, DateTime now, CancellationToken ct);
-    Task FailAsync(KafkaOutboxMessage message, DateTime now, string errorCode, bool permanent, CancellationToken ct);
+    Task FailAsync(
+        KafkaOutboxMessage message,
+        DateTime now,
+        string errorCode,
+        bool permanent,
+        CancellationToken ct
+    );
 }
 
-public sealed class KafkaOutboxStore<TContext>(IDbContextFactory<TContext> factory) : IKafkaOutboxStore where TContext : DbContext
+public sealed class KafkaOutboxStore<TContext>(IDbContextFactory<TContext> factory) : IKafkaOutboxStore
+    where TContext : DbContext
 {
     public async Task<KafkaOutboxSnapshot> SampleAsync(CancellationToken ct)
     {
         await using var db = await factory.CreateDbContextAsync(ct);
-        var counts = await db.Set<KafkaOutboxMessage>().AsNoTracking()
+        var counts = await db.Set<KafkaOutboxMessage>()
+            .AsNoTracking()
             .Where(x => x.Status == "PENDING" || x.Status == "PUBLISHING" || x.Status == "FAILED")
-            .GroupBy(x => x.Status).Select(group => new { Status = group.Key, Count = group.LongCount() }).ToListAsync(ct);
-        return new(counts.Where(x => x.Status != "FAILED").Sum(x => x.Count),
-            counts.Where(x => x.Status == "FAILED").Sum(x => x.Count));
+            .GroupBy(x => x.Status)
+            .Select(group => new { Status = group.Key, Count = group.LongCount() })
+            .ToListAsync(ct);
+        return new(
+            counts.Where(x => x.Status != "FAILED").Sum(x => x.Count),
+            counts.Where(x => x.Status == "FAILED").Sum(x => x.Count)
+        );
     }
+
     public async Task<bool> HasHeldMessagesAsync(CancellationToken ct)
     {
         await using var db = await factory.CreateDbContextAsync(ct);
         return await db.Set<KafkaOutboxMessage>().AnyAsync(x => x.Status == "FAILED", ct);
     }
+
     public async Task<KafkaOutboxMessage?> ClaimAsync(DateTime now, CancellationToken ct)
     {
         await using var db = await factory.CreateDbContextAsync(ct);
         var rows = db.Set<KafkaOutboxMessage>();
         await rows.Where(x => x.Status == "PUBLISHING" && x.AttemptCount >= 10 && x.LeaseExpiresAtUtc <= now)
-            .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.Status, "FAILED")
-                .SetProperty(x => x.LastErrorCode, "lease_expired_exhausted"), ct);
+            .ExecuteUpdateAsync(
+                setters =>
+                    setters
+                        .SetProperty(x => x.Status, "FAILED")
+                        .SetProperty(x => x.LastErrorCode, "lease_expired_exhausted"),
+                ct
+            );
         for (var attempt = 0; attempt < 8; attempt++)
         {
-            var candidate = await rows.AsNoTracking().Where(x => x.AttemptCount < 10 &&
-                ((x.Status == "PENDING" && x.NextAttemptAtUtc <= now) ||
-                 (x.Status == "PUBLISHING" && x.LeaseExpiresAtUtc <= now)) &&
-                !rows.Any(previous => previous.MessageKey == x.MessageKey && previous.Sequence < x.Sequence && previous.Status != "PUBLISHED"))
-                .OrderBy(x => x.Sequence).FirstOrDefaultAsync(ct);
-            if (candidate is null) return null;
+            var candidate = await rows.AsNoTracking()
+                .Where(x =>
+                    x.AttemptCount < 10
+                    && (
+                        (x.Status == "PENDING" && x.NextAttemptAtUtc <= now)
+                        || (x.Status == "PUBLISHING" && x.LeaseExpiresAtUtc <= now)
+                    )
+                    && !rows.Any(previous =>
+                        previous.MessageKey == x.MessageKey
+                        && previous.Sequence < x.Sequence
+                        && previous.Status != "PUBLISHED"
+                    )
+                )
+                .OrderBy(x => x.Sequence)
+                .FirstOrDefaultAsync(ct);
+            if (candidate is null)
+                return null;
             var lease = Guid.NewGuid();
-            var changed = await rows.Where(x => x.Sequence == candidate.Sequence && x.AttemptCount == candidate.AttemptCount &&
-                    ((x.Status == "PENDING" && x.NextAttemptAtUtc <= now) ||
-                     (x.Status == "PUBLISHING" && x.LeaseExpiresAtUtc <= now)))
-                .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.Status, "PUBLISHING")
-                    .SetProperty(x => x.LeaseId, lease).SetProperty(x => x.LeaseExpiresAtUtc, now.AddMinutes(2))
-                    .SetProperty(x => x.AttemptCount, x => x.AttemptCount + 1), ct);
-            if (changed == 1) return await rows.AsNoTracking().SingleAsync(x => x.Sequence == candidate.Sequence, ct);
+            var changed = await rows.Where(x =>
+                    x.Sequence == candidate.Sequence
+                    && x.AttemptCount == candidate.AttemptCount
+                    && (
+                        (x.Status == "PENDING" && x.NextAttemptAtUtc <= now)
+                        || (x.Status == "PUBLISHING" && x.LeaseExpiresAtUtc <= now)
+                    )
+                )
+                .ExecuteUpdateAsync(
+                    setters =>
+                        setters
+                            .SetProperty(x => x.Status, "PUBLISHING")
+                            .SetProperty(x => x.LeaseId, lease)
+                            .SetProperty(x => x.LeaseExpiresAtUtc, now.AddMinutes(2))
+                            .SetProperty(x => x.AttemptCount, x => x.AttemptCount + 1),
+                    ct
+                );
+            if (changed == 1)
+                return await rows.AsNoTracking().SingleAsync(x => x.Sequence == candidate.Sequence, ct);
         }
         return null;
     }
@@ -145,25 +211,53 @@ public sealed class KafkaOutboxStore<TContext>(IDbContextFactory<TContext> facto
     public async Task CompleteAsync(KafkaOutboxMessage message, DateTime now, CancellationToken ct)
     {
         await using var db = await factory.CreateDbContextAsync(ct);
-        await db.Set<KafkaOutboxMessage>().Where(x => x.Sequence == message.Sequence && x.LeaseId == message.LeaseId && x.Status == "PUBLISHING")
-            .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.Status, "PUBLISHED")
-                .SetProperty(x => x.PublishedAtUtc, now).SetProperty(x => x.LeaseExpiresAtUtc, (DateTime?)null)
-                .SetProperty(x => x.LastErrorCode, (string?)null), ct);
+        await db.Set<KafkaOutboxMessage>()
+            .Where(x =>
+                x.Sequence == message.Sequence && x.LeaseId == message.LeaseId && x.Status == "PUBLISHING"
+            )
+            .ExecuteUpdateAsync(
+                setters =>
+                    setters
+                        .SetProperty(x => x.Status, "PUBLISHED")
+                        .SetProperty(x => x.PublishedAtUtc, now)
+                        .SetProperty(x => x.LeaseExpiresAtUtc, (DateTime?)null)
+                        .SetProperty(x => x.LastErrorCode, (string?)null),
+                ct
+            );
     }
 
-    public async Task FailAsync(KafkaOutboxMessage message, DateTime now, string errorCode, bool permanent, CancellationToken ct)
+    public async Task FailAsync(
+        KafkaOutboxMessage message,
+        DateTime now,
+        string errorCode,
+        bool permanent,
+        CancellationToken ct
+    )
     {
         await using var db = await factory.CreateDbContextAsync(ct);
         var failed = permanent || message.AttemptCount >= 10;
-        await db.Set<KafkaOutboxMessage>().Where(x => x.Sequence == message.Sequence && x.LeaseId == message.LeaseId && x.Status == "PUBLISHING")
-            .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.Status, failed ? "FAILED" : "PENDING")
-                .SetProperty(x => x.NextAttemptAtUtc, now.Add(RetryDelay(message.AttemptCount)))
-                .SetProperty(x => x.LeaseExpiresAtUtc, (DateTime?)null).SetProperty(x => x.LastErrorCode, errorCode), ct);
+        await db.Set<KafkaOutboxMessage>()
+            .Where(x =>
+                x.Sequence == message.Sequence && x.LeaseId == message.LeaseId && x.Status == "PUBLISHING"
+            )
+            .ExecuteUpdateAsync(
+                setters =>
+                    setters
+                        .SetProperty(x => x.Status, failed ? "FAILED" : "PENDING")
+                        .SetProperty(x => x.NextAttemptAtUtc, now.Add(RetryDelay(message.AttemptCount)))
+                        .SetProperty(x => x.LeaseExpiresAtUtc, (DateTime?)null)
+                        .SetProperty(x => x.LastErrorCode, errorCode),
+                ct
+            );
     }
 
-    public static TimeSpan RetryDelay(int attempt) => attempt switch
-    {
-        <= 1 => TimeSpan.FromSeconds(30), 2 => TimeSpan.FromMinutes(2),
-        3 => TimeSpan.FromMinutes(10), 4 => TimeSpan.FromMinutes(30), _ => TimeSpan.FromHours(1)
-    };
+    public static TimeSpan RetryDelay(int attempt) =>
+        attempt switch
+        {
+            <= 1 => TimeSpan.FromSeconds(30),
+            2 => TimeSpan.FromMinutes(2),
+            3 => TimeSpan.FromMinutes(10),
+            4 => TimeSpan.FromMinutes(30),
+            _ => TimeSpan.FromHours(1),
+        };
 }

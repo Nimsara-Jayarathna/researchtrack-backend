@@ -117,7 +117,9 @@ jobs:
         run: ./deploy/azure/validation/test-deploy-image-selection.sh
 
       - name: Validate shared JWT wiring (Test, local, Azure Production)
-        run: ./deploy/validate-shared-auth-wiring.sh
+        run: |
+          python3 deploy/azure/validation/test_shared_auth_wiring.py
+          ./deploy/validate-shared-auth-wiring.sh
 
       - name: Test Container Apps environment composition (synthetic values)
         run: ./deploy/azure/validation/test-service-env-composition.sh

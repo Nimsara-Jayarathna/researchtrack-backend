@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
-using ResearchTrack.GitHubService.Domain;
 using ResearchTrack.BuildingBlocks.Kafka;
+using ResearchTrack.GitHubService.Domain;
 
 namespace ResearchTrack.GitHubService.Persistence;
 

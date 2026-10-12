@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
-using ResearchTrack.JiraService.Domain;
 using ResearchTrack.BuildingBlocks.Kafka;
+using ResearchTrack.JiraService.Domain;
 
 namespace ResearchTrack.JiraService.Persistence;
 
@@ -21,6 +21,19 @@ public sealed class JiraDbContext : DbContext
     protected override void OnModelCreating(ModelBuilder b)
     {
         KafkaPersistence.Configure(b);
+
+        // Connector/NET otherwise maps DateTimeOffset parameters as datetime
+        // with zero fractional precision. Preserve the deployed datetime(6)
+        // columns and exact webhook identity/scheduling comparisons.
+        b.Entity<JiraWebhookEvent>().Property(x => x.ReceivedAt).HasColumnType("datetime(6)");
+        b.Entity<JiraWebhookEvent>().Property(x => x.ProcessedAt).HasColumnType("datetime(6)");
+        b.Entity<JiraSyncJob>().Property(x => x.StartedAt).HasColumnType("datetime(6)");
+        b.Entity<JiraSyncJob>().Property(x => x.RequestedAt).HasColumnType("datetime(6)");
+        b.Entity<JiraSyncJob>().Property(x => x.CompletedAt).HasColumnType("datetime(6)");
+        b.Entity<JiraSyncJob>().Property(x => x.AvailableAt).HasColumnType("datetime(6)");
+        b.Entity<JiraConnection>().Property(x => x.WebhookExpiresAt).HasColumnType("datetime(6)");
+        b.Entity<JiraConnection>().Property(x => x.LastWebhookAt).HasColumnType("datetime(6)");
+        b.Entity<JiraConnection>().Property(x => x.LastReconciledAt).HasColumnType("datetime(6)");
 
         b.Entity<JiraOAuthState>(e =>
         {
