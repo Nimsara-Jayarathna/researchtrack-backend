@@ -19,18 +19,21 @@ public sealed class ProjectAuthorizationClient : IProjectAuthorizationClient
         EnsureProjectAccessAsync(
             projectId,
             "You do not have access to this project's GitHub evidence.",
-            cancellationToken);
+            cancellationToken
+        );
 
     public Task EnsureCanManageAsync(Guid projectId, CancellationToken cancellationToken) =>
         EnsureProjectAccessAsync(
             projectId,
             "Only the owning Supervisor can manage this project's GitHub integration.",
-            cancellationToken);
+            cancellationToken
+        );
 
     private async Task EnsureProjectAccessAsync(
         Guid projectId,
         string forbiddenMessage,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, $"api/v1/projects/{projectId}");
         ForwardAuthentication(request);
@@ -61,16 +64,21 @@ public sealed class ProjectAuthorizationClient : IProjectAuthorizationClient
                 throw new ApiException(
                     StatusCodes.Status401Unauthorized,
                     ErrorCodes.Unauthorized,
-                    "Authentication is required.");
+                    "Authentication is required."
+                );
             }
 
-            if (response.StatusCode is System.Net.HttpStatusCode.Forbidden
-                or System.Net.HttpStatusCode.NotFound)
+            if (
+                response.StatusCode
+                is System.Net.HttpStatusCode.Forbidden
+                    or System.Net.HttpStatusCode.NotFound
+            )
             {
                 throw new ApiException(
                     StatusCodes.Status403Forbidden,
                     ErrorCodes.Forbidden,
-                    forbiddenMessage);
+                    forbiddenMessage
+                );
             }
 
             throw DependencyFailure("Unable to verify project authorization with Project Service.");
@@ -79,26 +87,35 @@ public sealed class ProjectAuthorizationClient : IProjectAuthorizationClient
 
     private void ForwardAuthentication(HttpRequestMessage request)
     {
-        var incoming = _httpContextAccessor.HttpContext?.Request
+        var incoming =
+            _httpContextAccessor.HttpContext?.Request
             ?? throw DependencyFailure("Request authentication context is unavailable.");
 
         if (incoming.Headers.Authorization.Count > 0)
         {
-            request.Headers.TryAddWithoutValidation("Authorization", incoming.Headers.Authorization.ToArray());
+            request.Headers.TryAddWithoutValidation(
+                "Authorization",
+                incoming.Headers.Authorization.ToArray()
+            );
         }
 
-        if (incoming.Cookies.TryGetValue(AuthSecurityConstants.AccessCookieName, out var token)
-            && !string.IsNullOrWhiteSpace(token))
+        if (
+            incoming.Cookies.TryGetValue(AuthSecurityConstants.AccessCookieName, out var token)
+            && !string.IsNullOrWhiteSpace(token)
+        )
         {
             request.Headers.TryAddWithoutValidation(
                 "Cookie",
-                $"{AuthSecurityConstants.AccessCookieName}={token}");
+                $"{AuthSecurityConstants.AccessCookieName}={token}"
+            );
         }
     }
 
-    private static ApiException DependencyFailure(string message, Exception? inner = null) => new(
-        StatusCodes.Status503ServiceUnavailable,
-        ErrorCodes.DependencyUnavailable,
-        message,
-        innerException: inner);
+    private static ApiException DependencyFailure(string message, Exception? inner = null) =>
+        new(
+            StatusCodes.Status503ServiceUnavailable,
+            ErrorCodes.DependencyUnavailable,
+            message,
+            innerException: inner
+        );
 }

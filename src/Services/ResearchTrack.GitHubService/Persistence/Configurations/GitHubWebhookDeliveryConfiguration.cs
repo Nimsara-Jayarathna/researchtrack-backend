@@ -27,12 +27,15 @@ public sealed class GitHubWebhookDeliveryConfiguration : IEntityTypeConfiguratio
         builder.Property(delivery => delivery.LastError).HasMaxLength(2048);
         builder.Property(delivery => delivery.UpdatedAt).IsRequired();
 
-        builder.HasIndex(delivery => delivery.DeliveryId)
+        builder
+            .HasIndex(delivery => delivery.DeliveryId)
             .IsUnique()
             .HasDatabaseName("ux_github_webhook_deliveries_delivery_id");
-        builder.HasIndex(delivery => new { delivery.Status, delivery.NextAttemptAt })
+        builder
+            .HasIndex(delivery => new { delivery.Status, delivery.NextAttemptAt })
             .HasDatabaseName("ix_github_webhook_deliveries_status_next_attempt");
-        builder.HasIndex(delivery => delivery.ReceivedAt)
+        builder
+            .HasIndex(delivery => delivery.ReceivedAt)
             .HasDatabaseName("ix_github_webhook_deliveries_received_at");
     }
 }

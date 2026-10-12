@@ -18,49 +18,48 @@ public sealed class AuthCookieService : IAuthCookieService
     }
 
     public string? ReadRefreshToken(HttpRequest request) =>
-        request.Cookies.TryGetValue(AuthSecurityConstants.RefreshCookieName, out var value)
-            ? value
-            : null;
+        request.Cookies.TryGetValue(AuthSecurityConstants.RefreshCookieName, out var value) ? value : null;
 
     public void WriteSession(HttpResponse response, string accessToken, string refreshToken)
     {
         response.Cookies.Append(
             AuthSecurityConstants.AccessCookieName,
             accessToken,
-            CreateCookieOptions(AccessPath, TimeSpan.FromMinutes(_jwtOptions.AccessTokenMinutes)));
+            CreateCookieOptions(AccessPath, TimeSpan.FromMinutes(_jwtOptions.AccessTokenMinutes))
+        );
 
         response.Cookies.Append(
             AuthSecurityConstants.RefreshCookieName,
             refreshToken,
-            CreateCookieOptions(RefreshPath, TimeSpan.FromDays(_jwtOptions.RefreshTokenDays)));
+            CreateCookieOptions(RefreshPath, TimeSpan.FromDays(_jwtOptions.RefreshTokenDays))
+        );
     }
 
     public void ClearSession(HttpResponse response)
     {
-        response.Cookies.Delete(
-            AuthSecurityConstants.AccessCookieName,
-            CreateDeleteOptions(AccessPath));
-        response.Cookies.Delete(
-            AuthSecurityConstants.RefreshCookieName,
-            CreateDeleteOptions(RefreshPath));
+        response.Cookies.Delete(AuthSecurityConstants.AccessCookieName, CreateDeleteOptions(AccessPath));
+        response.Cookies.Delete(AuthSecurityConstants.RefreshCookieName, CreateDeleteOptions(RefreshPath));
     }
 
-    private CookieOptions CreateCookieOptions(string path, TimeSpan maxAge) => new()
-    {
-        HttpOnly = true,
-        Secure = _cookieOptions.Secure,
-        SameSite = SameSiteMode.Strict,
-        IsEssential = true,
-        Path = path,
-        MaxAge = maxAge
-    };
+    private CookieOptions CreateCookieOptions(string path, TimeSpan maxAge) =>
+        new()
+        {
+            HttpOnly = true,
+            // Startup validation guarantees Secure=true outside Development/Testing.
+            Secure = _cookieOptions.Secure,
+            SameSite = SameSiteMode.Strict,
+            IsEssential = true,
+            Path = path,
+            MaxAge = maxAge,
+        };
 
-    private CookieOptions CreateDeleteOptions(string path) => new()
-    {
-        HttpOnly = true,
-        Secure = _cookieOptions.Secure,
-        SameSite = SameSiteMode.Strict,
-        IsEssential = true,
-        Path = path
-    };
+    private CookieOptions CreateDeleteOptions(string path) =>
+        new()
+        {
+            HttpOnly = true,
+            Secure = _cookieOptions.Secure,
+            SameSite = SameSiteMode.Strict,
+            IsEssential = true,
+            Path = path,
+        };
 }

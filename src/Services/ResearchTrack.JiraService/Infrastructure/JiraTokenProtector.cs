@@ -8,9 +8,7 @@ namespace ResearchTrack.JiraService.Infrastructure;
 public sealed class JiraTokenProtectionException : CryptographicException
 {
     public JiraTokenProtectionException(string message, Exception? innerException = null)
-        : base(message, innerException)
-    {
-    }
+        : base(message, innerException) { }
 }
 
 public sealed class JiraTokenProtector : IJiraTokenProtector
@@ -18,7 +16,9 @@ public sealed class JiraTokenProtector : IJiraTokenProtector
     private const string VersionPrefix = "rtj:v2:";
     private const int NonceSize = 12;
     private const int TagSize = 16;
-    private static readonly byte[] AssociatedData = Encoding.UTF8.GetBytes("ResearchTrack.JiraService.OAuthTokens.v2");
+    private static readonly byte[] AssociatedData = Encoding.UTF8.GetBytes(
+        "ResearchTrack.JiraService.OAuthTokens.v2"
+    );
 
     private readonly byte[] _key;
     private readonly IDataProtector _legacyProtector;
@@ -72,7 +72,8 @@ public sealed class JiraTokenProtector : IJiraTokenProtector
             {
                 throw new JiraTokenProtectionException(
                     "Jira authorization can no longer be decrypted. Reconnect Jira to continue synchronization.",
-                    ex);
+                    ex
+                );
             }
         }
 
@@ -98,7 +99,8 @@ public sealed class JiraTokenProtector : IJiraTokenProtector
         {
             throw new JiraTokenProtectionException(
                 "Jira authorization can no longer be decrypted. Reconnect Jira to continue synchronization.",
-                ex);
+                ex
+            );
         }
     }
 
@@ -108,12 +110,17 @@ public sealed class JiraTokenProtector : IJiraTokenProtector
         {
             var key = Convert.FromBase64String(encodedKey);
             if (key.Length != 32)
-                throw new InvalidOperationException("Jira__TokenEncryptionKey must decode to exactly 32 bytes (AES-256).");
+                throw new InvalidOperationException(
+                    "Jira__TokenEncryptionKey must decode to exactly 32 bytes (AES-256)."
+                );
             return key;
         }
         catch (FormatException ex)
         {
-            throw new InvalidOperationException("Jira__TokenEncryptionKey must be a valid Base64-encoded 32-byte key.", ex);
+            throw new InvalidOperationException(
+                "Jira__TokenEncryptionKey must be a valid Base64-encoded 32-byte key.",
+                ex
+            );
         }
     }
 }

@@ -13,7 +13,8 @@ public sealed record GitHubSyncRepository(
     string? Description,
     DateTime? CreatedAt,
     DateTime? UpdatedAt,
-    DateTime? PushedAt);
+    DateTime? PushedAt
+);
 
 public sealed record GitHubSyncBranch(string Name, string HeadSha, bool Protected);
 
@@ -32,14 +33,16 @@ public sealed record GitHubSyncCommit(
     int ParentsCount,
     int? Additions,
     int? Deletions,
-    int? ChangedFiles);
+    int? ChangedFiles
+);
 
 public sealed record GitHubSyncContributor(
     long GitHubUserId,
     string Login,
     string? AvatarUrl,
     string? ProfileUrl,
-    int Contributions);
+    int Contributions
+);
 
 public sealed record GitHubSyncPullRequest(
     long Id,
@@ -68,11 +71,13 @@ public sealed record GitHubSyncPullRequest(
     int? ChangedFiles,
     int? Commits,
     int? Comments,
-    int? ReviewComments);
+    int? ReviewComments
+);
 
 public sealed record GitHubSyncReview(
     long Id,
     long? ReviewerGitHubId,
     string? ReviewerLogin,
     string State,
-    DateTime? SubmittedAt);
+    DateTime? SubmittedAt
+);

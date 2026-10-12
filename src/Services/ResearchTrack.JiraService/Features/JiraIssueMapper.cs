@@ -5,14 +5,21 @@ namespace ResearchTrack.JiraService.Features;
 
 internal static class JiraIssueMapper
 {
-    public static void Map(JiraIssue issue, string issueKey, JsonElement fields, string? storyPointsFieldId, DateTimeOffset syncedAt)
+    public static void Map(
+        JiraIssue issue,
+        string issueKey,
+        JsonElement fields,
+        string? storyPointsFieldId,
+        DateTimeOffset syncedAt
+    )
     {
         issue.IssueKey = issueKey;
         issue.Summary = String(fields, "summary") ?? "(No summary)";
-        issue.DescriptionJson = fields.TryGetProperty("description", out var description) &&
-                                description.ValueKind is not JsonValueKind.Null and not JsonValueKind.Undefined
-            ? description.GetRawText()
-            : null;
+        issue.DescriptionJson =
+            fields.TryGetProperty("description", out var description)
+            && description.ValueKind is not JsonValueKind.Null and not JsonValueKind.Undefined
+                ? description.GetRawText()
+                : null;
 
         if (fields.TryGetProperty("issuetype", out var issueType))
         {
@@ -62,7 +69,10 @@ internal static class JiraIssueMapper
             issue.ParentIssueKey = null;
         }
 
-        if (fields.TryGetProperty("resolution", out var resolution) && resolution.ValueKind == JsonValueKind.Object)
+        if (
+            fields.TryGetProperty("resolution", out var resolution)
+            && resolution.ValueKind == JsonValueKind.Object
+        )
         {
             issue.ResolutionId = String(resolution, "id");
             issue.ResolutionName = String(resolution, "name");
@@ -78,19 +88,23 @@ internal static class JiraIssueMapper
         issue.JiraCreatedAt = Date(fields, "created");
         issue.JiraUpdatedAt = Date(fields, "updated");
 
-        if (fields.TryGetProperty("timetracking", out var timeTracking) && timeTracking.ValueKind == JsonValueKind.Object)
+        if (
+            fields.TryGetProperty("timetracking", out var timeTracking)
+            && timeTracking.ValueKind == JsonValueKind.Object
+        )
         {
             issue.OriginalEstimateSeconds = Long(timeTracking, "originalEstimateSeconds");
             issue.RemainingEstimateSeconds = Long(timeTracking, "remainingEstimateSeconds");
             issue.TimeSpentSeconds = Long(timeTracking, "timeSpentSeconds");
         }
 
-        issue.StoryPoints = !string.IsNullOrWhiteSpace(storyPointsFieldId) &&
-                            fields.TryGetProperty(storyPointsFieldId, out var storyPoints) &&
-                            storyPoints.ValueKind == JsonValueKind.Number &&
-                            storyPoints.TryGetDecimal(out var value)
-            ? value
-            : null;
+        issue.StoryPoints =
+            !string.IsNullOrWhiteSpace(storyPointsFieldId)
+            && fields.TryGetProperty(storyPointsFieldId, out var storyPoints)
+            && storyPoints.ValueKind == JsonValueKind.Number
+            && storyPoints.TryGetDecimal(out var value)
+                ? value
+                : null;
         issue.SyncedAt = syncedAt;
     }
 
@@ -98,7 +112,8 @@ internal static class JiraIssueMapper
     {
         id = null;
         displayName = null;
-        if (!fields.TryGetProperty(name, out var person) || person.ValueKind != JsonValueKind.Object) return;
+        if (!fields.TryGetProperty(name, out var person) || person.ValueKind != JsonValueKind.Object)
+            return;
         id = String(person, "accountId");
         displayName = String(person, "displayName");
     }
@@ -115,8 +130,9 @@ internal static class JiraIssueMapper
         element.TryGetProperty(name, out var property) && property.TryGetInt64(out var value) ? value : null;
 
     private static DateTimeOffset? Date(JsonElement element, string name) =>
-        element.TryGetProperty(name, out var property) && property.ValueKind == JsonValueKind.String &&
-        DateTimeOffset.TryParse(property.GetString(), out var date)
+        element.TryGetProperty(name, out var property)
+        && property.ValueKind == JsonValueKind.String
+        && DateTimeOffset.TryParse(property.GetString(), out var date)
             ? date
             : null;
 }

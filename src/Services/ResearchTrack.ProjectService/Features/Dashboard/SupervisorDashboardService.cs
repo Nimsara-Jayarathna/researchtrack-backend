@@ -16,7 +16,8 @@ public sealed class SupervisorDashboardService : ISupervisorDashboardService
 
     public SupervisorDashboardService(
         IDbContextFactory<ProjectDbContext> dbContextFactory,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider
+    )
     {
         _dbContextFactory = dbContextFactory;
         _timeProvider = timeProvider;
@@ -24,62 +25,47 @@ public sealed class SupervisorDashboardService : ISupervisorDashboardService
 
     public async Task<SupervisorDashboardResponse> GetAsync(
         Guid supervisorUserId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
-        await using var dbContext =
-            await _dbContextFactory.CreateDbContextAsync(
-                cancellationToken);
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
-        var projects = await dbContext.Projects
-            .AsNoTracking()
-            .Where(project =>
-                project.SupervisorUserId == supervisorUserId)
+        var projects = await dbContext
+            .Projects.AsNoTracking()
+            .Where(project => project.SupervisorUserId == supervisorUserId)
             .OrderByDescending(project => project.LastActivityAt)
             .ThenByDescending(project => project.CreatedAt)
-            .Select(project =>
-                new SupervisorDashboardProjectResponse(
-                    project.Id,
-                    project.Title,
-                    project.Summary,
-                    project.LifecycleStatus,
-                    project.MilestoneDate,
-                    project.LastActivityAt,
-                    project.ProgressPercent,
-                    dbContext.ProjectMembers.Count(member =>
-                        member.ProjectId == project.Id),
-                    JiraProjectionUnavailable))
+            .Select(project => new SupervisorDashboardProjectResponse(
+                project.Id,
+                project.Title,
+                project.Summary,
+                project.LifecycleStatus,
+                project.MilestoneDate,
+                project.LastActivityAt,
+                project.ProgressPercent,
+                dbContext.ProjectMembers.Count(member => member.ProjectId == project.Id),
+                JiraProjectionUnavailable
+            ))
             .ToListAsync(cancellationToken);
 
-        var today = DateOnly.FromDateTime(
-            _timeProvider.GetUtcNow().UtcDateTime);
+        var today = DateOnly.FromDateTime(_timeProvider.GetUtcNow().UtcDateTime);
         var upcomingLimit = today.AddDays(UpcomingWindowDays);
 
         var totalProjects = projects.Count;
-        var planningProjects = CountByStatus(
-            projects,
-            ProjectLifecycleStatuses.Planning);
-        var activeProjects = CountByStatus(
-            projects,
-            ProjectLifecycleStatuses.Active);
-        var atRiskProjects = CountByStatus(
-            projects,
-            ProjectLifecycleStatuses.AtRisk);
-        var behindProjects = CountByStatus(
-            projects,
-            ProjectLifecycleStatuses.Behind);
-        var completedProjects = CountByStatus(
-            projects,
-            ProjectLifecycleStatuses.Completed);
+        var planningProjects = CountByStatus(projects, ProjectLifecycleStatuses.Planning);
+        var activeProjects = CountByStatus(projects, ProjectLifecycleStatuses.Active);
+        var atRiskProjects = CountByStatus(projects, ProjectLifecycleStatuses.AtRisk);
+        var behindProjects = CountByStatus(projects, ProjectLifecycleStatuses.Behind);
+        var completedProjects = CountByStatus(projects, ProjectLifecycleStatuses.Completed);
 
         var upcomingMilestonesCount = projects.Count(project =>
-            project.LifecycleStatus != ProjectLifecycleStatuses.Completed &&
-            project.MilestoneDate is { } milestoneDate &&
-            milestoneDate >= today &&
-            milestoneDate <= upcomingLimit);
+            project.LifecycleStatus != ProjectLifecycleStatuses.Completed
+            && project.MilestoneDate is { } milestoneDate
+            && milestoneDate >= today
+            && milestoneDate <= upcomingLimit
+        );
 
-        var recentProjects = projects
-            .Take(RecentProjectsLimit)
-            .ToArray();
+        var recentProjects = projects.Take(RecentProjectsLimit).ToArray();
 
         // JiraService owns the authoritative Jira connection/issue projection.
         // These legacy aggregate fields remain zero in the ProjectService base
@@ -99,15 +85,15 @@ public sealed class SupervisorDashboardService : ISupervisorDashboardService
             jiraAtRiskCount,
             jiraBehindCount,
             projects,
-            recentProjects);
+            recentProjects
+        );
     }
 
     private static int CountByStatus(
         IEnumerable<SupervisorDashboardProjectResponse> projects,
-        string lifecycleStatus) =>
+        string lifecycleStatus
+    ) =>
         projects.Count(project =>
-            string.Equals(
-                project.LifecycleStatus,
-                lifecycleStatus,
-                StringComparison.OrdinalIgnoreCase));
+            string.Equals(project.LifecycleStatus, lifecycleStatus, StringComparison.OrdinalIgnoreCase)
+        );
 }

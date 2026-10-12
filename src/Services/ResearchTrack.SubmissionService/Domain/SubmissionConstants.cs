@@ -21,8 +21,7 @@ public static class SubmissionConstants
         public const string ProjectLeader = "PROJECT_LEADER";
         public const string AssignedStudent = "ASSIGNED_STUDENT";
 
-        public static bool IsKnown(string value) =>
-            value is ProjectLeader or AssignedStudent;
+        public static bool IsKnown(string value) => value is ProjectLeader or AssignedStudent;
     }
 
     public static class SubmitterRole
@@ -52,11 +51,9 @@ public static class SubmissionConstants
         public const string ChangesRequested = "CHANGES_REQUESTED";
         public const string Rejected = "REJECTED";
 
-        public static bool IsKnown(string value) =>
-            value is Approved or ChangesRequested or Rejected;
+        public static bool IsKnown(string value) => value is Approved or ChangesRequested or Rejected;
 
-        public static bool RequiresFeedback(string value) =>
-            value is ChangesRequested or Rejected;
+        public static bool RequiresFeedback(string value) => value is ChangesRequested or Rejected;
     }
 
     public static class UploadSessionStatus

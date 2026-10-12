@@ -7,4 +7,5 @@ public sealed record RegisterResponse(
     string LastName,
     string? RegistrationNumber,
     string Role,
-    DateTime CreatedAt);
+    DateTime CreatedAt
+);

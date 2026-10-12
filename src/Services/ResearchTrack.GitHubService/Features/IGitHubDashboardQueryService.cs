@@ -8,7 +8,8 @@ public interface IGitHubDashboardQueryService
         Guid userId,
         Guid projectId,
         Guid? linkedRepositoryId,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken
+    );
 
     Task<GitHubPage<GitHubDashboardCommitResponse>> GetActivityAsync(
         Guid userId,
@@ -16,7 +17,8 @@ public interface IGitHubDashboardQueryService
         Guid? linkedRepositoryId,
         int page,
         int size,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken
+    );
 
     Task<GitHubPage<GitHubDashboardContributorResponse>> GetContributorsAsync(
         Guid userId,
@@ -24,5 +26,6 @@ public interface IGitHubDashboardQueryService
         Guid? linkedRepositoryId,
         int page,
         int size,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken
+    );
 }

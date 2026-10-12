@@ -22,7 +22,8 @@ public sealed class RegistrationController : ApiControllerBase
         IRegistrationService registrationService,
         RegistrationOptions registrationOptions,
         PasswordPolicyOptions passwordPolicyOptions,
-        IAuthCookieService cookieService)
+        IAuthCookieService cookieService
+    )
     {
         _registrationService = registrationService;
         _registrationOptions = registrationOptions;
@@ -48,7 +49,9 @@ public sealed class RegistrationController : ApiControllerBase
                 _passwordPolicyOptions.RequireUppercase,
                 _passwordPolicyOptions.RequireLowercase,
                 _passwordPolicyOptions.RequireDigit,
-                _passwordPolicyOptions.RequireSpecialCharacter));
+                _passwordPolicyOptions.RequireSpecialCharacter
+            )
+        );
 
         return ApiOk(response);
     }
@@ -60,7 +63,8 @@ public sealed class RegistrationController : ApiControllerBase
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<ApiResponse<RegisterResponse>>> Register(
         [FromBody] RegisterRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         var registered = await _registrationService.RegisterAsync(request, cancellationToken);
         return ApiCreated($"/api/v1/users/{registered.Id}", registered);
@@ -70,7 +74,8 @@ public sealed class RegistrationController : ApiControllerBase
     [ProducesResponseType<ApiResponse<RegisterInitResponse>>(StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<RegisterInitResponse>>> RegisterInit(
         [FromBody] RegisterInitRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         await _registrationService.InitRegistrationAsync(request.Email, cancellationToken);
         return ApiOk(new RegisterInitResponse("OTP sent successfully"));
@@ -80,9 +85,14 @@ public sealed class RegistrationController : ApiControllerBase
     [ProducesResponseType<ApiResponse<RegisterVerifyResponse>>(StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<RegisterVerifyResponse>>> RegisterVerify(
         [FromBody] RegisterVerifyRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
-        var response = await _registrationService.VerifyOtpAsync(request.Email, request.Otp, cancellationToken);
+        var response = await _registrationService.VerifyOtpAsync(
+            request.Email,
+            request.Otp,
+            cancellationToken
+        );
         return ApiOk(response);
     }
 
@@ -90,7 +100,8 @@ public sealed class RegistrationController : ApiControllerBase
     [ProducesResponseType<ApiResponse<RegistrationCompleteResponse>>(StatusCodes.Status201Created)]
     public async Task<ActionResult<ApiResponse<RegistrationCompleteResponse>>> RegisterComplete(
         [FromBody] RegisterCompleteRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         var completed = await _registrationService.CompleteRegistrationAsync(request, cancellationToken);
 

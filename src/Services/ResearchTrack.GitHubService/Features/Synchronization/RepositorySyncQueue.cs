@@ -1,6 +1,6 @@
-using Prometheus;
 using System.Collections.Concurrent;
 using System.Threading.Channels;
+using Prometheus;
 using ResearchTrack.GitHubService.Domain;
 
 namespace ResearchTrack.GitHubService.Features.Synchronization;
@@ -10,19 +10,20 @@ public sealed class RepositorySyncQueue : IRepositorySyncQueue, IInitialReposito
     private readonly ConcurrentDictionary<Guid, SyncQueueState> _states = new();
     private static readonly Gauge QueueDepth = Metrics.CreateGauge(
         "github_sync_queue_depth",
-        "Number of GitHub repositories currently queued or running a sync.");
+        "Number of GitHub repositories currently queued or running a sync."
+    );
 
-    private readonly Channel<RepositorySyncWorkItem> _channel = Channel.CreateUnbounded<RepositorySyncWorkItem>(
-        new UnboundedChannelOptions
-        {
-            SingleReader = true,
-            SingleWriter = false,
-            AllowSynchronousContinuations = false
-        });
+    private readonly Channel<RepositorySyncWorkItem> _channel =
+        Channel.CreateUnbounded<RepositorySyncWorkItem>(
+            new UnboundedChannelOptions
+            {
+                SingleReader = true,
+                SingleWriter = false,
+                AllowSynchronousContinuations = false,
+            }
+        );
 
-    public async ValueTask EnqueueAsync(
-        RepositorySyncWorkItem item,
-        CancellationToken cancellationToken)
+    public async ValueTask EnqueueAsync(RepositorySyncWorkItem item, CancellationToken cancellationToken)
     {
         while (true)
         {
@@ -30,8 +31,10 @@ public sealed class RepositorySyncQueue : IRepositorySyncQueue, IInitialReposito
             {
                 lock (existing.Gate)
                 {
-                    if (!_states.TryGetValue(item.LinkedRepositoryId, out var current)
-                        || !ReferenceEquals(current, existing))
+                    if (
+                        !_states.TryGetValue(item.LinkedRepositoryId, out var current)
+                        || !ReferenceEquals(current, existing)
+                    )
                     {
                         continue;
                     }
@@ -76,8 +79,10 @@ public sealed class RepositorySyncQueue : IRepositorySyncQueue, IInitialReposito
         {
             lock (state.Gate)
             {
-                if (!_states.TryGetValue(linkedRepositoryId, out var current)
-                    || !ReferenceEquals(current, state))
+                if (
+                    !_states.TryGetValue(linkedRepositoryId, out var current)
+                    || !ReferenceEquals(current, state)
+                )
                 {
                     continue;
                 }
@@ -99,9 +104,7 @@ public sealed class RepositorySyncQueue : IRepositorySyncQueue, IInitialReposito
         }
     }
 
-    public async ValueTask CompleteAsync(
-        Guid linkedRepositoryId,
-        CancellationToken cancellationToken)
+    public async ValueTask CompleteAsync(Guid linkedRepositoryId, CancellationToken cancellationToken)
     {
         RepositorySyncWorkItem? rerun = null;
         SyncQueueState? state = null;
@@ -109,8 +112,10 @@ public sealed class RepositorySyncQueue : IRepositorySyncQueue, IInitialReposito
         {
             lock (state.Gate)
             {
-                if (!_states.TryGetValue(linkedRepositoryId, out var current)
-                    || !ReferenceEquals(current, state))
+                if (
+                    !_states.TryGetValue(linkedRepositoryId, out var current)
+                    || !ReferenceEquals(current, state)
+                )
                 {
                     continue;
                 }
@@ -155,8 +160,10 @@ public sealed class RepositorySyncQueue : IRepositorySyncQueue, IInitialReposito
 
     public Task RequestAsync(InitialRepositorySyncRequest request, CancellationToken cancellationToken) =>
         EnqueueAsync(
-            new RepositorySyncWorkItem(request.LinkedRepositoryId, GitHubSyncTriggers.InitialLink),
-            cancellationToken).AsTask();
+                new RepositorySyncWorkItem(request.LinkedRepositoryId, GitHubSyncTriggers.InitialLink),
+                cancellationToken
+            )
+            .AsTask();
 
     private sealed class SyncQueueState
     {

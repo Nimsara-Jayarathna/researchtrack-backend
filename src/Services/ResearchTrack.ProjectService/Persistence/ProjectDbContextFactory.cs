@@ -9,8 +9,7 @@ public sealed class ProjectDbContextFactory : IDesignTimeDbContextFactory<Projec
     public ProjectDbContext CreateDbContext(string[] args)
     {
         var optionsBuilder = new DbContextOptionsBuilder<ProjectDbContext>();
-        optionsBuilder.UseMySQL(
-            DesignTimeDatabase.CreateConnectionString("researchtrack_project_design"));
+        optionsBuilder.UseMySQL(DesignTimeDatabase.CreateConnectionString("researchtrack_project_design"));
 
         return new ProjectDbContext(optionsBuilder.Options);
     }

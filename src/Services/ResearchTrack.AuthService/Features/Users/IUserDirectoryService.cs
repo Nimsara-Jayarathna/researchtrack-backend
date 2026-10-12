@@ -6,13 +6,13 @@ public interface IUserDirectoryService
 {
     Task<IReadOnlyList<UserDirectoryResponse>> SearchStudentsAsync(
         string? query,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken
+    );
 
     Task<IReadOnlyList<UserDirectoryResponse>> ResolveStudentsAsync(
         IReadOnlyCollection<Guid> studentIds,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken
+    );
 
-    Task<UserDirectoryResponse?> GetUserAsync(
-        Guid userId,
-        CancellationToken cancellationToken);
+    Task<UserDirectoryResponse?> GetUserAsync(Guid userId, CancellationToken cancellationToken);
 }

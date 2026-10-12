@@ -17,7 +17,10 @@ internal static class SubmissionResponsibilityRules
 
         if (!SubmissionConstants.ResponsibilityMode.IsKnown(normalized))
             throw new ApiValidationException([
-                new ApiFieldError("responsibilityMode", ["Submission responsibility must be PROJECT_LEADER or ASSIGNED_STUDENT."])
+                new ApiFieldError(
+                    "responsibilityMode",
+                    ["Submission responsibility must be PROJECT_LEADER or ASSIGNED_STUDENT."]
+                ),
             ]);
 
         return normalized;
@@ -26,27 +29,37 @@ internal static class SubmissionResponsibilityRules
     public static (string Mode, Guid? AssignedStudentId, string? AssignedStudentName) ValidateForSave(
         string? rawMode,
         Guid? assignedStudentId,
-        ProjectSubmissionContext context)
+        ProjectSubmissionContext context
+    )
     {
         var mode = NormalizeMode(rawMode);
         if (mode == SubmissionConstants.ResponsibilityMode.ProjectLeader)
         {
             if (context.Leader is null)
                 throw new ApiValidationException([
-                    new ApiFieldError("responsibilityMode", ["Assign a Project Leader first, or choose a specific student for this requirement."])
+                    new ApiFieldError(
+                        "responsibilityMode",
+                        ["Assign a Project Leader first, or choose a specific student for this requirement."]
+                    ),
                 ]);
             return (mode, null, null);
         }
 
         if (!assignedStudentId.HasValue || assignedStudentId == Guid.Empty)
             throw new ApiValidationException([
-                new ApiFieldError("assignedStudentId", ["Choose one active project student as the responsible submitter."])
+                new ApiFieldError(
+                    "assignedStudentId",
+                    ["Choose one active project student as the responsible submitter."]
+                ),
             ]);
 
         var student = context.FindStudent(assignedStudentId.Value);
         if (student is null)
             throw new ApiValidationException([
-                new ApiFieldError("assignedStudentId", ["The selected student is no longer an active member of this project."])
+                new ApiFieldError(
+                    "assignedStudentId",
+                    ["The selected student is no longer an active member of this project."]
+                ),
             ]);
 
         return (mode, student.Id, student.DisplayName);
@@ -54,7 +67,8 @@ internal static class SubmissionResponsibilityRules
 
     public static SubmissionResponsibilityResponse BuildResponse(
         SubmissionRequirement requirement,
-        ProjectSubmissionContext context)
+        ProjectSubmissionContext context
+    )
     {
         if (requirement.ResponsibilityMode == SubmissionConstants.ResponsibilityMode.AssignedStudent)
         {
@@ -68,7 +82,8 @@ internal static class SubmissionResponsibilityRules
                 assigned?.Id,
                 assigned?.DisplayName ?? requirement.AssignedStudentName,
                 assigned is null ? null : SubmissionConstants.SubmitterRole.AssignedStudent,
-                assigned is null);
+                assigned is null
+            );
         }
 
         var leader = context.Leader;
@@ -79,28 +94,35 @@ internal static class SubmissionResponsibilityRules
             leader?.Id,
             leader?.DisplayName,
             leader is null ? null : SubmissionConstants.SubmitterRole.ProjectLeader,
-            leader is null);
+            leader is null
+        );
     }
 
     public static string EnsureCanSubmit(
         SubmissionRequirement requirement,
         ProjectSubmissionContext context,
-        Guid userId)
+        Guid userId
+    )
     {
         if (requirement.ResponsibilityMode == SubmissionConstants.ResponsibilityMode.AssignedStudent)
         {
             if (!requirement.AssignedStudentId.HasValue)
-                throw AssignmentRequired("This requirement does not have a responsible submitter. Ask the Supervisor to assign one.");
+                throw AssignmentRequired(
+                    "This requirement does not have a responsible submitter. Ask the Supervisor to assign one."
+                );
 
             var assigned = context.FindStudent(requirement.AssignedStudentId.Value);
             if (assigned is null)
-                throw AssignmentRequired("The assigned submitter is no longer an active project member. Ask the Supervisor to choose another student.");
+                throw AssignmentRequired(
+                    "The assigned submitter is no longer an active project member. Ask the Supervisor to choose another student."
+                );
 
             if (assigned.Id != userId)
                 throw new ApiException(
                     StatusCodes.Status403Forbidden,
                     ErrorCodes.Forbidden,
-                    $"Only {assigned.DisplayName}, the assigned submitter, can upload an official version for this requirement.");
+                    $"Only {assigned.DisplayName}, the assigned submitter, can upload an official version for this requirement."
+                );
 
             return context.Leader?.Id == assigned.Id
                 ? SubmissionConstants.SubmitterRole.ProjectLeader
@@ -108,19 +130,20 @@ internal static class SubmissionResponsibilityRules
         }
 
         if (context.Leader is null)
-            throw AssignmentRequired("This project does not currently have a Project Leader. Ask the Supervisor to assign a leader or choose a specific submitter.");
+            throw AssignmentRequired(
+                "This project does not currently have a Project Leader. Ask the Supervisor to assign a leader or choose a specific submitter."
+            );
 
         if (context.Leader.Id != userId)
             throw new ApiException(
                 StatusCodes.Status403Forbidden,
                 ErrorCodes.Forbidden,
-                $"Only {context.Leader.DisplayName}, the current Project Leader, can upload an official version for this requirement.");
+                $"Only {context.Leader.DisplayName}, the current Project Leader, can upload an official version for this requirement."
+            );
 
         return SubmissionConstants.SubmitterRole.ProjectLeader;
     }
 
-    private static ApiException AssignmentRequired(string message) => new(
-        StatusCodes.Status409Conflict,
-        ErrorCodes.Conflict,
-        message);
+    private static ApiException AssignmentRequired(string message) =>
+        new(StatusCodes.Status409Conflict, ErrorCodes.Conflict, message);
 }

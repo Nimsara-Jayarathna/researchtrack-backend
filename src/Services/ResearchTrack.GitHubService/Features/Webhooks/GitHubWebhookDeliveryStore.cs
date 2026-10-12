@@ -16,7 +16,8 @@ public sealed class GitHubWebhookDeliveryStore : IGitHubWebhookDeliveryStore
 
     public GitHubWebhookDeliveryStore(
         IDbContextFactory<GitHubDbContext> dbContextFactory,
-        GitHubWebhookOptions options, KafkaRuntimeOptions? kafka = null)
+        GitHubWebhookOptions options,
+        KafkaRuntimeOptions? kafka = null)
     {
         _dbContextFactory = dbContextFactory;
         _options = options;
@@ -26,13 +27,15 @@ public sealed class GitHubWebhookDeliveryStore : IGitHubWebhookDeliveryStore
     public async Task<GitHubWebhookAcceptResult> AcceptAsync(
         GitHubWebhookEnvelope envelope,
         DateTime now,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
         now = KafkaWebhookContract.NormalizeUtc(new DateTimeOffset(DateTime.SpecifyKind(now, DateTimeKind.Utc))).UtcDateTime;
         var existing = await db.WebhookDeliveries.SingleOrDefaultAsync(
             item => item.DeliveryId == envelope.DeliveryId,
-            cancellationToken);
+            cancellationToken
+        );
         if (existing is not null)
         {
             EnsureSamePayload(existing, envelope);
@@ -41,7 +44,8 @@ public sealed class GitHubWebhookDeliveryStore : IGitHubWebhookDeliveryStore
                 existing.DeliveryId,
                 existing.EventType,
                 true,
-                existing.Status);
+                existing.Status
+            );
         }
 
         var delivery = new GitHubWebhookDelivery
@@ -58,7 +62,7 @@ public sealed class GitHubWebhookDeliveryStore : IGitHubWebhookDeliveryStore
             AttemptCount = 0,
             ReceivedAt = now,
             NextAttemptAt = now,
-            UpdatedAt = now
+            UpdatedAt = now,
         };
         db.WebhookDeliveries.Add(delivery);
         if (_kafka.Enabled && delivery.InstallationId is > 0 && KafkaWebhookContract.SupportsGitHub(delivery.EventType))
@@ -80,16 +84,17 @@ public sealed class GitHubWebhookDeliveryStore : IGitHubWebhookDeliveryStore
         catch (DbUpdateException exception) when (IsDuplicateKey(exception))
         {
             db.ChangeTracker.Clear();
-            existing = await db.WebhookDeliveries.AsNoTracking().SingleAsync(
-                item => item.DeliveryId == envelope.DeliveryId,
-                cancellationToken);
+            existing = await db
+                .WebhookDeliveries.AsNoTracking()
+                .SingleAsync(item => item.DeliveryId == envelope.DeliveryId, cancellationToken);
             EnsureSamePayload(existing, envelope);
             return new GitHubWebhookAcceptResult(
                 existing.Id,
                 existing.DeliveryId,
                 existing.EventType,
                 true,
-                existing.Status);
+                existing.Status
+            );
         }
 
         return new GitHubWebhookAcceptResult(
@@ -97,82 +102,121 @@ public sealed class GitHubWebhookDeliveryStore : IGitHubWebhookDeliveryStore
             delivery.DeliveryId,
             delivery.EventType,
             false,
-            delivery.Status);
+            delivery.Status
+        );
     }
 
     public async Task<GitHubWebhookDelivery?> TryClaimNextDueAsync(
         DateTime now,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         var leaseCutoff = now - _options.ProcessingLease;
         for (var attempt = 0; attempt < 8; attempt++)
         {
             await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-            var candidate = await db.WebhookDeliveries.AsNoTracking()
+            var candidate = await db
+                .WebhookDeliveries.AsNoTracking()
                 .Where(item =>
-                    (item.Status == GitHubWebhookDeliveryStatuses.Received
+                    (
+                        item.Status == GitHubWebhookDeliveryStatuses.Received
                         && item.AttemptCount < _options.MaxAttempts
-                        && (item.NextAttemptAt == null || item.NextAttemptAt <= now))
-                    || (item.Status == GitHubWebhookDeliveryStatuses.Failed
+                        && (item.NextAttemptAt == null || item.NextAttemptAt <= now)
+                    )
+                    || (
+                        item.Status == GitHubWebhookDeliveryStatuses.Failed
                         && item.AttemptCount < _options.MaxAttempts
                         && item.NextAttemptAt != null
-                        && item.NextAttemptAt <= now)
-                    || (item.Status == GitHubWebhookDeliveryStatuses.Processing
+                        && item.NextAttemptAt <= now
+                    )
+                    || (
+                        item.Status == GitHubWebhookDeliveryStatuses.Processing
                         && item.ProcessingStartedAt != null
-                        && item.ProcessingStartedAt <= leaseCutoff))
+                        && item.ProcessingStartedAt <= leaseCutoff
+                    )
+                )
                 .OrderBy(item => item.NextAttemptAt ?? item.ReceivedAt)
                 .ThenBy(item => item.ReceivedAt)
-                .Select(item => new { item.Id, item.Status, item.AttemptCount })
+                .Select(item => new
+                {
+                    item.Id,
+                    item.Status,
+                    item.AttemptCount,
+                })
                 .FirstOrDefaultAsync(cancellationToken);
             if (candidate is null)
             {
                 return null;
             }
 
-            if (candidate.Status == GitHubWebhookDeliveryStatuses.Processing
-                && candidate.AttemptCount >= _options.MaxAttempts)
+            if (
+                candidate.Status == GitHubWebhookDeliveryStatuses.Processing
+                && candidate.AttemptCount >= _options.MaxAttempts
+            )
             {
-                await db.WebhookDeliveries
-                    .Where(item => item.Id == candidate.Id
+                await db
+                    .WebhookDeliveries.Where(item =>
+                        item.Id == candidate.Id
                         && item.Status == GitHubWebhookDeliveryStatuses.Processing
                         && item.AttemptCount >= _options.MaxAttempts
                         && item.ProcessingStartedAt != null
-                        && item.ProcessingStartedAt <= leaseCutoff)
-                    .ExecuteUpdateAsync(setters => setters
-                        .SetProperty(item => item.Status, GitHubWebhookDeliveryStatuses.Failed)
-                        .SetProperty(item => item.ProcessingStartedAt, (DateTime?)null)
-                        .SetProperty(item => item.NextAttemptAt, (DateTime?)null)
-                        .SetProperty(item => item.LastError,
-                            "GitHub webhook processing lease expired after the maximum retry count.")
-                        .SetProperty(item => item.UpdatedAt, now), cancellationToken);
+                        && item.ProcessingStartedAt <= leaseCutoff
+                    )
+                    .ExecuteUpdateAsync(
+                        setters =>
+                            setters
+                                .SetProperty(item => item.Status, GitHubWebhookDeliveryStatuses.Failed)
+                                .SetProperty(item => item.ProcessingStartedAt, (DateTime?)null)
+                                .SetProperty(item => item.NextAttemptAt, (DateTime?)null)
+                                .SetProperty(
+                                    item => item.LastError,
+                                    "GitHub webhook processing lease expired after the maximum retry count."
+                                )
+                                .SetProperty(item => item.UpdatedAt, now),
+                        cancellationToken
+                    );
                 continue;
             }
 
-            var affected = await db.WebhookDeliveries
-                .Where(item => item.Id == candidate.Id
+            var affected = await db
+                .WebhookDeliveries.Where(item =>
+                    item.Id == candidate.Id
                     && item.AttemptCount < _options.MaxAttempts
-                    && ((item.Status == GitHubWebhookDeliveryStatuses.Received
-                            && (item.NextAttemptAt == null || item.NextAttemptAt <= now))
-                        || (item.Status == GitHubWebhookDeliveryStatuses.Failed
+                    && (
+                        (
+                            item.Status == GitHubWebhookDeliveryStatuses.Received
+                            && (item.NextAttemptAt == null || item.NextAttemptAt <= now)
+                        )
+                        || (
+                            item.Status == GitHubWebhookDeliveryStatuses.Failed
                             && item.NextAttemptAt != null
-                            && item.NextAttemptAt <= now)
-                        || (item.Status == GitHubWebhookDeliveryStatuses.Processing
+                            && item.NextAttemptAt <= now
+                        )
+                        || (
+                            item.Status == GitHubWebhookDeliveryStatuses.Processing
                             && item.ProcessingStartedAt != null
-                            && item.ProcessingStartedAt <= leaseCutoff)))
-                .ExecuteUpdateAsync(setters => setters
-                    .SetProperty(item => item.Status, GitHubWebhookDeliveryStatuses.Processing)
-                    .SetProperty(item => item.AttemptCount, item => item.AttemptCount + 1)
-                    .SetProperty(item => item.ProcessingStartedAt, now)
-                    .SetProperty(item => item.NextAttemptAt, (DateTime?)null)
-                    .SetProperty(item => item.UpdatedAt, now), cancellationToken);
+                            && item.ProcessingStartedAt <= leaseCutoff
+                        )
+                    )
+                )
+                .ExecuteUpdateAsync(
+                    setters =>
+                        setters
+                            .SetProperty(item => item.Status, GitHubWebhookDeliveryStatuses.Processing)
+                            .SetProperty(item => item.AttemptCount, item => item.AttemptCount + 1)
+                            .SetProperty(item => item.ProcessingStartedAt, now)
+                            .SetProperty(item => item.NextAttemptAt, (DateTime?)null)
+                            .SetProperty(item => item.UpdatedAt, now),
+                    cancellationToken
+                );
             if (affected != 1)
             {
                 continue;
             }
 
-            return await db.WebhookDeliveries.AsNoTracking().SingleAsync(
-                item => item.Id == candidate.Id,
-                cancellationToken);
+            return await db
+                .WebhookDeliveries.AsNoTracking()
+                .SingleAsync(item => item.Id == candidate.Id, cancellationToken);
         }
 
         return null;
@@ -181,17 +225,24 @@ public sealed class GitHubWebhookDeliveryStore : IGitHubWebhookDeliveryStore
     public async Task<DateTime?> GetNextDueAtAsync(DateTime now, CancellationToken cancellationToken)
     {
         await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-        var pending = await db.WebhookDeliveries.AsNoTracking()
-            .Where(item => item.AttemptCount < _options.MaxAttempts
-                && (item.Status == GitHubWebhookDeliveryStatuses.Received
-                    || (item.Status == GitHubWebhookDeliveryStatuses.Failed && item.NextAttemptAt != null)))
+        var pending = await db
+            .WebhookDeliveries.AsNoTracking()
+            .Where(item =>
+                item.AttemptCount < _options.MaxAttempts
+                && (
+                    item.Status == GitHubWebhookDeliveryStatuses.Received
+                    || (item.Status == GitHubWebhookDeliveryStatuses.Failed && item.NextAttemptAt != null)
+                )
+            )
             .Select(item => (DateTime?)(item.NextAttemptAt ?? item.ReceivedAt))
             .OrderBy(value => value)
             .FirstOrDefaultAsync(cancellationToken);
 
-        var staleProcessingStart = await db.WebhookDeliveries.AsNoTracking()
-            .Where(item => item.Status == GitHubWebhookDeliveryStatuses.Processing
-                && item.ProcessingStartedAt != null)
+        var staleProcessingStart = await db
+            .WebhookDeliveries.AsNoTracking()
+            .Where(item =>
+                item.Status == GitHubWebhookDeliveryStatuses.Processing && item.ProcessingStartedAt != null
+            )
             .Select(item => item.ProcessingStartedAt)
             .OrderBy(value => value)
             .FirstOrDefaultAsync(cancellationToken);
@@ -204,42 +255,57 @@ public sealed class GitHubWebhookDeliveryStore : IGitHubWebhookDeliveryStore
             processingDue = now;
         }
 
-        if (!pending.HasValue) return processingDue;
-        if (!processingDue.HasValue) return pending;
+        if (!pending.HasValue)
+            return processingDue;
+        if (!processingDue.HasValue)
+            return pending;
         return pending.Value <= processingDue.Value ? pending : processingDue;
     }
 
-    public async Task RenewProcessingLeaseAsync(
-        Guid id,
-        DateTime now,
-        CancellationToken cancellationToken)
+    public async Task RenewProcessingLeaseAsync(Guid id, DateTime now, CancellationToken cancellationToken)
     {
         await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-        await db.WebhookDeliveries
-            .Where(item => item.Id == id && item.Status == GitHubWebhookDeliveryStatuses.Processing)
-            .ExecuteUpdateAsync(setters => setters
-                .SetProperty(item => item.ProcessingStartedAt, now)
-                .SetProperty(item => item.UpdatedAt, now), cancellationToken);
+        await db
+            .WebhookDeliveries.Where(item =>
+                item.Id == id && item.Status == GitHubWebhookDeliveryStatuses.Processing
+            )
+            .ExecuteUpdateAsync(
+                setters =>
+                    setters
+                        .SetProperty(item => item.ProcessingStartedAt, now)
+                        .SetProperty(item => item.UpdatedAt, now),
+                cancellationToken
+            );
     }
 
     public async Task MarkProcessedAsync(
         Guid id,
         bool ignored,
         DateTime now,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-        await db.WebhookDeliveries
-            .Where(item => item.Id == id && item.Status == GitHubWebhookDeliveryStatuses.Processing)
-            .ExecuteUpdateAsync(setters => setters
-                .SetProperty(item => item.Status, ignored
-                    ? GitHubWebhookDeliveryStatuses.Ignored
-                    : GitHubWebhookDeliveryStatuses.Processed)
-                .SetProperty(item => item.ProcessedAt, now)
-                .SetProperty(item => item.ProcessingStartedAt, (DateTime?)null)
-                .SetProperty(item => item.NextAttemptAt, (DateTime?)null)
-                .SetProperty(item => item.LastError, (string?)null)
-                .SetProperty(item => item.UpdatedAt, now), cancellationToken);
+        await db
+            .WebhookDeliveries.Where(item =>
+                item.Id == id && item.Status == GitHubWebhookDeliveryStatuses.Processing
+            )
+            .ExecuteUpdateAsync(
+                setters =>
+                    setters
+                        .SetProperty(
+                            item => item.Status,
+                            ignored
+                                ? GitHubWebhookDeliveryStatuses.Ignored
+                                : GitHubWebhookDeliveryStatuses.Processed
+                        )
+                        .SetProperty(item => item.ProcessedAt, now)
+                        .SetProperty(item => item.ProcessingStartedAt, (DateTime?)null)
+                        .SetProperty(item => item.NextAttemptAt, (DateTime?)null)
+                        .SetProperty(item => item.LastError, (string?)null)
+                        .SetProperty(item => item.UpdatedAt, now),
+                cancellationToken
+            );
     }
 
     public async Task MarkFailedAsync(
@@ -247,28 +313,38 @@ public sealed class GitHubWebhookDeliveryStore : IGitHubWebhookDeliveryStore
         string error,
         DateTime now,
         DateTime? nextAttemptAt,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-        await db.WebhookDeliveries
-            .Where(item => item.Id == id && item.Status == GitHubWebhookDeliveryStatuses.Processing)
-            .ExecuteUpdateAsync(setters => setters
-                .SetProperty(item => item.Status, GitHubWebhookDeliveryStatuses.Failed)
-                .SetProperty(item => item.ProcessingStartedAt, (DateTime?)null)
-                .SetProperty(item => item.NextAttemptAt, nextAttemptAt)
-                .SetProperty(item => item.LastError, Truncate(error, 2048))
-                .SetProperty(item => item.UpdatedAt, now), cancellationToken);
+        await db
+            .WebhookDeliveries.Where(item =>
+                item.Id == id && item.Status == GitHubWebhookDeliveryStatuses.Processing
+            )
+            .ExecuteUpdateAsync(
+                setters =>
+                    setters
+                        .SetProperty(item => item.Status, GitHubWebhookDeliveryStatuses.Failed)
+                        .SetProperty(item => item.ProcessingStartedAt, (DateTime?)null)
+                        .SetProperty(item => item.NextAttemptAt, nextAttemptAt)
+                        .SetProperty(item => item.LastError, Truncate(error, 2048))
+                        .SetProperty(item => item.UpdatedAt, now),
+                cancellationToken
+            );
     }
 
     private static void EnsureSamePayload(GitHubWebhookDelivery existing, GitHubWebhookEnvelope envelope)
     {
-        if (!string.Equals(existing.PayloadSha256, envelope.PayloadSha256, StringComparison.OrdinalIgnoreCase)
-            || !string.Equals(existing.EventType, envelope.EventType, StringComparison.OrdinalIgnoreCase))
+        if (
+            !string.Equals(existing.PayloadSha256, envelope.PayloadSha256, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(existing.EventType, envelope.EventType, StringComparison.OrdinalIgnoreCase)
+        )
         {
             throw new ApiException(
                 StatusCodes.Status409Conflict,
                 ErrorCodes.Conflict,
-                "The GitHub delivery identifier was already received with different content.");
+                "The GitHub delivery identifier was already received with different content."
+            );
         }
     }
 
@@ -276,8 +352,10 @@ public sealed class GitHubWebhookDeliveryStore : IGitHubWebhookDeliveryStore
     {
         for (Exception? current = exception; current is not null; current = current.InnerException)
         {
-            if (current.Message.Contains("Duplicate entry", StringComparison.OrdinalIgnoreCase)
-                || current.Message.Contains("duplicate key", StringComparison.OrdinalIgnoreCase))
+            if (
+                current.Message.Contains("Duplicate entry", StringComparison.OrdinalIgnoreCase)
+                || current.Message.Contains("duplicate key", StringComparison.OrdinalIgnoreCase)
+            )
             {
                 return true;
             }

@@ -1,5 +1,4 @@
 using System.Data.Common;
-using Microsoft.Extensions.Configuration;
 
 namespace ResearchTrack.BuildingBlocks.Api.Configuration;
 
@@ -29,7 +28,7 @@ public static class DatabaseConnectionStringResolver
             ["User"] = username,
             ["Password"] = password,
             ["SslMode"] = sslMode,
-            ["AllowPublicKeyRetrieval"] = allowPublicKeyRetrieval
+            ["AllowPublicKeyRetrieval"] = allowPublicKeyRetrieval,
         };
 
         return builder.ConnectionString;
@@ -37,9 +36,7 @@ public static class DatabaseConnectionStringResolver
 
     public static string ResolveFromEnvironment()
     {
-        var configuration = new ConfigurationBuilder()
-            .AddEnvironmentVariables()
-            .Build();
+        var configuration = new ConfigurationBuilder().AddEnvironmentVariables().Build();
 
         return Resolve(configuration);
     }
@@ -49,7 +46,9 @@ public static class DatabaseConnectionStringResolver
         var value = configuration[key];
         if (string.IsNullOrWhiteSpace(value) || IsPlaceholder(value))
         {
-            throw new InvalidOperationException($"Required configuration '{key}' is missing or still contains a placeholder value.");
+            throw new InvalidOperationException(
+                $"Required configuration '{key}' is missing or still contains a placeholder value."
+            );
         }
 
         return value;
@@ -60,7 +59,9 @@ public static class DatabaseConnectionStringResolver
         var raw = Require(configuration, key);
         if (!int.TryParse(raw, out var value) || value < min || value > max)
         {
-            throw new InvalidOperationException($"Configuration '{key}' must be an integer between {min} and {max}.");
+            throw new InvalidOperationException(
+                $"Configuration '{key}' must be an integer between {min} and {max}."
+            );
         }
 
         return value;
@@ -78,13 +79,10 @@ public static class DatabaseConnectionStringResolver
     }
 
     private static string NormalizeSslMode(string value) =>
-        value.Equals("None", StringComparison.OrdinalIgnoreCase)
-            ? "Disabled"
-            : value;
+        value.Equals("None", StringComparison.OrdinalIgnoreCase) ? "Disabled" : value;
 
     private static bool IsPlaceholder(string value) =>
         value.Equals("CHANGE_ME", StringComparison.OrdinalIgnoreCase)
         || value.Equals("__SET_ME__", StringComparison.OrdinalIgnoreCase)
         || value.Equals("__GENERATE__", StringComparison.OrdinalIgnoreCase);
-
 }

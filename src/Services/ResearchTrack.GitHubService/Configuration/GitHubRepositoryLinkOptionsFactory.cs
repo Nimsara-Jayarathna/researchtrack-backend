@@ -4,10 +4,8 @@ namespace ResearchTrack.GitHubService.Configuration;
 
 public static class GitHubRepositoryLinkOptionsFactory
 {
-    public const string MaxLinkedRepositoriesKey =
-        "GitHub:RepositoryLinks:MaxLinkedRepositories";
-    public const string MaxEnabledRepositoriesKey =
-        "GitHub:RepositoryLinks:MaxEnabledRepositories";
+    public const string MaxLinkedRepositoriesKey = "GitHub:RepositoryLinks:MaxLinkedRepositories";
+    public const string MaxEnabledRepositoriesKey = "GitHub:RepositoryLinks:MaxEnabledRepositories";
 
     public static GitHubRepositoryLinkOptions Create(IConfiguration configuration)
     {
@@ -18,8 +16,9 @@ public static class GitHubRepositoryLinkOptionsFactory
         if (enabled > linked)
         {
             throw new InvalidOperationException(
-                $"Required GitHub repository configuration '{MaxEnabledRepositoriesKey}' " +
-                $"cannot exceed '{MaxLinkedRepositoriesKey}'.");
+                $"Required GitHub repository configuration '{MaxEnabledRepositoriesKey}' "
+                    + $"cannot exceed '{MaxLinkedRepositoriesKey}'."
+            );
         }
 
         return new GitHubRepositoryLinkOptions(linked, enabled);
@@ -28,13 +27,16 @@ public static class GitHubRepositoryLinkOptionsFactory
     private static int RequirePositiveInt(IConfiguration configuration, string key)
     {
         var raw = configuration[key]?.Trim();
-        if (string.IsNullOrWhiteSpace(raw)
+        if (
+            string.IsNullOrWhiteSpace(raw)
             || raw.Equals("CHANGE_ME", StringComparison.OrdinalIgnoreCase)
             || !int.TryParse(raw, out var value)
-            || value < 1)
+            || value < 1
+        )
         {
             throw new InvalidOperationException(
-                $"Required configuration '{key}' must be a positive integer.");
+                $"Required configuration '{key}' must be a positive integer."
+            );
         }
 
         return value;

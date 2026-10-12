@@ -11,4 +11,5 @@ public sealed record SupervisorDashboardResponse(
     int JiraAtRiskCount,
     int JiraBehindCount,
     IReadOnlyList<SupervisorDashboardProjectResponse> Projects,
-    IReadOnlyList<SupervisorDashboardProjectResponse> RecentProjects);
+    IReadOnlyList<SupervisorDashboardProjectResponse> RecentProjects
+);

@@ -19,24 +19,25 @@ public sealed class ProjectConfiguration : IEntityTypeConfiguration<Project>
         builder.Property(project => project.ProgressPercent).IsRequired();
         builder.Property(project => project.SupervisorUserId).IsRequired();
         builder.Property(project => project.LeaderStudentUserId);
-        builder.Property(project => project.MilestoneDate)
+        builder
+            .Property(project => project.MilestoneDate)
             .HasConversion(
-                value => value.HasValue
-                    ? value.Value.ToDateTime(TimeOnly.MinValue)
-                    : (DateTime?)null,
-                value => value.HasValue
-                    ? DateOnly.FromDateTime(value.Value)
-                    : (DateOnly?)null)
+                value => value.HasValue ? value.Value.ToDateTime(TimeOnly.MinValue) : (DateTime?)null,
+                value => value.HasValue ? DateOnly.FromDateTime(value.Value) : (DateOnly?)null
+            )
             .HasColumnType("date");
-        builder.Property(project => project.LastActivityAt)
+        builder
+            .Property(project => project.LastActivityAt)
             .HasDefaultValueSql("CURRENT_TIMESTAMP(6)")
             .IsRequired();
         builder.Property(project => project.CreatedAt).IsRequired();
         builder.Property(project => project.UpdatedAt).IsRequired();
 
-        builder.HasIndex(project => project.SupervisorUserId)
+        builder
+            .HasIndex(project => project.SupervisorUserId)
             .HasDatabaseName("ix_projects_supervisor_user_id");
-        builder.HasIndex(project => new { project.SupervisorUserId, project.CreatedAt })
+        builder
+            .HasIndex(project => new { project.SupervisorUserId, project.CreatedAt })
             .HasDatabaseName("ix_projects_supervisor_created_at");
     }
 }

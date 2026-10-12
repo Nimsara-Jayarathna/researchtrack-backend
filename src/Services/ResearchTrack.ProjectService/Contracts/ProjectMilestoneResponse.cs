@@ -6,4 +6,5 @@ public sealed record ProjectMilestoneResponse(
     string? Description,
     DateOnly DueDate,
     string Status,
-    int SequenceNo);
+    int SequenceNo
+);

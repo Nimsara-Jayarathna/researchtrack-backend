@@ -21,15 +21,17 @@ public sealed class ProjectMemberConfiguration : IEntityTypeConfiguration<Projec
         builder.Property(member => member.CreatedAt).IsRequired();
         builder.Property(member => member.UpdatedAt).IsRequired();
 
-        builder.HasIndex(member => new { member.ProjectId, member.UserId })
+        builder
+            .HasIndex(member => new { member.ProjectId, member.UserId })
             .IsUnique()
             .HasDatabaseName("ux_project_members_project_user");
-        builder.HasIndex(member => member.ProjectId)
-            .HasDatabaseName("ix_project_members_project_id");
-        builder.HasIndex(member => new { member.UserId, member.MemberRole })
+        builder.HasIndex(member => member.ProjectId).HasDatabaseName("ix_project_members_project_id");
+        builder
+            .HasIndex(member => new { member.UserId, member.MemberRole })
             .HasDatabaseName("ix_project_members_user_role");
 
-        builder.HasOne<Project>()
+        builder
+            .HasOne<Project>()
             .WithMany()
             .HasForeignKey(member => member.ProjectId)
             .OnDelete(DeleteBehavior.Cascade);

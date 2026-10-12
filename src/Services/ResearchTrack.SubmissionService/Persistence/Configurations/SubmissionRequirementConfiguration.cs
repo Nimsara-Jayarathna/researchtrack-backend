@@ -12,21 +12,43 @@ public sealed class SubmissionRequirementConfiguration : IEntityTypeConfiguratio
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Id).ValueGeneratedNever();
         builder.Property(x => x.ProjectId).IsRequired();
-        builder.Property(x => x.Title).HasMaxLength(SubmissionConstants.RequirementTitleMaxLength).IsRequired();
-        builder.Property(x => x.Description).HasMaxLength(SubmissionConstants.RequirementDescriptionMaxLength);
+        builder
+            .Property(x => x.Title)
+            .HasMaxLength(SubmissionConstants.RequirementTitleMaxLength)
+            .IsRequired();
+        builder
+            .Property(x => x.Description)
+            .HasMaxLength(SubmissionConstants.RequirementDescriptionMaxLength);
         builder.Property(x => x.DueAt).HasColumnType("datetime(6)");
-        builder.Property(x => x.AllowedFileTypes).HasMaxLength(SubmissionConstants.AllowedFileTypesMaxLength).IsRequired();
+        builder
+            .Property(x => x.AllowedFileTypes)
+            .HasMaxLength(SubmissionConstants.AllowedFileTypesMaxLength)
+            .IsRequired();
         builder.Property(x => x.MaxFileSizeBytes).IsRequired();
         builder.Property(x => x.Status).HasMaxLength(32).IsRequired();
-        builder.Property(x => x.ResponsibilityMode).HasMaxLength(SubmissionConstants.ResponsibilityModeMaxLength).IsRequired();
+        builder
+            .Property(x => x.ResponsibilityMode)
+            .HasMaxLength(SubmissionConstants.ResponsibilityModeMaxLength)
+            .IsRequired();
         builder.Property(x => x.AssignedStudentId);
-        builder.Property(x => x.AssignedStudentName).HasMaxLength(SubmissionConstants.UserDisplayNameMaxLength);
+        builder
+            .Property(x => x.AssignedStudentName)
+            .HasMaxLength(SubmissionConstants.UserDisplayNameMaxLength);
         builder.Property(x => x.CreatedBy).IsRequired();
-        builder.Property(x => x.CreatedByName).HasMaxLength(SubmissionConstants.UserDisplayNameMaxLength).IsRequired();
+        builder
+            .Property(x => x.CreatedByName)
+            .HasMaxLength(SubmissionConstants.UserDisplayNameMaxLength)
+            .IsRequired();
         builder.Property(x => x.CreatedAt).HasColumnType("datetime(6)").IsRequired();
         builder.Property(x => x.UpdatedAt).HasColumnType("datetime(6)");
-        builder.HasIndex(x => new { x.ProjectId, x.Status }).HasDatabaseName("ix_submission_requirements_project_status");
-        builder.HasIndex(x => new { x.ProjectId, x.DueAt }).HasDatabaseName("ix_submission_requirements_project_due_at");
-        builder.HasIndex(x => new { x.ProjectId, x.AssignedStudentId }).HasDatabaseName("ix_submission_requirements_project_assignee");
+        builder
+            .HasIndex(x => new { x.ProjectId, x.Status })
+            .HasDatabaseName("ix_submission_requirements_project_status");
+        builder
+            .HasIndex(x => new { x.ProjectId, x.DueAt })
+            .HasDatabaseName("ix_submission_requirements_project_due_at");
+        builder
+            .HasIndex(x => new { x.ProjectId, x.AssignedStudentId })
+            .HasDatabaseName("ix_submission_requirements_project_assignee");
     }
 }

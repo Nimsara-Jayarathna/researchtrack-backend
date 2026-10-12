@@ -1,11 +1,6 @@
 namespace ResearchTrack.GitHubService.Contracts;
 
-public sealed record GitHubPage<T>(
-    IReadOnlyList<T> Items,
-    int Page,
-    int Size,
-    int Total,
-    bool HasMore);
+public sealed record GitHubPage<T>(IReadOnlyList<T> Items, int Page, int Size, int Total, bool HasMore);
 
 public sealed record GitHubCommitResponse(
     string Sha,
@@ -18,7 +13,8 @@ public sealed record GitHubCommitResponse(
     string HtmlUrl,
     int? Additions,
     int? Deletions,
-    int? ChangedFiles);
+    int? ChangedFiles
+);
 
 public sealed record GitHubContributorResponse(
     long GitHubUserId,
@@ -32,7 +28,8 @@ public sealed record GitHubContributorResponse(
     long ObservedChangedFiles,
     DateTime? FirstCommitAt,
     DateTime? LastCommitAt,
-    DateTime LastSyncedAt);
+    DateTime LastSyncedAt
+);
 
 public sealed record GitHubPullRequestResponse(
     long GitHubPullRequestId,
@@ -57,7 +54,8 @@ public sealed record GitHubPullRequestResponse(
     int? ChangedFiles,
     int? CommitsCount,
     int? CommentsCount,
-    int? ReviewCommentsCount);
+    int? ReviewCommentsCount
+);
 
 public sealed record GitHubSyncRunResponse(
     Guid Id,
@@ -71,7 +69,9 @@ public sealed record GitHubSyncRunResponse(
     int ReviewsFetched,
     int BranchesFetched,
     string? ErrorCode,
-    string? ErrorMessage);
+    string? ErrorMessage
+);
 
 public sealed record GitHubSyncQueuedResponse(Guid LinkedRepositoryId, string Status);
+
 public sealed record GitHubProjectSyncQueuedResponse(Guid ProjectId, string Status);

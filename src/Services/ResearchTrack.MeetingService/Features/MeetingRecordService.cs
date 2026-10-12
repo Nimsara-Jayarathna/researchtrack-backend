@@ -25,7 +25,8 @@ public sealed class MeetingRecordService : IMeetingRecordService
         IMeetingChannelRepository channelRepository,
         IProjectAuthorizationClient projectAuthorization,
         IUserProfileClient userProfileClient,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider
+    )
     {
         _recordRepository = recordRepository;
         _channelRepository = channelRepository;
@@ -36,7 +37,8 @@ public sealed class MeetingRecordService : IMeetingRecordService
 
     public async Task<IReadOnlyList<MeetingRecordResponse>> ListAsync(
         Guid projectId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         await _projectAuthorization.EnsureCanAccessAsync(projectId, cancellationToken);
         var records = await _recordRepository.ListByProjectAsync(projectId, cancellationToken);
@@ -48,7 +50,8 @@ public sealed class MeetingRecordService : IMeetingRecordService
         Guid userId,
         string role,
         MeetingRecordUpsertRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         var normalizedRole = NormalizeRole(role);
 
@@ -65,35 +68,38 @@ public sealed class MeetingRecordService : IMeetingRecordService
             throw new ApiException(
                 StatusCodes.Status403Forbidden,
                 ErrorCodes.Forbidden,
-                "Your role cannot create meeting records.");
+                "Your role cannot create meeting records."
+            );
         }
 
         var values = await ValidateAsync(projectId, request, cancellationToken);
-        var displayName =
-            await _userProfileClient.GetCurrentUserDisplayNameAsync(cancellationToken);
+        var displayName = await _userProfileClient.GetCurrentUserDisplayNameAsync(cancellationToken);
         var now = _timeProvider.GetUtcNow();
 
-        var record = normalizedRole == AuthSecurityConstants.Roles.Supervisor
-            ? MeetingRecord.CreateSupervisor(
-                projectId,
-                values.MeetingDate,
-                values.DurationMinutes,
-                values.DiscussionSummary,
-                values.DiscussionDetails,
-                values.ChannelId,
-                userId,
-                displayName,
-                now)
-            : MeetingRecord.CreateStudent(
-                projectId,
-                values.MeetingDate,
-                values.DurationMinutes,
-                values.DiscussionSummary,
-                values.DiscussionDetails,
-                values.ChannelId,
-                userId,
-                displayName,
-                now);
+        var record =
+            normalizedRole == AuthSecurityConstants.Roles.Supervisor
+                ? MeetingRecord.CreateSupervisor(
+                    projectId,
+                    values.MeetingDate,
+                    values.DurationMinutes,
+                    values.DiscussionSummary,
+                    values.DiscussionDetails,
+                    values.ChannelId,
+                    userId,
+                    displayName,
+                    now
+                )
+                : MeetingRecord.CreateStudent(
+                    projectId,
+                    values.MeetingDate,
+                    values.DurationMinutes,
+                    values.DiscussionSummary,
+                    values.DiscussionDetails,
+                    values.ChannelId,
+                    userId,
+                    displayName,
+                    now
+                );
 
         await _recordRepository.AddAsync(record, cancellationToken);
         return ToResponse(record);
@@ -103,7 +109,8 @@ public sealed class MeetingRecordService : IMeetingRecordService
         Guid projectId,
         Guid recordId,
         MeetingRecordUpsertRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         await _projectAuthorization.EnsureCanManageAsync(projectId, cancellationToken);
         var record = await RequireRecordAsync(projectId, recordId, cancellationToken);
@@ -115,16 +122,14 @@ public sealed class MeetingRecordService : IMeetingRecordService
             values.DiscussionSummary,
             values.DiscussionDetails,
             values.ChannelId,
-            _timeProvider.GetUtcNow());
+            _timeProvider.GetUtcNow()
+        );
 
         await _recordRepository.SaveAsync(record, cancellationToken);
         return ToResponse(record);
     }
 
-    public async Task DeleteAsync(
-        Guid projectId,
-        Guid recordId,
-        CancellationToken cancellationToken)
+    public async Task DeleteAsync(Guid projectId, Guid recordId, CancellationToken cancellationToken)
     {
         await _projectAuthorization.EnsureCanManageAsync(projectId, cancellationToken);
         var record = await RequireRecordAsync(projectId, recordId, cancellationToken);
@@ -135,26 +140,20 @@ public sealed class MeetingRecordService : IMeetingRecordService
         Guid projectId,
         Guid recordId,
         Guid supervisorId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         await _projectAuthorization.EnsureCanManageAsync(projectId, cancellationToken);
         var record = await RequireRecordAsync(projectId, recordId, cancellationToken);
 
-        if (!string.Equals(
-                record.Status,
-                MeetingRecordConstants.StatusPending,
-                StringComparison.Ordinal))
+        if (!string.Equals(record.Status, MeetingRecordConstants.StatusPending, StringComparison.Ordinal))
         {
             throw Validation("status", "Only pending meeting records can be approved.");
         }
 
-        var displayName =
-            await _userProfileClient.GetCurrentUserDisplayNameAsync(cancellationToken);
+        var displayName = await _userProfileClient.GetCurrentUserDisplayNameAsync(cancellationToken);
 
-        record.Approve(
-            supervisorId,
-            displayName,
-            _timeProvider.GetUtcNow());
+        record.Approve(supervisorId, displayName, _timeProvider.GetUtcNow());
 
         await _recordRepository.SaveAsync(record, cancellationToken);
         return ToResponse(record);
@@ -163,19 +162,22 @@ public sealed class MeetingRecordService : IMeetingRecordService
     private async Task<MeetingRecord> RequireRecordAsync(
         Guid projectId,
         Guid recordId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         return await _recordRepository.FindAsync(projectId, recordId, cancellationToken)
             ?? throw new ApiException(
                 StatusCodes.Status404NotFound,
                 ErrorCodes.NotFound,
-                "The requested meeting record was not found.");
+                "The requested meeting record was not found."
+            );
     }
 
     private async Task<ValidatedRecordValues> ValidateAsync(
         Guid projectId,
         MeetingRecordUpsertRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         var errors = new List<ApiFieldError>();
         var rawDate = (request.MeetingDate ?? string.Empty).Trim();
@@ -185,37 +187,39 @@ public sealed class MeetingRecordService : IMeetingRecordService
         {
             errors.Add(new ApiFieldError("meetingDate", ["Meeting date is required."]));
         }
-        else if (!DateOnly.TryParseExact(
-                     rawDate,
-                     MeetingDateFormat,
-                     CultureInfo.InvariantCulture,
-                     DateTimeStyles.None,
-                     out parsedMeetingDate))
+        else if (
+            !DateOnly.TryParseExact(
+                rawDate,
+                MeetingDateFormat,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.None,
+                out parsedMeetingDate
+            )
+        )
         {
-            errors.Add(new ApiFieldError(
-                "meetingDate",
-                ["Meeting date must use YYYY-MM-DD format."]));
+            errors.Add(new ApiFieldError("meetingDate", ["Meeting date must use YYYY-MM-DD format."]));
         }
 
         if (request.DurationMinutes <= 0)
         {
-            errors.Add(new ApiFieldError(
-                "durationMinutes",
-                ["Duration must be greater than zero minutes."]));
+            errors.Add(new ApiFieldError("durationMinutes", ["Duration must be greater than zero minutes."]));
         }
 
         var discussionSummary = (request.DiscussionSummary ?? string.Empty).Trim();
         if (discussionSummary.Length == 0)
         {
-            errors.Add(new ApiFieldError(
-                "discussionSummary",
-                ["Discussion summary is required."]));
+            errors.Add(new ApiFieldError("discussionSummary", ["Discussion summary is required."]));
         }
         else if (discussionSummary.Length > MeetingRecordConstants.DiscussionSummaryMaxLength)
         {
-            errors.Add(new ApiFieldError(
-                "discussionSummary",
-                [$"Discussion summary must be at most {MeetingRecordConstants.DiscussionSummaryMaxLength} characters."]));
+            errors.Add(
+                new ApiFieldError(
+                    "discussionSummary",
+                    [
+                        $"Discussion summary must be at most {MeetingRecordConstants.DiscussionSummaryMaxLength} characters.",
+                    ]
+                )
+            );
         }
 
         var discussionDetails = string.IsNullOrWhiteSpace(request.DiscussionDetails)
@@ -224,9 +228,14 @@ public sealed class MeetingRecordService : IMeetingRecordService
 
         if (discussionDetails?.Length > MeetingRecordConstants.DiscussionDetailsMaxLength)
         {
-            errors.Add(new ApiFieldError(
-                "discussionDetails",
-                [$"Discussion details must be at most {MeetingRecordConstants.DiscussionDetailsMaxLength} characters."]));
+            errors.Add(
+                new ApiFieldError(
+                    "discussionDetails",
+                    [
+                        $"Discussion details must be at most {MeetingRecordConstants.DiscussionDetailsMaxLength} characters.",
+                    ]
+                )
+            );
         }
 
         if (request.ChannelId.HasValue)
@@ -234,13 +243,17 @@ public sealed class MeetingRecordService : IMeetingRecordService
             var channel = await _channelRepository.FindAsync(
                 projectId,
                 request.ChannelId.Value,
-                cancellationToken);
+                cancellationToken
+            );
 
             if (channel is null)
             {
-                errors.Add(new ApiFieldError(
-                    "channelId",
-                    ["The selected meeting channel does not belong to this project."]));
+                errors.Add(
+                    new ApiFieldError(
+                        "channelId",
+                        ["The selected meeting channel does not belong to this project."]
+                    )
+                );
             }
         }
 
@@ -254,11 +267,11 @@ public sealed class MeetingRecordService : IMeetingRecordService
             request.DurationMinutes,
             discussionSummary,
             discussionDetails,
-            request.ChannelId);
+            request.ChannelId
+        );
     }
 
-    private static string NormalizeRole(string role) =>
-        (role ?? string.Empty).Trim().ToUpperInvariant();
+    private static string NormalizeRole(string role) => (role ?? string.Empty).Trim().ToUpperInvariant();
 
     private static ApiValidationException Validation(string field, string message) =>
         new([new ApiFieldError(field, [message])]);
@@ -280,12 +293,14 @@ public sealed class MeetingRecordService : IMeetingRecordService
             record.ApprovedByName,
             record.ApprovedAt,
             record.CreatedAt,
-            record.UpdatedAt);
+            record.UpdatedAt
+        );
 
     private sealed record ValidatedRecordValues(
         DateTime MeetingDate,
         int DurationMinutes,
         string DiscussionSummary,
         string? DiscussionDetails,
-        Guid? ChannelId);
+        Guid? ChannelId
+    );
 }

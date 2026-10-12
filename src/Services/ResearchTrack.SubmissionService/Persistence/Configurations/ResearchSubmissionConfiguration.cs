@@ -21,13 +21,19 @@ public sealed class ResearchSubmissionConfiguration : IEntityTypeConfiguration<R
         builder.Property(x => x.ApprovedAt).HasColumnType("datetime(6)");
         builder.Property(x => x.CreatedAt).HasColumnType("datetime(6)").IsRequired();
         builder.Property(x => x.UpdatedAt).HasColumnType("datetime(6)");
-        builder.HasOne<SubmissionRequirement>()
+        builder
+            .HasOne<SubmissionRequirement>()
             .WithMany()
             .HasForeignKey(x => x.RequirementId)
             .HasConstraintName("fk_research_submission_requirement")
             .OnDelete(DeleteBehavior.Restrict);
-        builder.HasIndex(x => new { x.ProjectId, x.RequirementId }).IsUnique().HasDatabaseName("ux_research_submissions_project_requirement");
-        builder.HasIndex(x => new { x.ProjectId, x.Status }).HasDatabaseName("ix_research_submissions_project_status");
+        builder
+            .HasIndex(x => new { x.ProjectId, x.RequirementId })
+            .IsUnique()
+            .HasDatabaseName("ux_research_submissions_project_requirement");
+        builder
+            .HasIndex(x => new { x.ProjectId, x.Status })
+            .HasDatabaseName("ix_research_submissions_project_status");
         builder.HasIndex(x => x.RequirementId).HasDatabaseName("ix_research_submissions_requirement_id");
     }
 }

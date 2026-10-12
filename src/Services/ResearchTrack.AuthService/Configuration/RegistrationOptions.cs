@@ -15,7 +15,8 @@ public sealed record RegistrationOptions(
     int MaxEmailLength,
     int MaxRegistrationNumberLength,
     int OtpExpirySeconds,
-    int SessionExpirySeconds)
+    int SessionExpirySeconds
+)
 {
     public static RegistrationOptions FromConfiguration(IConfiguration configuration)
     {
@@ -23,17 +24,26 @@ public sealed record RegistrationOptions(
         var supervisorDomain = NormalizeDomain(Require(configuration, "Registration:SupervisorEmailDomain"));
         if (studentDomain.Equals(supervisorDomain, StringComparison.OrdinalIgnoreCase))
         {
-            throw new InvalidOperationException("Registration student and supervisor email domains must be different.");
+            throw new InvalidOperationException(
+                "Registration student and supervisor email domains must be different."
+            );
         }
 
         var pattern = Require(configuration, "Registration:StudentIdentifierPattern");
         try
         {
-            _ = new Regex(pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
+            _ = new Regex(
+                pattern,
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
+                TimeSpan.FromSeconds(1)
+            );
         }
         catch (ArgumentException exception)
         {
-            throw new InvalidOperationException("Registration:StudentIdentifierPattern is not a valid regular expression.", exception);
+            throw new InvalidOperationException(
+                "Registration:StudentIdentifierPattern is not a valid regular expression.",
+                exception
+            );
         }
 
         return new RegistrationOptions(
@@ -49,7 +59,8 @@ public sealed record RegistrationOptions(
             RequireInt(configuration, "Registration:MaxEmailLength", 3, 1024),
             RequireInt(configuration, "Registration:MaxRegistrationNumberLength", 1, 100),
             RequireInt(configuration, "Registration:OtpExpirySeconds", 30, 3600),
-            RequireInt(configuration, "Registration:SessionExpirySeconds", 30, 3600));
+            RequireInt(configuration, "Registration:SessionExpirySeconds", 30, 3600)
+        );
     }
 
     public bool HasStudentDomain => !string.IsNullOrWhiteSpace(StudentEmailDomain);
@@ -90,9 +101,7 @@ public sealed record RegistrationOptions(
     private static string? ExtractDomain(string email)
     {
         var atIndex = email.LastIndexOf('@');
-        return atIndex > 0 && atIndex < email.Length - 1
-            ? email[(atIndex + 1)..]
-            : null;
+        return atIndex > 0 && atIndex < email.Length - 1 ? email[(atIndex + 1)..] : null;
     }
 
     private static string Require(IConfiguration configuration, string key)
@@ -100,7 +109,9 @@ public sealed record RegistrationOptions(
         var value = configuration[key];
         if (string.IsNullOrWhiteSpace(value) || value.Equals("CHANGE_ME", StringComparison.OrdinalIgnoreCase))
         {
-            throw new InvalidOperationException($"Required configuration '{key}' is missing or still contains a placeholder value.");
+            throw new InvalidOperationException(
+                $"Required configuration '{key}' is missing or still contains a placeholder value."
+            );
         }
         return value.Trim();
     }
@@ -118,7 +129,9 @@ public sealed record RegistrationOptions(
         var raw = Require(configuration, key);
         if (!int.TryParse(raw, out var value) || value < min || value > max)
         {
-            throw new InvalidOperationException($"Configuration '{key}' must be an integer between {min} and {max}.");
+            throw new InvalidOperationException(
+                $"Configuration '{key}' must be an integer between {min} and {max}."
+            );
         }
         return value;
     }
@@ -128,5 +141,5 @@ public enum UserRoleResolution
 {
     None,
     Student,
-    Supervisor
+    Supervisor,
 }

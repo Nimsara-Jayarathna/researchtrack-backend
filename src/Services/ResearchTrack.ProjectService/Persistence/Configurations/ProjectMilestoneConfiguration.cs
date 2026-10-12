@@ -14,10 +14,12 @@ public sealed class ProjectMilestoneConfiguration : IEntityTypeConfiguration<Pro
         builder.Property(milestone => milestone.ProjectId).IsRequired();
         builder.Property(milestone => milestone.Title).HasMaxLength(40).IsRequired();
         builder.Property(milestone => milestone.Description).HasMaxLength(250);
-        builder.Property(milestone => milestone.DueDate)
+        builder
+            .Property(milestone => milestone.DueDate)
             .HasConversion(
                 value => value.ToDateTime(TimeOnly.MinValue),
-                value => DateOnly.FromDateTime(value))
+                value => DateOnly.FromDateTime(value)
+            )
             .HasColumnType("date")
             .IsRequired();
         builder.Property(milestone => milestone.Status).HasMaxLength(32).IsRequired();
@@ -26,13 +28,16 @@ public sealed class ProjectMilestoneConfiguration : IEntityTypeConfiguration<Pro
         builder.Property(milestone => milestone.CreatedAt).IsRequired();
         builder.Property(milestone => milestone.UpdatedAt).IsRequired();
 
-        builder.HasIndex(milestone => milestone.ProjectId)
+        builder
+            .HasIndex(milestone => milestone.ProjectId)
             .HasDatabaseName("ix_project_milestones_project_id");
-        builder.HasIndex(milestone => new { milestone.ProjectId, milestone.SequenceNo })
+        builder
+            .HasIndex(milestone => new { milestone.ProjectId, milestone.SequenceNo })
             .IsUnique()
             .HasDatabaseName("ux_project_milestones_project_sequence");
 
-        builder.HasOne<Project>()
+        builder
+            .HasOne<Project>()
             .WithMany()
             .HasForeignKey(milestone => milestone.ProjectId)
             .OnDelete(DeleteBehavior.Cascade);

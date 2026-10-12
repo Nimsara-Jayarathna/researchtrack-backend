@@ -12,16 +12,16 @@ public interface IGitHubInstallationStateStore
         long installationId,
         string expectedFlowType,
         DateTime now,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken
+    );
 
     Task<ConsumedGitHubInstallationState?> TryConsumeAsync(
         string stateHash,
         Guid expectedUserId,
         string expectedFlowType,
         DateTime now,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken
+    );
 
-    Task<GitHubInstallationFlowState?> FindAsync(
-        string stateHash,
-        CancellationToken cancellationToken);
+    Task<GitHubInstallationFlowState?> FindAsync(string stateHash, CancellationToken cancellationToken);
 }

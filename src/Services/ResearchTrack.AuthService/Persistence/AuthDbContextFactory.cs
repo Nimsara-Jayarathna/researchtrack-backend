@@ -9,8 +9,7 @@ public sealed class AuthDbContextFactory : IDesignTimeDbContextFactory<AuthDbCon
     public AuthDbContext CreateDbContext(string[] args)
     {
         var optionsBuilder = new DbContextOptionsBuilder<AuthDbContext>();
-        optionsBuilder.UseMySQL(
-            DesignTimeDatabase.CreateConnectionString("researchtrack_auth_design"));
+        optionsBuilder.UseMySQL(DesignTimeDatabase.CreateConnectionString("researchtrack_auth_design"));
 
         return new AuthDbContext(optionsBuilder.Options);
     }

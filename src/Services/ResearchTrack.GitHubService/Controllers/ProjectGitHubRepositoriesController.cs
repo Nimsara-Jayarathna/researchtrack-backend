@@ -31,12 +31,14 @@ public sealed class ProjectGitHubRepositoriesController : ApiControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ApiResponse<ProjectGitHubRepositoriesResponse>>> Get(
         Guid projectId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         var repositories = await _repositoryLinkService.GetProjectAsync(
             GetRequiredUserId(),
             projectId,
-            cancellationToken);
+            cancellationToken
+        );
 
         // Non-supervisor project members only need repository evidence/navigation data.
         // Do not expose installation/access-source management identifiers in that read model.
@@ -46,14 +48,16 @@ public sealed class ProjectGitHubRepositoriesController : ApiControllerBase
             {
                 HasUnacknowledgedAccess = false,
                 AccessSources = [],
-                Repositories = repositories.Repositories
-                    .Select(repository => repository with
-                    {
-                        SourceId = null,
-                        AccessType = null,
-                        GitHubRepositoryId = null
-                    })
-                    .ToList()
+                Repositories = repositories
+                    .Repositories.Select(repository =>
+                        repository with
+                        {
+                            SourceId = null,
+                            AccessType = null,
+                            GitHubRepositoryId = null,
+                        }
+                    )
+                    .ToList(),
             };
         }
 
@@ -71,6 +75,7 @@ public sealed class ProjectGitHubRepositoriesController : ApiControllerBase
         throw new ApiException(
             StatusCodes.Status401Unauthorized,
             ErrorCodes.Unauthorized,
-            "Authentication is required.");
+            "Authentication is required."
+        );
     }
 }

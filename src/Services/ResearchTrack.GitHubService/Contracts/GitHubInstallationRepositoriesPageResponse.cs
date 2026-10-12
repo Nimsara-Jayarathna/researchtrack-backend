@@ -6,7 +6,8 @@ public sealed record GitHubInstallationRepositoryResponse(
     string FullName,
     string Url,
     string OwnerLogin,
-    string? DefaultBranch);
+    string? DefaultBranch
+);
 
 public sealed record GitHubInstallationRepositoriesPageResponse(
     IReadOnlyList<GitHubInstallationRepositoryResponse> Items,
@@ -16,4 +17,5 @@ public sealed record GitHubInstallationRepositoriesPageResponse(
     int? TotalCount,
     bool HasNext,
     bool HasPrevious,
-    int? NextPage);
+    int? NextPage
+);

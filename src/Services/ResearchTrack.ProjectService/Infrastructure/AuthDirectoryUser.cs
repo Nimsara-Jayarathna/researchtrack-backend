@@ -6,4 +6,5 @@ public sealed record AuthDirectoryUser(
     string LastName,
     string Email,
     string? RegistrationNumber,
-    string Role);
+    string Role
+);

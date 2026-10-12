@@ -11,4 +11,5 @@ public sealed record ProjectSummaryResponse(
     DateTime? LastActivityAt,
     int ProgressPercent,
     int MemberCount,
-    string? SupervisorName);
+    string? SupervisorName
+);

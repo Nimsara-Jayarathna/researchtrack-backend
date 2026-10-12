@@ -8,7 +8,8 @@ public sealed record ProjectGitHubRepositoriesResponse(
     int MaxEnabledRepositories,
     bool HasUnacknowledgedAccess,
     IReadOnlyList<GitHubAccessSourceResponse> AccessSources,
-    IReadOnlyList<ProjectRepositoryLinkResponse> Repositories);
+    IReadOnlyList<ProjectRepositoryLinkResponse> Repositories
+);
 
 public sealed record GitHubAccessSourceResponse(
     Guid Id,
@@ -19,7 +20,8 @@ public sealed record GitHubAccessSourceResponse(
     string AccessType,
     string ConnectionStatus,
     bool Active,
-    DateTime CreatedAt);
+    DateTime CreatedAt
+);
 
 public sealed record ProjectRepositoryLinkResponse(
     Guid Id,
@@ -39,4 +41,5 @@ public sealed record ProjectRepositoryLinkResponse(
     DateTime? LastSyncedAt,
     long SyncRevision,
     string? SyncStatus,
-    string AccessStatus);
+    string AccessStatus
+);

@@ -1,4 +1,5 @@
 namespace ResearchTrack.JiraService.Domain;
+
 public sealed class JiraSprint
 {
     public Guid Id { get; set; }

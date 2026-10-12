@@ -1,3 +1,4 @@
+
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -20,7 +21,8 @@ public sealed class GitHubWebhookIngressService : IGitHubWebhookIngressService
         IGitHubWebhookSignatureVerifier signatureVerifier,
         IGitHubWebhookDeliveryStore store,
         GitHubWebhookSignal signal,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider
+    )
     {
         _options = options;
         _signatureVerifier = signatureVerifier;
@@ -35,52 +37,69 @@ public sealed class GitHubWebhookIngressService : IGitHubWebhookIngressService
         string? signature,
         string? deliveryId,
         string? eventType,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         deliveryId = NormalizeHeader(deliveryId);
         eventType = NormalizeHeader(eventType)?.ToLowerInvariant();
+
         if (deliveryId is null || deliveryId.Length > 128)
         {
             GitHubWebhookMetrics.Rejected.WithLabels("missing_delivery").Inc();
             throw BadRequest("GitHub webhook delivery id is required.");
         }
+
         if (eventType is null || eventType.Length > 64 || !eventType.All(IsEventCharacter))
         {
             GitHubWebhookMetrics.Rejected.WithLabels("invalid_event").Inc();
             throw BadRequest("GitHub webhook event type is invalid.");
         }
+
         if (contentLength is > 0 && contentLength > _options.MaxPayloadBytes)
         {
             GitHubWebhookMetrics.Rejected.WithLabels("payload_too_large").Inc();
             throw new ApiException(
                 StatusCodes.Status413PayloadTooLarge,
                 ErrorCodes.BadRequest,
-                "GitHub webhook payload exceeds the configured size limit.");
+                "GitHub webhook payload exceeds the configured size limit."
+            );
         }
 
-        var payload = await ReadBoundedAsync(body, _options.MaxPayloadBytes, cancellationToken);
+        var payload = await ReadBoundedAsync(
+            body,
+            _options.MaxPayloadBytes,
+            cancellationToken
+        );
+
         if (!_signatureVerifier.IsValid(payload, signature))
         {
             GitHubWebhookMetrics.Rejected.WithLabels("invalid_signature").Inc();
             throw new ApiException(
                 StatusCodes.Status401Unauthorized,
                 ErrorCodes.Unauthorized,
-                "GitHub webhook signature validation failed.");
+                "GitHub webhook signature validation failed."
+            );
         }
 
         string payloadJson;
         string? action;
         long? installationId;
         long? repositoryId;
+
         try
         {
             payloadJson = Encoding.UTF8.GetString(payload);
+
             using var document = JsonDocument.Parse(payload);
             var root = document.RootElement;
+
             if (root.ValueKind != JsonValueKind.Object)
             {
-                throw new JsonException("GitHub webhook payload must be a JSON object.");
+                throw new JsonException(
+                    "GitHub webhook payload must be a JSON object."
+                );
             }
+
             action = ReadString(root, "action");
             installationId = ReadNestedInt64(root, "installation", "id");
             repositoryId = ReadNestedInt64(root, "repository", "id");
@@ -92,10 +111,14 @@ public sealed class GitHubWebhookIngressService : IGitHubWebhookIngressService
                 StatusCodes.Status400BadRequest,
                 ErrorCodes.BadRequest,
                 "GitHub webhook payload must be a valid JSON object with numeric identifiers.",
-                innerException: exception);
+                innerException: exception
+            );
         }
 
-        var hash = Convert.ToHexString(SHA256.HashData(payload)).ToLowerInvariant();
+        var hash = Convert.ToHexString(
+            SHA256.HashData(payload)
+        ).ToLowerInvariant();
+
         var envelope = new GitHubWebhookEnvelope(
             deliveryId,
             eventType,
@@ -103,72 +126,121 @@ public sealed class GitHubWebhookIngressService : IGitHubWebhookIngressService
             installationId,
             repositoryId,
             payloadJson,
-            hash);
+            hash
+        );
+
         var result = await _store.AcceptAsync(
             envelope,
             _timeProvider.GetUtcNow().UtcDateTime,
-            cancellationToken);
+            cancellationToken
+        );
 
         GitHubWebhookMetrics.Received.WithLabels(eventType).Inc();
+
         _signal.Pulse();
+
         return result;
     }
 
     private static async Task<byte[]> ReadBoundedAsync(
         Stream body,
         int maxBytes,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
-        using var buffer = new MemoryStream(Math.Min(maxBytes, 64 * 1024));
+        using var buffer = new MemoryStream(
+            Math.Min(maxBytes, 64 * 1024)
+        );
+
         var chunk = new byte[16 * 1024];
+
         while (true)
         {
-            var read = await body.ReadAsync(chunk.AsMemory(0, chunk.Length), cancellationToken);
-            if (read == 0) break;
+            var read = await body.ReadAsync(
+                chunk.AsMemory(0, chunk.Length),
+                cancellationToken
+            );
+
+            if (read == 0)
+                break;
+
             if (buffer.Length + read > maxBytes)
             {
                 GitHubWebhookMetrics.Rejected.WithLabels("payload_too_large").Inc();
+
                 throw new ApiException(
                     StatusCodes.Status413PayloadTooLarge,
                     ErrorCodes.BadRequest,
-                    "GitHub webhook payload exceeds the configured size limit.");
+                    "GitHub webhook payload exceeds the configured size limit."
+                );
             }
-            await buffer.WriteAsync(chunk.AsMemory(0, read), cancellationToken);
+
+            await buffer.WriteAsync(
+                chunk.AsMemory(0, read),
+                cancellationToken
+            );
         }
+
         return buffer.ToArray();
     }
 
     private static string? NormalizeHeader(string? value)
     {
         var normalized = value?.Trim();
-        return string.IsNullOrWhiteSpace(normalized) ? null : normalized;
+
+        return string.IsNullOrWhiteSpace(normalized)
+            ? null
+            : normalized;
     }
 
     private static bool IsEventCharacter(char value) =>
         char.IsAsciiLetterOrDigit(value) || value is '_' or '-';
 
-    private static string? ReadString(JsonElement root, string property) =>
-        root.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String
+    private static string? ReadString(
+        JsonElement root,
+        string property
+    ) =>
+        root.TryGetProperty(property, out var value)
+        && value.ValueKind == JsonValueKind.String
             ? value.GetString()
             : null;
 
-    private static long? ReadNestedInt64(JsonElement root, string parent, string child)
+    private static long? ReadNestedInt64(
+        JsonElement root,
+        string parent,
+        string child
+    )
     {
-        if (!root.TryGetProperty(parent, out var parentValue)
+        if (
+            !root.TryGetProperty(parent, out var parentValue)
             || parentValue.ValueKind != JsonValueKind.Object
-            || !parentValue.TryGetProperty(child, out var childValue))
+            || !parentValue.TryGetProperty(child, out var childValue)
+        )
         {
             return null;
         }
+
         if (childValue.ValueKind != JsonValueKind.Number)
         {
-            throw new JsonException("GitHub webhook identifier must be numeric.");
+            throw new JsonException(
+                "GitHub webhook identifier must be numeric."
+            );
         }
-        return childValue.TryGetInt64(out var result) ? result : null;
+
+        if (!childValue.TryGetInt64(out var result))
+        {
+            throw new JsonException(
+                "GitHub webhook identifier must be a valid 64-bit integer."
+            );
+        }
+
+        return result;
     }
 
-    private static ApiException BadRequest(string message) => new(
-        StatusCodes.Status400BadRequest,
-        ErrorCodes.BadRequest,
-        message);
+    private static ApiException BadRequest(string message) =>
+        new(
+            StatusCodes.Status400BadRequest,
+            ErrorCodes.BadRequest,
+            message
+        );
 }

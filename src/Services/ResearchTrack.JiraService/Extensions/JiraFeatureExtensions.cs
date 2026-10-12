@@ -6,9 +6,13 @@ namespace ResearchTrack.JiraService.Extensions;
 
 public static class JiraFeatureExtensions
 {
-    public static IServiceCollection AddJiraFeatures(this IServiceCollection services, IConfiguration configuration)
+    public static IServiceCollection AddJiraFeatures(
+        this IServiceCollection services,
+        IConfiguration configuration
+    )
     {
-        var options = configuration.GetSection(JiraOptions.SectionName).Get<JiraOptions>() ?? new JiraOptions();
+        var options =
+            configuration.GetSection(JiraOptions.SectionName).Get<JiraOptions>() ?? new JiraOptions();
         ValidateRequiredConfiguration(options, configuration);
 
         services.AddSingleton(options);
@@ -36,8 +40,10 @@ public static class JiraFeatureExtensions
         });
 
         services.AddTransient<AtlassianMetricsHandler>();
-        services.AddHttpClient<AtlassianClient>(client =>
-            client.Timeout = TimeSpan.FromSeconds(options.AtlassianTimeoutSeconds))
+        services
+            .AddHttpClient<AtlassianClient>(client =>
+                client.Timeout = TimeSpan.FromSeconds(options.AtlassianTimeoutSeconds)
+            )
             .AddHttpMessageHandler<AtlassianMetricsHandler>()
             .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 
@@ -48,8 +54,13 @@ public static class JiraFeatureExtensions
     {
         static void Required(string value, string key)
         {
-            if (string.IsNullOrWhiteSpace(value) || value.Equals("CHANGE_ME", StringComparison.OrdinalIgnoreCase))
-                throw new InvalidOperationException($"Required environment configuration '{key}' is missing.");
+            if (
+                string.IsNullOrWhiteSpace(value)
+                || value.Equals("CHANGE_ME", StringComparison.OrdinalIgnoreCase)
+            )
+                throw new InvalidOperationException(
+                    $"Required environment configuration '{key}' is missing."
+                );
         }
 
         Required(options.ClientId, "Jira__ClientId");
@@ -66,13 +77,32 @@ public static class JiraFeatureExtensions
 
         _ = JiraTokenProtector.DecodeKey(options.TokenEncryptionKey);
 
-        if (options.OAuthStateTtlMinutes <= 0) throw new InvalidOperationException("Jira__OAuthStateTtlMinutes must be greater than zero.");
-        if (options.SelectionTtlMinutes <= 0) throw new InvalidOperationException("Jira__SelectionTtlMinutes must be greater than zero.");
-        if (options.AtlassianTimeoutSeconds <= 0) throw new InvalidOperationException("Jira__AtlassianTimeoutSeconds must be greater than zero.");
-        if (options.ProjectServiceTimeoutSeconds <= 0) throw new InvalidOperationException("Jira__ProjectServiceTimeoutSeconds must be greater than zero.");
-        if (options.ReconciliationIntervalMinutes <= 0) throw new InvalidOperationException("Jira__ReconciliationIntervalMinutes must be greater than zero.");
-        if (options.WebhookCoalesceSeconds <= 0) throw new InvalidOperationException("Jira__WebhookCoalesceSeconds must be greater than zero.");
-        if (options.SyncWorkerPollSeconds <= 0) throw new InvalidOperationException("Jira__SyncWorkerPollSeconds must be greater than zero.");
-        if (!string.IsNullOrWhiteSpace(options.WebhookUrl) && !options.WebhookUrl.Equals("CHANGE_ME", StringComparison.OrdinalIgnoreCase) && (!Uri.TryCreate(options.WebhookUrl, UriKind.Absolute, out var webhookUri) || webhookUri.Scheme != Uri.UriSchemeHttps)) throw new InvalidOperationException("Jira__WebhookUrl must be a public HTTPS URL.");
+        if (options.OAuthStateTtlMinutes <= 0)
+            throw new InvalidOperationException("Jira__OAuthStateTtlMinutes must be greater than zero.");
+        if (options.SelectionTtlMinutes <= 0)
+            throw new InvalidOperationException("Jira__SelectionTtlMinutes must be greater than zero.");
+        if (options.AtlassianTimeoutSeconds <= 0)
+            throw new InvalidOperationException("Jira__AtlassianTimeoutSeconds must be greater than zero.");
+        if (options.ProjectServiceTimeoutSeconds <= 0)
+            throw new InvalidOperationException(
+                "Jira__ProjectServiceTimeoutSeconds must be greater than zero."
+            );
+        if (options.ReconciliationIntervalMinutes <= 0)
+            throw new InvalidOperationException(
+                "Jira__ReconciliationIntervalMinutes must be greater than zero."
+            );
+        if (options.WebhookCoalesceSeconds <= 0)
+            throw new InvalidOperationException("Jira__WebhookCoalesceSeconds must be greater than zero.");
+        if (options.SyncWorkerPollSeconds <= 0)
+            throw new InvalidOperationException("Jira__SyncWorkerPollSeconds must be greater than zero.");
+        if (
+            !string.IsNullOrWhiteSpace(options.WebhookUrl)
+            && !options.WebhookUrl.Equals("CHANGE_ME", StringComparison.OrdinalIgnoreCase)
+            && (
+                !Uri.TryCreate(options.WebhookUrl, UriKind.Absolute, out var webhookUri)
+                || webhookUri.Scheme != Uri.UriSchemeHttps
+            )
+        )
+            throw new InvalidOperationException("Jira__WebhookUrl must be a public HTTPS URL.");
     }
 }

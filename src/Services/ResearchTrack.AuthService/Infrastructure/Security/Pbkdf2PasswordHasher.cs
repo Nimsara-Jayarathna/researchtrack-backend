@@ -23,9 +23,16 @@ public sealed class Pbkdf2PasswordHasher : IPasswordHasher
             salt,
             _options.Iterations,
             HashAlgorithmName.SHA256,
-            _options.HashSizeBytes);
+            _options.HashSizeBytes
+        );
 
-        return string.Join("$", Algorithm, _options.Iterations, Convert.ToBase64String(salt), Convert.ToBase64String(hash));
+        return string.Join(
+            "$",
+            Algorithm,
+            _options.Iterations,
+            Convert.ToBase64String(salt),
+            Convert.ToBase64String(hash)
+        );
     }
 
     public bool Verify(string password, string encodedHash)
@@ -55,7 +62,8 @@ public sealed class Pbkdf2PasswordHasher : IPasswordHasher
                 salt,
                 iterations,
                 HashAlgorithmName.SHA256,
-                expected.Length);
+                expected.Length
+            );
 
             return CryptographicOperations.FixedTimeEquals(actual, expected);
         }

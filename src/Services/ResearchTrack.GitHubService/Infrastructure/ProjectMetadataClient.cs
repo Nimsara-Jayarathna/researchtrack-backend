@@ -39,11 +39,23 @@ public sealed class ProjectMetadataClient : IProjectMetadataClient
         {
             if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
             {
-                throw new ApiException(StatusCodes.Status401Unauthorized, ErrorCodes.Unauthorized, "Authentication is required.");
+                throw new ApiException(
+                    StatusCodes.Status401Unauthorized,
+                    ErrorCodes.Unauthorized,
+                    "Authentication is required."
+                );
             }
-            if (response.StatusCode is System.Net.HttpStatusCode.Forbidden or System.Net.HttpStatusCode.NotFound)
+            if (
+                response.StatusCode
+                is System.Net.HttpStatusCode.Forbidden
+                    or System.Net.HttpStatusCode.NotFound
+            )
             {
-                throw new ApiException(StatusCodes.Status403Forbidden, ErrorCodes.Forbidden, "Only the owning Supervisor can manage this project's GitHub integration.");
+                throw new ApiException(
+                    StatusCodes.Status403Forbidden,
+                    ErrorCodes.Forbidden,
+                    "Only the owning Supervisor can manage this project's GitHub integration."
+                );
             }
             if (!response.IsSuccessStatusCode)
             {
@@ -52,10 +64,12 @@ public sealed class ProjectMetadataClient : IProjectMetadataClient
 
             await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
             using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
-            if (!document.RootElement.TryGetProperty("data", out var data)
+            if (
+                !document.RootElement.TryGetProperty("data", out var data)
                 || !data.TryGetProperty("title", out var titleElement)
                 || titleElement.ValueKind != JsonValueKind.String
-                || string.IsNullOrWhiteSpace(titleElement.GetString()))
+                || string.IsNullOrWhiteSpace(titleElement.GetString())
+            )
             {
                 throw DependencyFailure("Project Service returned invalid project metadata.");
             }
@@ -66,23 +80,34 @@ public sealed class ProjectMetadataClient : IProjectMetadataClient
 
     private void ForwardAuthentication(HttpRequestMessage request)
     {
-        var incoming = _httpContextAccessor.HttpContext?.Request
+        var incoming =
+            _httpContextAccessor.HttpContext?.Request
             ?? throw DependencyFailure("Request authentication context is unavailable.");
 
         if (incoming.Headers.Authorization.Count > 0)
         {
-            request.Headers.TryAddWithoutValidation("Authorization", incoming.Headers.Authorization.ToArray());
+            request.Headers.TryAddWithoutValidation(
+                "Authorization",
+                incoming.Headers.Authorization.ToArray()
+            );
         }
-        if (incoming.Cookies.TryGetValue(AuthSecurityConstants.AccessCookieName, out var token)
-            && !string.IsNullOrWhiteSpace(token))
+        if (
+            incoming.Cookies.TryGetValue(AuthSecurityConstants.AccessCookieName, out var token)
+            && !string.IsNullOrWhiteSpace(token)
+        )
         {
-            request.Headers.TryAddWithoutValidation("Cookie", $"{AuthSecurityConstants.AccessCookieName}={token}");
+            request.Headers.TryAddWithoutValidation(
+                "Cookie",
+                $"{AuthSecurityConstants.AccessCookieName}={token}"
+            );
         }
     }
 
-    private static ApiException DependencyFailure(string message, Exception? inner = null) => new(
-        StatusCodes.Status503ServiceUnavailable,
-        ErrorCodes.DependencyUnavailable,
-        message,
-        innerException: inner);
+    private static ApiException DependencyFailure(string message, Exception? inner = null) =>
+        new(
+            StatusCodes.Status503ServiceUnavailable,
+            ErrorCodes.DependencyUnavailable,
+            message,
+            innerException: inner
+        );
 }

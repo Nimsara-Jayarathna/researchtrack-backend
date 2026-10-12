@@ -29,26 +29,21 @@ public sealed class ProjectsController : ApiControllerBase
 
     [Authorize(Policy = AuthSecurityConstants.Policies.SupervisorOnly)]
     [HttpPost]
-    [ProducesResponseType<ApiResponse<CreateProjectResponse>>(
-        StatusCodes.Status201Created)]
+    [ProducesResponseType<ApiResponse<CreateProjectResponse>>(StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
     public async Task<ActionResult<ApiResponse<CreateProjectResponse>>> Create(
         [FromBody] CreateProjectRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         var userId = GetRequiredUserId();
 
-        var created = await _projectService.CreateAsync(
-            userId,
-            request,
-            cancellationToken);
+        var created = await _projectService.CreateAsync(userId, request, cancellationToken);
 
-        return ApiCreated(
-            $"/api/v1/projects/{created.Id}",
-            created);
+        return ApiCreated($"/api/v1/projects/{created.Id}", created);
     }
 
     // ============================================================
@@ -57,20 +52,17 @@ public sealed class ProjectsController : ApiControllerBase
     // ============================================================
 
     [HttpGet]
-    [ProducesResponseType<
-        ApiResponse<IReadOnlyList<ProjectSummaryResponse>>>
-        (StatusCodes.Status200OK)]
+    [ProducesResponseType<ApiResponse<IReadOnlyList<ProjectSummaryResponse>>>(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public async Task<
-        ActionResult<ApiResponse<IReadOnlyList<ProjectSummaryResponse>>>>
-        GetAll(
-            CancellationToken cancellationToken)
+    public async Task<ActionResult<ApiResponse<IReadOnlyList<ProjectSummaryResponse>>>> GetAll(
+        CancellationToken cancellationToken
+    )
     {
-        var projects =
-            await _projectService.GetAccessibleProjectsAsync(
-                GetRequiredUserId(),
-                GetRequiredRole(),
-                cancellationToken);
+        var projects = await _projectService.GetAccessibleProjectsAsync(
+            GetRequiredUserId(),
+            GetRequiredRole(),
+            cancellationToken
+        );
 
         return ApiOk(projects);
     }
@@ -81,27 +73,28 @@ public sealed class ProjectsController : ApiControllerBase
     // ============================================================
 
     [HttpGet("{projectId:guid}")]
-    [ProducesResponseType<ApiResponse<ProjectResponse>>(
-        StatusCodes.Status200OK)]
+    [ProducesResponseType<ApiResponse<ProjectResponse>>(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ApiResponse<ProjectResponse>>> GetById(
         Guid projectId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
-        var project =
-            await _projectService.GetAccessibleProjectAsync(
-                GetRequiredUserId(),
-                GetRequiredRole(),
-                projectId,
-                cancellationToken);
+        var project = await _projectService.GetAccessibleProjectAsync(
+            GetRequiredUserId(),
+            GetRequiredRole(),
+            projectId,
+            cancellationToken
+        );
 
         if (project is null)
         {
             throw new ApiException(
                 StatusCodes.Status404NotFound,
                 ErrorCodes.NotFound,
-                "The requested project was not found.");
+                "The requested project was not found."
+            );
         }
 
         return ApiOk(project);
@@ -118,21 +111,21 @@ public sealed class ProjectsController : ApiControllerBase
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    public async Task<IActionResult> VerifyManageAccess(
-        Guid projectId,
-        CancellationToken cancellationToken)
+    public async Task<IActionResult> VerifyManageAccess(Guid projectId, CancellationToken cancellationToken)
     {
         var canManage = await _projectService.CanSupervisorManageAsync(
             GetRequiredUserId(),
             projectId,
-            cancellationToken);
+            cancellationToken
+        );
 
         if (!canManage)
         {
             throw new ApiException(
                 StatusCodes.Status403Forbidden,
                 ErrorCodes.Forbidden,
-                "Only the owning Supervisor can manage this project.");
+                "Only the owning Supervisor can manage this project."
+            );
         }
 
         return NoContent();
@@ -141,10 +134,20 @@ public sealed class ProjectsController : ApiControllerBase
     [HttpGet("{projectId:guid}/authorization/access")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    public async Task<IActionResult> VerifyReadAccess(Guid projectId,CancellationToken cancellationToken)
+    public async Task<IActionResult> VerifyReadAccess(Guid projectId, CancellationToken cancellationToken)
     {
-        var canAccess=await _projectService.CanAccessAsync(GetRequiredUserId(),GetRequiredRole(),projectId,cancellationToken);
-        if(!canAccess) throw new ApiException(StatusCodes.Status403Forbidden,ErrorCodes.Forbidden,"You do not have access to this project.");
+        var canAccess = await _projectService.CanAccessAsync(
+            GetRequiredUserId(),
+            GetRequiredRole(),
+            projectId,
+            cancellationToken
+        );
+        if (!canAccess)
+            throw new ApiException(
+                StatusCodes.Status403Forbidden,
+                ErrorCodes.Forbidden,
+                "You do not have access to this project."
+            );
         return NoContent();
     }
 
@@ -157,8 +160,7 @@ public sealed class ProjectsController : ApiControllerBase
 
     [Authorize(Policy = AuthSecurityConstants.Policies.SupervisorOnly)]
     [HttpPut("{projectId:guid}")]
-    [ProducesResponseType<ApiResponse<ProjectResponse>>(
-        StatusCodes.Status200OK)]
+    [ProducesResponseType<ApiResponse<ProjectResponse>>(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
@@ -166,7 +168,8 @@ public sealed class ProjectsController : ApiControllerBase
     public async Task<ActionResult<ApiResponse<ProjectResponse>>> Update(
         Guid projectId,
         [FromBody] UpdateProjectRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         var supervisorUserId = GetRequiredUserId();
 
@@ -174,7 +177,8 @@ public sealed class ProjectsController : ApiControllerBase
             supervisorUserId,
             projectId,
             request,
-            cancellationToken);
+            cancellationToken
+        );
 
         return ApiOk(updated);
     }
@@ -190,8 +194,7 @@ public sealed class ProjectsController : ApiControllerBase
 
     [Authorize(Policy = AuthSecurityConstants.Policies.SupervisorOnly)]
     [HttpPut("{projectId:guid}/leader")]
-    [ProducesResponseType<ApiResponse<ProjectResponse>>(
-        StatusCodes.Status200OK)]
+    [ProducesResponseType<ApiResponse<ProjectResponse>>(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
@@ -199,13 +202,15 @@ public sealed class ProjectsController : ApiControllerBase
     public async Task<ActionResult<ApiResponse<ProjectResponse>>> UpdateLeader(
         Guid projectId,
         [FromBody] UpdateProjectLeaderRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         var updated = await _projectService.UpdateLeaderAsync(
             GetRequiredUserId(),
             projectId,
             request,
-            cancellationToken);
+            cancellationToken
+        );
 
         return ApiOk(updated);
     }
@@ -219,8 +224,7 @@ public sealed class ProjectsController : ApiControllerBase
 
     [Authorize(Policy = AuthSecurityConstants.Policies.SupervisorOnly)]
     [HttpPost("{projectId:guid}/members")]
-    [ProducesResponseType<ApiResponse<ProjectResponse>>(
-        StatusCodes.Status200OK)]
+    [ProducesResponseType<ApiResponse<ProjectResponse>>(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
@@ -230,13 +234,15 @@ public sealed class ProjectsController : ApiControllerBase
     public async Task<ActionResult<ApiResponse<ProjectResponse>>> AddMembers(
         Guid projectId,
         [FromBody] AddProjectMembersRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         var updated = await _projectService.AddMembersAsync(
             GetRequiredUserId(),
             projectId,
             request,
-            cancellationToken);
+            cancellationToken
+        );
 
         return ApiOk(updated);
     }
@@ -250,21 +256,22 @@ public sealed class ProjectsController : ApiControllerBase
 
     [Authorize(Policy = AuthSecurityConstants.Policies.SupervisorOnly)]
     [HttpDelete("{projectId:guid}/members/{studentId:guid}")]
-    [ProducesResponseType<ApiResponse<ProjectResponse>>(
-        StatusCodes.Status200OK)]
+    [ProducesResponseType<ApiResponse<ProjectResponse>>(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ApiResponse<ProjectResponse>>> RemoveStudent(
         Guid projectId,
         Guid studentId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         var updated = await _projectService.RemoveStudentAsync(
             GetRequiredUserId(),
             projectId,
             studentId,
-            cancellationToken);
+            cancellationToken
+        );
 
         return ApiOk(updated);
     }
@@ -278,31 +285,27 @@ public sealed class ProjectsController : ApiControllerBase
 
     [Authorize(Policy = AuthSecurityConstants.Policies.SupervisorOnly)]
     [HttpPost("{projectId:guid}/milestones")]
-    [ProducesResponseType<ApiResponse<ProjectMilestoneResponse>>(
-        StatusCodes.Status201Created)]
+    [ProducesResponseType<ApiResponse<ProjectMilestoneResponse>>(StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<
-        ActionResult<ApiResponse<ProjectMilestoneResponse>>>
-        AddMilestone(
-            Guid projectId,
-            [FromBody] CreateProjectMilestoneRequest request,
-            CancellationToken cancellationToken)
+    public async Task<ActionResult<ApiResponse<ProjectMilestoneResponse>>> AddMilestone(
+        Guid projectId,
+        [FromBody] CreateProjectMilestoneRequest request,
+        CancellationToken cancellationToken
+    )
     {
         var supervisorUserId = GetRequiredUserId();
 
-        var created =
-            await _projectService.AddMilestoneAsync(
-                supervisorUserId,
-                projectId,
-                request,
-                cancellationToken);
+        var created = await _projectService.AddMilestoneAsync(
+            supervisorUserId,
+            projectId,
+            request,
+            cancellationToken
+        );
 
-        return ApiCreated(
-            $"/api/v1/projects/{projectId}/milestones/{created.Id}",
-            created);
+        return ApiCreated($"/api/v1/projects/{projectId}/milestones/{created.Id}", created);
     }
 
     // ============================================================
@@ -314,29 +317,27 @@ public sealed class ProjectsController : ApiControllerBase
 
     [Authorize(Policy = AuthSecurityConstants.Policies.SupervisorOnly)]
     [HttpPut("{projectId:guid}/milestones/{milestoneId:guid}")]
-    [ProducesResponseType<ApiResponse<ProjectMilestoneResponse>>(
-        StatusCodes.Status200OK)]
+    [ProducesResponseType<ApiResponse<ProjectMilestoneResponse>>(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<
-        ActionResult<ApiResponse<ProjectMilestoneResponse>>>
-        UpdateMilestone(
-            Guid projectId,
-            Guid milestoneId,
-            [FromBody] UpdateProjectMilestoneRequest request,
-            CancellationToken cancellationToken)
+    public async Task<ActionResult<ApiResponse<ProjectMilestoneResponse>>> UpdateMilestone(
+        Guid projectId,
+        Guid milestoneId,
+        [FromBody] UpdateProjectMilestoneRequest request,
+        CancellationToken cancellationToken
+    )
     {
         var supervisorUserId = GetRequiredUserId();
 
-        var updated =
-            await _projectService.UpdateMilestoneAsync(
-                supervisorUserId,
-                projectId,
-                milestoneId,
-                request,
-                cancellationToken);
+        var updated = await _projectService.UpdateMilestoneAsync(
+            supervisorUserId,
+            projectId,
+            milestoneId,
+            request,
+            cancellationToken
+        );
 
         return ApiOk(updated);
     }
@@ -347,8 +348,7 @@ public sealed class ProjectsController : ApiControllerBase
 
     private Guid GetRequiredUserId()
     {
-        var subject = User.FindFirstValue(
-            AuthSecurityConstants.SubjectClaim);
+        var subject = User.FindFirstValue(AuthSecurityConstants.SubjectClaim);
 
         if (!Guid.TryParse(subject, out var userId))
         {
@@ -364,8 +364,7 @@ public sealed class ProjectsController : ApiControllerBase
 
     private string GetRequiredRole()
     {
-        var role = User.FindFirstValue(
-            AuthSecurityConstants.RoleClaim);
+        var role = User.FindFirstValue(AuthSecurityConstants.RoleClaim);
 
         if (string.IsNullOrWhiteSpace(role))
         {
@@ -379,8 +378,6 @@ public sealed class ProjectsController : ApiControllerBase
     // UNAUTHORIZED EXCEPTION
     // ============================================================
 
-    private static ApiException CreateUnauthorizedException() => new(
-        StatusCodes.Status401Unauthorized,
-        ErrorCodes.Unauthorized,
-        "Authentication is required.");
+    private static ApiException CreateUnauthorizedException() =>
+        new(StatusCodes.Status401Unauthorized, ErrorCodes.Unauthorized, "Authentication is required.");
 }

@@ -7,9 +7,7 @@ namespace ResearchTrack.GitHubService.Persistence;
 public sealed class GitHubDbContext : DbContext
 {
     public GitHubDbContext(DbContextOptions<GitHubDbContext> options)
-        : base(options)
-    {
-    }
+        : base(options) { }
 
     public DbSet<GitHubAccessSource> AccessSources => Set<GitHubAccessSource>();
     public DbSet<GitHubAccessRequest> AccessRequests => Set<GitHubAccessRequest>();

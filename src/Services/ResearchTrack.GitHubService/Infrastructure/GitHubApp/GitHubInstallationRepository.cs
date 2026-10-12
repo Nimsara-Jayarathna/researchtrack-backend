@@ -7,9 +7,11 @@ public sealed record GitHubInstallationRepository(
     string FullName,
     string HtmlUrl,
     string? DefaultBranch,
-    bool Private);
+    bool Private
+);
 
 public sealed record GitHubInstallationRepositoryPage(
     IReadOnlyList<GitHubInstallationRepository> Items,
     int TotalCount,
-    bool HasNext);
+    bool HasNext
+);

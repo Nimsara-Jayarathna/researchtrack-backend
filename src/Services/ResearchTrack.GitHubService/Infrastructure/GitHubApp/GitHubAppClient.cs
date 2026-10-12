@@ -17,7 +17,9 @@ public sealed class GitHubAppClient : IGitHubAppClient
     {
         if (httpClient.BaseAddress != GitHubApiDefaults.TrustedBaseAddress)
         {
-            throw new InvalidOperationException("The GitHub App client must use the trusted GitHub API base address.");
+            throw new InvalidOperationException(
+                "The GitHub App client must use the trusted GitHub API base address."
+            );
         }
 
         _httpClient = httpClient;
@@ -26,7 +28,8 @@ public sealed class GitHubAppClient : IGitHubAppClient
 
     public async Task<GitHubInstallationInfo> GetInstallationAsync(
         long installationId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         if (installationId <= 0)
         {
@@ -42,7 +45,8 @@ public sealed class GitHubAppClient : IGitHubAppClient
             throw new ApiException(
                 StatusCodes.Status404NotFound,
                 ErrorCodes.NotFound,
-                "The GitHub App installation was not found or is no longer accessible.");
+                "The GitHub App installation was not found or is no longer accessible."
+            );
         }
         if (!response.IsSuccessStatusCode)
         {
@@ -50,33 +54,37 @@ public sealed class GitHubAppClient : IGitHubAppClient
         }
 
         var payload = await response.Content.ReadFromJsonAsync<InstallationResponse>(
-            cancellationToken: cancellationToken);
-        if (payload is null
+            cancellationToken: cancellationToken
+        );
+        if (
+            payload is null
             || payload.Id != installationId
             || string.IsNullOrWhiteSpace(payload.Account?.Login)
             || string.IsNullOrWhiteSpace(payload.Account.Type)
-            || payload.Permissions is null)
+            || payload.Permissions is null
+        )
         {
             throw DependencyFailure("GitHub returned invalid installation metadata.");
         }
 
-        var ownerType = payload.Account.Type.Equals("Organization", StringComparison.OrdinalIgnoreCase)
-            ? "ORG"
-            : payload.Account.Type.Equals("User", StringComparison.OrdinalIgnoreCase)
-                ? "USER"
-                : throw DependencyFailure("GitHub returned an unsupported installation owner type.");
+        var ownerType =
+            payload.Account.Type.Equals("Organization", StringComparison.OrdinalIgnoreCase) ? "ORG"
+            : payload.Account.Type.Equals("User", StringComparison.OrdinalIgnoreCase) ? "USER"
+            : throw DependencyFailure("GitHub returned an unsupported installation owner type.");
 
         return new GitHubInstallationInfo(
             payload.Id,
             payload.Account.Login,
             ownerType,
             new Dictionary<string, string>(payload.Permissions, StringComparer.OrdinalIgnoreCase),
-            payload.SuspendedAt.HasValue);
+            payload.SuspendedAt.HasValue
+        );
     }
 
     public async Task<GitHubInstallationToken> CreateInstallationTokenAsync(
         long installationId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         if (installationId <= 0)
         {
@@ -85,7 +93,8 @@ public sealed class GitHubAppClient : IGitHubAppClient
 
         using var request = new HttpRequestMessage(
             HttpMethod.Post,
-            $"app/installations/{installationId}/access_tokens");
+            $"app/installations/{installationId}/access_tokens"
+        );
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _jwtProvider.CreateToken());
 
         using (var response = await SendAsync(request, cancellationToken))
@@ -95,7 +104,8 @@ public sealed class GitHubAppClient : IGitHubAppClient
                 throw new ApiException(
                     StatusCodes.Status404NotFound,
                     ErrorCodes.NotFound,
-                    "The GitHub App installation was not found or is no longer accessible.");
+                    "The GitHub App installation was not found or is no longer accessible."
+                );
             }
             if (!response.IsSuccessStatusCode)
             {
@@ -103,7 +113,8 @@ public sealed class GitHubAppClient : IGitHubAppClient
             }
 
             var payload = await response.Content.ReadFromJsonAsync<InstallationTokenResponse>(
-                cancellationToken: cancellationToken);
+                cancellationToken: cancellationToken
+            );
             if (payload is null || string.IsNullOrWhiteSpace(payload.Token))
             {
                 throw DependencyFailure("GitHub returned an invalid installation token response.");
@@ -115,7 +126,8 @@ public sealed class GitHubAppClient : IGitHubAppClient
 
     private async Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         try
         {
@@ -131,21 +143,25 @@ public sealed class GitHubAppClient : IGitHubAppClient
         }
     }
 
-    private static ApiException DependencyFailure(string message, Exception? inner = null) => new(
-        StatusCodes.Status503ServiceUnavailable,
-        ErrorCodes.DependencyUnavailable,
-        message,
-        innerException: inner);
+    private static ApiException DependencyFailure(string message, Exception? inner = null) =>
+        new(
+            StatusCodes.Status503ServiceUnavailable,
+            ErrorCodes.DependencyUnavailable,
+            message,
+            innerException: inner
+        );
 
     private sealed record InstallationTokenResponse(
         [property: JsonPropertyName("token")] string Token,
-        [property: JsonPropertyName("expires_at")] DateTimeOffset ExpiresAt);
+        [property: JsonPropertyName("expires_at")] DateTimeOffset ExpiresAt
+    );
 
     private sealed record InstallationResponse(
         long Id,
         InstallationAccount Account,
         [property: JsonPropertyName("permissions")] Dictionary<string, string>? Permissions,
-        [property: JsonPropertyName("suspended_at")] DateTimeOffset? SuspendedAt);
+        [property: JsonPropertyName("suspended_at")] DateTimeOffset? SuspendedAt
+    );
 
     private sealed record InstallationAccount(string Login, string Type);
 }

@@ -4,5 +4,5 @@ public enum GitHubSynchronizationOutcome
 {
     Completed,
     SkippedUnavailable,
-    AlreadyRunning
+    AlreadyRunning,
 }

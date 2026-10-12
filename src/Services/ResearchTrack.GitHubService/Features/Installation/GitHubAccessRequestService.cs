@@ -26,7 +26,8 @@ public sealed class GitHubAccessRequestService : IGitHubAccessRequestService
         IGitHubAccessRequestTokenService tokens,
         IGitHubInstallationRepositoryInventoryService repositoryInventory,
         GitHubAppOptions options,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider
+    )
     {
         _dbContextFactory = dbContextFactory;
         _projectAuthorization = projectAuthorization;
@@ -41,7 +42,8 @@ public sealed class GitHubAccessRequestService : IGitHubAccessRequestService
         Guid userId,
         Guid projectId,
         string ownerLogin,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         if (projectId == Guid.Empty)
         {
@@ -49,7 +51,11 @@ public sealed class GitHubAccessRequestService : IGitHubAccessRequestService
         }
         if (userId == Guid.Empty)
         {
-            throw new ApiException(StatusCodes.Status401Unauthorized, ErrorCodes.Unauthorized, "Authentication is required.");
+            throw new ApiException(
+                StatusCodes.Status401Unauthorized,
+                ErrorCodes.Unauthorized,
+                "Authentication is required."
+            );
         }
 
         var normalizedOwnerLogin = NormalizeOwnerLogin(ownerLogin);
@@ -58,9 +64,10 @@ public sealed class GitHubAccessRequestService : IGitHubAccessRequestService
         var now = UtcNow();
 
         await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-        var pendingRequests = await db.AccessRequests
-            .Where(request => request.ProjectId == projectId
-                && request.Status == GitHubAccessRequestStatuses.Pending)
+        var pendingRequests = await db
+            .AccessRequests.Where(request =>
+                request.ProjectId == projectId && request.Status == GitHubAccessRequestStatuses.Pending
+            )
             .OrderByDescending(request => request.CreatedAt)
             .ToListAsync(cancellationToken);
         foreach (var pending in pendingRequests)
@@ -73,7 +80,9 @@ public sealed class GitHubAccessRequestService : IGitHubAccessRequestService
         }
         if (pendingRequests.Any(request => request.Status == GitHubAccessRequestStatuses.Pending))
         {
-            throw Conflict("A pending GitHub access request already exists for this project. Revoke it before creating another request.");
+            throw Conflict(
+                "A pending GitHub access request already exists for this project. Revoke it before creating another request."
+            );
         }
 
         var id = Guid.NewGuid();
@@ -91,7 +100,7 @@ public sealed class GitHubAccessRequestService : IGitHubAccessRequestService
             Status = GitHubAccessRequestStatuses.Pending,
             PendingProjectKey = projectId.ToString("N"),
             CreatedAt = now,
-            ExpiresAt = expiresAt
+            ExpiresAt = expiresAt,
         };
         db.AccessRequests.Add(entity);
         try
@@ -109,19 +118,21 @@ public sealed class GitHubAccessRequestService : IGitHubAccessRequestService
             normalizedOwnerLogin,
             BuildRequestUrl(token.Token),
             entity.Status,
-            expiresAt);
+            expiresAt
+        );
     }
 
     public async Task<IReadOnlyList<GitHubAccessRequestSummaryResponse>> ListAsync(
         Guid userId,
         Guid projectId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         await _projectAuthorization.EnsureCanManageAsync(projectId, cancellationToken);
         var now = UtcNow();
         await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-        var requests = await db.AccessRequests
-            .Where(request => request.ProjectId == projectId)
+        var requests = await db
+            .AccessRequests.Where(request => request.ProjectId == projectId)
             .OrderByDescending(request => request.CreatedAt)
             .Take(20)
             .ToListAsync(cancellationToken);
@@ -133,13 +144,16 @@ public sealed class GitHubAccessRequestService : IGitHubAccessRequestService
         Guid userId,
         Guid projectId,
         Guid requestId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         await _projectAuthorization.EnsureCanManageAsync(projectId, cancellationToken);
         await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-        var request = await db.AccessRequests.SingleOrDefaultAsync(
-            item => item.Id == requestId && item.ProjectId == projectId,
-            cancellationToken) ?? throw NotFound("The GitHub access request was not found.");
+        var request =
+            await db.AccessRequests.SingleOrDefaultAsync(
+                item => item.Id == requestId && item.ProjectId == projectId,
+                cancellationToken
+            ) ?? throw NotFound("The GitHub access request was not found.");
         NormalizeExpiry(request, UtcNow());
         if (!string.Equals(request.Status, GitHubAccessRequestStatuses.Pending, StringComparison.Ordinal))
         {
@@ -153,7 +167,8 @@ public sealed class GitHubAccessRequestService : IGitHubAccessRequestService
 
     public async Task<GitHubAccessRequestValidationResponse> ValidateAsync(
         string token,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         var request = await FindByRequestTokenAsync(token, cancellationToken);
         return new GitHubAccessRequestValidationResponse(
@@ -161,12 +176,14 @@ public sealed class GitHubAccessRequestService : IGitHubAccessRequestService
             request.ProjectTitle,
             request.TargetOwnerLogin,
             request.Status,
-            AsUtc(request.ExpiresAt));
+            AsUtc(request.ExpiresAt)
+        );
     }
 
     public async Task<PendingGitHubAccessRequest> ResolvePendingAsync(
         string token,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
         var request = await FindByRequestTokenAsync(db, token, cancellationToken);
@@ -174,13 +191,16 @@ public sealed class GitHubAccessRequestService : IGitHubAccessRequestService
         if (!string.Equals(request.Status, GitHubAccessRequestStatuses.Pending, StringComparison.Ordinal))
         {
             await db.SaveChangesAsync(cancellationToken);
-            throw Conflict(request.Status switch
-            {
-                GitHubAccessRequestStatuses.Completed => "This GitHub access request has already been completed.",
-                GitHubAccessRequestStatuses.Revoked => "This GitHub access request was revoked.",
-                GitHubAccessRequestStatuses.Expired => "This GitHub access request has expired.",
-                _ => "This GitHub access request cannot be continued."
-            });
+            throw Conflict(
+                request.Status switch
+                {
+                    GitHubAccessRequestStatuses.Completed =>
+                        "This GitHub access request has already been completed.",
+                    GitHubAccessRequestStatuses.Revoked => "This GitHub access request was revoked.",
+                    GitHubAccessRequestStatuses.Expired => "This GitHub access request has expired.",
+                    _ => "This GitHub access request cannot be continued.",
+                }
+            );
         }
 
         request.AuthorizationStartedAt = UtcNow();
@@ -191,17 +211,20 @@ public sealed class GitHubAccessRequestService : IGitHubAccessRequestService
             request.RequestedByUserId,
             request.ProjectTitle,
             request.TargetOwnerLogin,
-            AsUtc(request.ExpiresAt));
+            AsUtc(request.ExpiresAt)
+        );
     }
 
     public async Task EnsureInstallationOwnerAsync(
         Guid requestId,
         string ownerLogin,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         var normalizedOwner = NormalizeOwnerLogin(ownerLogin);
         await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-        var request = await db.AccessRequests.SingleOrDefaultAsync(item => item.Id == requestId, cancellationToken)
+        var request =
+            await db.AccessRequests.SingleOrDefaultAsync(item => item.Id == requestId, cancellationToken)
             ?? throw NotFound("The GitHub access request was not found.");
         NormalizeExpiry(request, UtcNow());
         if (db.ChangeTracker.HasChanges())
@@ -222,18 +245,24 @@ public sealed class GitHubAccessRequestService : IGitHubAccessRequestService
         Guid requestId,
         Guid sourceId,
         long installationId,
-        CancellationToken cancellationToken) =>
-        FinishAsync(requestId, GitHubAccessRequestStatuses.Completed, sourceId, installationId, null, cancellationToken);
+        CancellationToken cancellationToken
+    ) =>
+        FinishAsync(
+            requestId,
+            GitHubAccessRequestStatuses.Completed,
+            sourceId,
+            installationId,
+            null,
+            cancellationToken
+        );
 
-    public Task<string?> FailAsync(
-        Guid requestId,
-        string errorCode,
-        CancellationToken cancellationToken) =>
+    public Task<string?> FailAsync(Guid requestId, string errorCode, CancellationToken cancellationToken) =>
         FinishAsync(requestId, GitHubAccessRequestStatuses.Failed, null, null, errorCode, cancellationToken);
 
     public async Task<GitHubAccessUpdatedSummaryResponse> GetResultAsync(
         string token,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         if (string.IsNullOrWhiteSpace(token))
         {
@@ -241,16 +270,23 @@ public sealed class GitHubAccessRequestService : IGitHubAccessRequestService
         }
         await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
         var hash = _tokens.Hash(token.Trim());
-        var request = await db.AccessRequests.AsNoTracking()
-            .SingleOrDefaultAsync(item => item.ResultTokenHash == hash, cancellationToken)
+        var request =
+            await db
+                .AccessRequests.AsNoTracking()
+                .SingleOrDefaultAsync(item => item.ResultTokenHash == hash, cancellationToken)
             ?? throw NotFound("The GitHub access result is invalid or has expired.");
-        if (request.ResultNonce is null || !_tokens.IsWellFormed(token.Trim(), request.Id, request.ResultNonce, true))
+        if (
+            request.ResultNonce is null
+            || !_tokens.IsWellFormed(token.Trim(), request.Id, request.ResultNonce, true)
+        )
         {
             throw NotFound("The GitHub access result is invalid or has expired.");
         }
-        if (!string.Equals(request.Status, GitHubAccessRequestStatuses.Completed, StringComparison.Ordinal)
+        if (
+            !string.Equals(request.Status, GitHubAccessRequestStatuses.Completed, StringComparison.Ordinal)
             || request.SourceId is null
-            || request.InstallationId is null)
+            || request.InstallationId is null
+        )
         {
             throw Conflict("GitHub access was not completed successfully for this request.");
         }
@@ -259,7 +295,8 @@ public sealed class GitHubAccessRequestService : IGitHubAccessRequestService
 
     public async Task<GitHubAccessUpdatedAcknowledgeResponse> AcknowledgeAsync(
         string token,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
         if (string.IsNullOrWhiteSpace(token))
@@ -268,10 +305,15 @@ public sealed class GitHubAccessRequestService : IGitHubAccessRequestService
         }
         var normalized = token.Trim();
         var hash = _tokens.Hash(normalized);
-        var request = await db.AccessRequests.SingleOrDefaultAsync(
-            item => item.ResultTokenHash == hash,
-            cancellationToken) ?? throw NotFound("The GitHub access result was not found.");
-        if (request.ResultNonce is null || !_tokens.IsWellFormed(normalized, request.Id, request.ResultNonce, true))
+        var request =
+            await db.AccessRequests.SingleOrDefaultAsync(
+                item => item.ResultTokenHash == hash,
+                cancellationToken
+            ) ?? throw NotFound("The GitHub access result was not found.");
+        if (
+            request.ResultNonce is null
+            || !_tokens.IsWellFormed(normalized, request.Id, request.ResultNonce, true)
+        )
         {
             throw NotFound("The GitHub access result was not found.");
         }
@@ -292,19 +334,24 @@ public sealed class GitHubAccessRequestService : IGitHubAccessRequestService
     public async Task<GitHubAccessUpdatedSummaryResponse> GetLatestCompletedAsync(
         Guid userId,
         Guid projectId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         await _projectAuthorization.EnsureCanManageAsync(projectId, cancellationToken);
         await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-        var request = await db.AccessRequests.AsNoTracking()
-            .Where(item => item.ProjectId == projectId
-                && item.Status == GitHubAccessRequestStatuses.Completed
-                && item.SourceId != null
-                && item.InstallationId != null
-                && item.AcknowledgedAt == null
-                && db.AccessSources.Any(source => source.Id == item.SourceId && source.Active))
-            .OrderByDescending(item => item.CompletedAt)
-            .FirstOrDefaultAsync(cancellationToken)
+        var request =
+            await db
+                .AccessRequests.AsNoTracking()
+                .Where(item =>
+                    item.ProjectId == projectId
+                    && item.Status == GitHubAccessRequestStatuses.Completed
+                    && item.SourceId != null
+                    && item.InstallationId != null
+                    && item.AcknowledgedAt == null
+                    && db.AccessSources.Any(source => source.Id == item.SourceId && source.Active)
+                )
+                .OrderByDescending(item => item.CompletedAt)
+                .FirstOrDefaultAsync(cancellationToken)
             ?? throw NotFound("No newly completed GitHub access request was found for this project.");
         return await BuildSummaryAsync(request, cancellationToken);
     }
@@ -312,18 +359,22 @@ public sealed class GitHubAccessRequestService : IGitHubAccessRequestService
     public async Task<GitHubAccessUpdatedAcknowledgeResponse> AcknowledgeLatestAsync(
         Guid userId,
         Guid projectId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         await _projectAuthorization.EnsureCanManageAsync(projectId, cancellationToken);
         await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-        var request = await db.AccessRequests
-            .Where(item => item.ProjectId == projectId
-                && item.Status == GitHubAccessRequestStatuses.Completed
-                && item.SourceId != null
-                && item.AcknowledgedAt == null
-                && db.AccessSources.Any(source => source.Id == item.SourceId && source.Active))
-            .OrderByDescending(item => item.CompletedAt)
-            .FirstOrDefaultAsync(cancellationToken)
+        var request =
+            await db
+                .AccessRequests.Where(item =>
+                    item.ProjectId == projectId
+                    && item.Status == GitHubAccessRequestStatuses.Completed
+                    && item.SourceId != null
+                    && item.AcknowledgedAt == null
+                    && db.AccessSources.Any(source => source.Id == item.SourceId && source.Active)
+                )
+                .OrderByDescending(item => item.CompletedAt)
+                .FirstOrDefaultAsync(cancellationToken)
             ?? throw NotFound("No completed GitHub access request is awaiting acknowledgement.");
         request.AcknowledgedAt = UtcNow();
         await db.SaveChangesAsync(cancellationToken);
@@ -336,10 +387,14 @@ public sealed class GitHubAccessRequestService : IGitHubAccessRequestService
         Guid? sourceId,
         long? installationId,
         string? errorCode,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-        var request = await db.AccessRequests.SingleOrDefaultAsync(item => item.Id == requestId, cancellationToken);
+        var request = await db.AccessRequests.SingleOrDefaultAsync(
+            item => item.Id == requestId,
+            cancellationToken
+        );
         if (request is null)
         {
             return null;
@@ -364,7 +419,8 @@ public sealed class GitHubAccessRequestService : IGitHubAccessRequestService
 
     private async Task<GitHubAccessRequest> FindByRequestTokenAsync(
         string token,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
         var request = await FindByRequestTokenAsync(db, token, cancellationToken);
@@ -379,7 +435,8 @@ public sealed class GitHubAccessRequestService : IGitHubAccessRequestService
     private async Task<GitHubAccessRequest> FindByRequestTokenAsync(
         GitHubDbContext db,
         string token,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         if (string.IsNullOrWhiteSpace(token))
         {
@@ -387,9 +444,9 @@ public sealed class GitHubAccessRequestService : IGitHubAccessRequestService
         }
         var normalized = token.Trim();
         var hash = _tokens.Hash(normalized);
-        var request = await db.AccessRequests.SingleOrDefaultAsync(
-            item => item.TokenHash == hash,
-            cancellationToken) ?? throw NotFound("The GitHub access request is invalid or has expired.");
+        var request =
+            await db.AccessRequests.SingleOrDefaultAsync(item => item.TokenHash == hash, cancellationToken)
+            ?? throw NotFound("The GitHub access request is invalid or has expired.");
         if (!_tokens.IsWellFormed(normalized, request.Id, request.TokenNonce, false))
         {
             throw NotFound("The GitHub access request is invalid or has expired.");
@@ -399,7 +456,11 @@ public sealed class GitHubAccessRequestService : IGitHubAccessRequestService
 
     private GitHubAccessRequestSummaryResponse ToSummary(GitHubAccessRequest request)
     {
-        var requestUrl = string.Equals(request.Status, GitHubAccessRequestStatuses.Pending, StringComparison.Ordinal)
+        var requestUrl = string.Equals(
+            request.Status,
+            GitHubAccessRequestStatuses.Pending,
+            StringComparison.Ordinal
+        )
             ? BuildRequestUrl(_tokens.RecreateRequestToken(request.Id, request.TokenNonce))
             : null;
         return new GitHubAccessRequestSummaryResponse(
@@ -415,12 +476,14 @@ public sealed class GitHubAccessRequestService : IGitHubAccessRequestService
             request.RevokedAt is null ? null : AsUtc(request.RevokedAt.Value),
             request.SourceId,
             request.InstallationId,
-            request.ErrorCode);
+            request.ErrorCode
+        );
     }
 
     private async Task<GitHubAccessUpdatedSummaryResponse> BuildSummaryAsync(
         GitHubAccessRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         var sourceId = request.SourceId!.Value;
 
@@ -429,26 +492,26 @@ public sealed class GitHubAccessRequestService : IGitHubAccessRequestService
         // from the installation token here so the confirmation reflects GitHub's
         // current repository grant (including "All repositories") rather than a
         // stale or not-yet-populated local snapshot.
-        var refreshed = await _repositoryInventory.TryRefreshAsync(
-            sourceId,
-            cancellationToken)
+        var refreshed =
+            await _repositoryInventory.TryRefreshAsync(sourceId, cancellationToken)
             ?? throw NotFound("The GitHub App access source is no longer active.");
 
-        var repositories = refreshed.Items
-            .OrderBy(repository => repository.FullName, StringComparer.OrdinalIgnoreCase)
+        var repositories = refreshed
+            .Items.OrderBy(repository => repository.FullName, StringComparer.OrdinalIgnoreCase)
             .Select(repository => new GitHubInstallationRepositoryResponse(
                 repository.GitHubRepoId,
                 repository.Name,
                 repository.FullName,
                 repository.Url,
                 repository.OwnerLogin,
-                repository.DefaultBranch))
+                repository.DefaultBranch
+            ))
             .ToList();
         var scope = repositories.Count switch
         {
             0 => "NO_REPOSITORIES",
             1 => "SINGLE_REPOSITORY",
-            _ => "MULTIPLE_REPOSITORIES"
+            _ => "MULTIPLE_REPOSITORIES",
         };
         return new GitHubAccessUpdatedSummaryResponse(
             request.ProjectId,
@@ -458,14 +521,16 @@ public sealed class GitHubAccessRequestService : IGitHubAccessRequestService
             GitHubInstallationFlowTypes.Requested,
             scope,
             repositories.Count,
-            repositories);
+            repositories
+        );
     }
 
     private async Task ExpireAsync(
         GitHubDbContext db,
         IReadOnlyList<GitHubAccessRequest> requests,
         DateTime now,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         foreach (var request in requests)
         {
@@ -479,8 +544,10 @@ public sealed class GitHubAccessRequestService : IGitHubAccessRequestService
 
     private static void NormalizeExpiry(GitHubAccessRequest request, DateTime now)
     {
-        if (string.Equals(request.Status, GitHubAccessRequestStatuses.Pending, StringComparison.Ordinal)
-            && request.ExpiresAt <= now)
+        if (
+            string.Equals(request.Status, GitHubAccessRequestStatuses.Pending, StringComparison.Ordinal)
+            && request.ExpiresAt <= now
+        )
         {
             request.Status = GitHubAccessRequestStatuses.Expired;
             request.PendingProjectKey = null;
@@ -506,11 +573,13 @@ public sealed class GitHubAccessRequestService : IGitHubAccessRequestService
     private static string NormalizeOwnerLogin(string ownerLogin)
     {
         var normalized = ownerLogin?.Trim() ?? string.Empty;
-        if (normalized.Length is < 1 or > 100
+        if (
+            normalized.Length is < 1 or > 100
             || normalized.StartsWith("-", StringComparison.Ordinal)
             || normalized.EndsWith("-", StringComparison.Ordinal)
             || normalized.Contains("--", StringComparison.Ordinal)
-            || normalized.Any(character => !char.IsLetterOrDigit(character) && character != '-'))
+            || normalized.Any(character => !char.IsLetterOrDigit(character) && character != '-')
+        )
         {
             throw Validation("ownerLogin", "Enter a valid GitHub user or organization login.");
         }
@@ -518,27 +587,31 @@ public sealed class GitHubAccessRequestService : IGitHubAccessRequestService
     }
 
     private DateTime UtcNow() => _timeProvider.GetUtcNow().UtcDateTime;
-    private static DateTime AsUtc(DateTime value) => value.Kind == DateTimeKind.Utc
-        ? value
-        : DateTime.SpecifyKind(value, DateTimeKind.Utc);
-    private static ApiException NotFound(string message) => new(StatusCodes.Status404NotFound, ErrorCodes.NotFound, message);
-    private static ApiException Conflict(string message, Exception? inner = null) => new(
-        StatusCodes.Status409Conflict,
-        ErrorCodes.Conflict,
-        message,
-        innerException: inner);
+
+    private static DateTime AsUtc(DateTime value) =>
+        value.Kind == DateTimeKind.Utc ? value : DateTime.SpecifyKind(value, DateTimeKind.Utc);
+
+    private static ApiException NotFound(string message) =>
+        new(StatusCodes.Status404NotFound, ErrorCodes.NotFound, message);
+
+    private static ApiException Conflict(string message, Exception? inner = null) =>
+        new(StatusCodes.Status409Conflict, ErrorCodes.Conflict, message, innerException: inner);
 
     private static bool IsDuplicateKey(DbUpdateException exception)
     {
         for (Exception? current = exception; current is not null; current = current.InnerException)
         {
-            if (current.Message.Contains("Duplicate entry", StringComparison.OrdinalIgnoreCase)
-                || current.Message.Contains("duplicate key", StringComparison.OrdinalIgnoreCase))
+            if (
+                current.Message.Contains("Duplicate entry", StringComparison.OrdinalIgnoreCase)
+                || current.Message.Contains("duplicate key", StringComparison.OrdinalIgnoreCase)
+            )
             {
                 return true;
             }
         }
         return false;
     }
-    private static ApiValidationException Validation(string field, string message) => new([new ResearchTrack.BuildingBlocks.Api.Contracts.ApiFieldError(field, [message])]);
+
+    private static ApiValidationException Validation(string field, string message) =>
+        new([new ResearchTrack.BuildingBlocks.Api.Contracts.ApiFieldError(field, [message])]);
 }

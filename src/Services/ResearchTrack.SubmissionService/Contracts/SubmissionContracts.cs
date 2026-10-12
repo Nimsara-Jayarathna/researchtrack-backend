@@ -7,7 +7,8 @@ public sealed record SubmissionRequirementCreateRequest(
     IReadOnlyList<string>? AllowedFileTypes,
     long MaxFileSizeBytes,
     string? ResponsibilityMode,
-    Guid? AssignedStudentId);
+    Guid? AssignedStudentId
+);
 
 public sealed record SubmissionRequirementUpdateRequest(
     string? Title,
@@ -16,14 +17,16 @@ public sealed record SubmissionRequirementUpdateRequest(
     IReadOnlyList<string>? AllowedFileTypes,
     long MaxFileSizeBytes,
     string? ResponsibilityMode,
-    Guid? AssignedStudentId);
+    Guid? AssignedStudentId
+);
 
 public sealed record SubmissionSummaryResponse(
     Guid Id,
     string Status,
     int VersionCount,
     int? CurrentVersionNumber,
-    DateTimeOffset LastSubmittedAt);
+    DateTimeOffset LastSubmittedAt
+);
 
 public sealed record SubmissionResponsibilityResponse(
     string Mode,
@@ -32,7 +35,8 @@ public sealed record SubmissionResponsibilityResponse(
     Guid? ResponsibleStudentId,
     string? ResponsibleStudentName,
     string? ResponsibleStudentRole,
-    bool RequiresAssignment);
+    bool RequiresAssignment
+);
 
 public sealed record SubmissionRequirementResponse(
     Guid Id,
@@ -48,13 +52,15 @@ public sealed record SubmissionRequirementResponse(
     DateTimeOffset CreatedAt,
     DateTimeOffset? UpdatedAt,
     SubmissionResponsibilityResponse Responsibility,
-    SubmissionSummaryResponse? SubmissionSummary);
+    SubmissionSummaryResponse? SubmissionSummary
+);
 
 public sealed record CreateUploadSessionRequest(
     string? FileName,
     string? ContentType,
     long FileSizeBytes,
-    string? SubmissionNote);
+    string? SubmissionNote
+);
 
 public sealed record SubmissionUploadSessionResponse(
     Guid UploadSessionId,
@@ -62,7 +68,8 @@ public sealed record SubmissionUploadSessionResponse(
     DateTimeOffset ExpiresAt,
     int VersionNumber,
     long MaxFileSizeBytes,
-    IReadOnlyDictionary<string, string> RequiredHeaders);
+    IReadOnlyDictionary<string, string> RequiredHeaders
+);
 
 public sealed record SubmissionReviewResponse(
     Guid Id,
@@ -72,7 +79,8 @@ public sealed record SubmissionReviewResponse(
     string? Feedback,
     Guid ReviewedBy,
     string ReviewedByName,
-    DateTimeOffset ReviewedAt);
+    DateTimeOffset ReviewedAt
+);
 
 public sealed record SubmissionVersionResponse(
     Guid Id,
@@ -91,7 +99,8 @@ public sealed record SubmissionVersionResponse(
     bool IsLate,
     bool IsCurrent,
     bool IsApproved,
-    SubmissionReviewResponse? Review);
+    SubmissionReviewResponse? Review
+);
 
 public sealed record SubmissionRequirementSummaryResponse(
     Guid Id,
@@ -101,7 +110,8 @@ public sealed record SubmissionRequirementSummaryResponse(
     IReadOnlyList<string> AllowedFileTypes,
     long MaxFileSizeBytes,
     string Status,
-    SubmissionResponsibilityResponse Responsibility);
+    SubmissionResponsibilityResponse Responsibility
+);
 
 public sealed record ResearchSubmissionResponse(
     Guid Id,
@@ -114,13 +124,9 @@ public sealed record ResearchSubmissionResponse(
     DateTimeOffset LastSubmittedAt,
     DateTimeOffset? ApprovedAt,
     SubmissionRequirementSummaryResponse Requirement,
-    IReadOnlyList<SubmissionVersionResponse> Versions);
+    IReadOnlyList<SubmissionVersionResponse> Versions
+);
 
-public sealed record SubmissionDownloadUrlResponse(
-    string Url,
-    DateTimeOffset ExpiresAt);
+public sealed record SubmissionDownloadUrlResponse(string Url, DateTimeOffset ExpiresAt);
 
-public sealed record CreateSubmissionReviewRequest(
-    Guid VersionId,
-    string? Decision,
-    string? Feedback);
+public sealed record CreateSubmissionReviewRequest(Guid VersionId, string? Decision, string? Feedback);

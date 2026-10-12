@@ -8,7 +8,8 @@ public sealed record RegistrationConfigResponse(
     string StudentEmailPrefixRegex,
     bool RequireStudentRegistrationNumber,
     bool RequireStudentRegistrationNumberToMatchEmail,
-    PasswordPolicyResponse PasswordPolicy);
+    PasswordPolicyResponse PasswordPolicy
+);
 
 public sealed record PasswordPolicyResponse(
     int MinimumLength,
@@ -16,4 +17,5 @@ public sealed record PasswordPolicyResponse(
     bool RequireUppercase,
     bool RequireLowercase,
     bool RequireDigit,
-    bool RequireSpecialCharacter);
+    bool RequireSpecialCharacter
+);

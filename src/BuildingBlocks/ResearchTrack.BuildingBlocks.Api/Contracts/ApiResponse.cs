@@ -6,7 +6,8 @@ public sealed record ApiResponse<T>(
     bool Success,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] T? Data,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ApiError? Error,
-    ApiMeta Meta)
+    ApiMeta Meta
+)
 {
     public static ApiResponse<T> Ok(T data, ApiMeta meta) => new(true, data, null, meta);
 

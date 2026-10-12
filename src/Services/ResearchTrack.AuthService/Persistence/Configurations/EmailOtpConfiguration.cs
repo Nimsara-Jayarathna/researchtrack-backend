@@ -11,27 +11,18 @@ public sealed class EmailOtpConfiguration : IEntityTypeConfiguration<EmailOtp>
         builder.ToTable("email_otps");
         builder.HasKey(otp => otp.Id);
 
-        builder.Property(otp => otp.Id)
-            .ValueGeneratedNever();
+        builder.Property(otp => otp.Id).ValueGeneratedNever();
 
-        builder.Property(otp => otp.Email)
-            .HasMaxLength(320)
-            .IsRequired();
+        builder.Property(otp => otp.Email).HasMaxLength(320).IsRequired();
 
-        builder.Property(otp => otp.OtpHash)
-            .HasMaxLength(64)
-            .IsRequired();
+        builder.Property(otp => otp.OtpHash).HasMaxLength(64).IsRequired();
 
-        builder.Property(otp => otp.ExpiresAt)
-            .IsRequired();
+        builder.Property(otp => otp.ExpiresAt).IsRequired();
 
-        builder.Property(otp => otp.CreatedAt)
-            .IsRequired();
+        builder.Property(otp => otp.CreatedAt).IsRequired();
 
-        builder.HasIndex(otp => otp.Email)
-            .HasDatabaseName("ix_email_otps_email");
+        builder.HasIndex(otp => otp.Email).HasDatabaseName("ix_email_otps_email");
 
-        builder.HasIndex(otp => otp.ExpiresAt)
-            .HasDatabaseName("ix_email_otps_expires_at");
+        builder.HasIndex(otp => otp.ExpiresAt).HasDatabaseName("ix_email_otps_expires_at");
     }
 }

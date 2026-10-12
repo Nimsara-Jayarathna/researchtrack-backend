@@ -28,7 +28,8 @@ public sealed class SupervisorGitHubCompatibilityController : ApiControllerBase
         IRepositoryLinkService repositoryLinkService,
         IProjectGitHubInventoryService inventoryService,
         IGitHubEvidenceQueryService evidenceQueryService,
-        IGitHubDashboardQueryService dashboardQueryService)
+        IGitHubDashboardQueryService dashboardQueryService
+    )
     {
         _installationRepositoryService = installationRepositoryService;
         _repositoryLinkService = repositoryLinkService;
@@ -42,13 +43,17 @@ public sealed class SupervisorGitHubCompatibilityController : ApiControllerBase
     public async Task<ActionResult<ApiResponse<GitHubDashboardResponse>>> GetDashboard(
         Guid projectId,
         [FromQuery] Guid? linkedRepositoryId = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default
+    )
     {
-        return ApiOk(await _dashboardQueryService.GetDashboardAsync(
-            GetRequiredUserId(),
-            projectId,
-            linkedRepositoryId,
-            cancellationToken));
+        return ApiOk(
+            await _dashboardQueryService.GetDashboardAsync(
+                GetRequiredUserId(),
+                projectId,
+                linkedRepositoryId,
+                cancellationToken
+            )
+        );
     }
 
     [HttpGet("activity")]
@@ -57,49 +62,77 @@ public sealed class SupervisorGitHubCompatibilityController : ApiControllerBase
         [FromQuery] Guid? linkedRepositoryId = null,
         [FromQuery] int page = 1,
         [FromQuery] int size = 10,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default
+    )
     {
-        return ApiOk(await _dashboardQueryService.GetActivityAsync(
-            GetRequiredUserId(),
-            projectId,
-            linkedRepositoryId,
-            page,
-            size,
-            cancellationToken));
+        return ApiOk(
+            await _dashboardQueryService.GetActivityAsync(
+                GetRequiredUserId(),
+                projectId,
+                linkedRepositoryId,
+                page,
+                size,
+                cancellationToken
+            )
+        );
     }
 
     [HttpGet("contributors")]
-    public async Task<ActionResult<ApiResponse<GitHubPage<GitHubDashboardContributorResponse>>>> GetDashboardContributors(
+    public async Task<
+        ActionResult<ApiResponse<GitHubPage<GitHubDashboardContributorResponse>>>
+    > GetDashboardContributors(
         Guid projectId,
         [FromQuery] Guid? linkedRepositoryId = null,
         [FromQuery] int page = 1,
         [FromQuery] int size = 10,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default
+    )
     {
-        return ApiOk(await _dashboardQueryService.GetContributorsAsync(
-            GetRequiredUserId(),
-            projectId,
-            linkedRepositoryId,
-            page,
-            size,
-            cancellationToken));
+        return ApiOk(
+            await _dashboardQueryService.GetContributorsAsync(
+                GetRequiredUserId(),
+                projectId,
+                linkedRepositoryId,
+                page,
+                size,
+                cancellationToken
+            )
+        );
     }
 
     [HttpPost("refresh")]
     public async Task<ActionResult<ApiResponse<GitHubProjectSyncQueuedResponse>>> RefreshProject(
         Guid projectId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         var project = await _repositoryLinkService.GetProjectAsync(
             GetRequiredUserId(),
             projectId,
-            cancellationToken);
-        foreach (var repository in project.Repositories.Where(item => item.Enabled
-            && !string.Equals(item.SyncStatus, ResearchTrack.GitHubService.Domain.GitHubSyncStatuses.Pending, StringComparison.Ordinal)
-            && !string.Equals(item.SyncStatus, ResearchTrack.GitHubService.Domain.GitHubSyncStatuses.InProgress, StringComparison.Ordinal)))
+            cancellationToken
+        );
+        foreach (
+            var repository in project.Repositories.Where(item =>
+                item.Enabled
+                && !string.Equals(
+                    item.SyncStatus,
+                    ResearchTrack.GitHubService.Domain.GitHubSyncStatuses.Pending,
+                    StringComparison.Ordinal
+                )
+                && !string.Equals(
+                    item.SyncStatus,
+                    ResearchTrack.GitHubService.Domain.GitHubSyncStatuses.InProgress,
+                    StringComparison.Ordinal
+                )
+            )
+        )
         {
             await _repositoryLinkService.RequestManualSyncAsync(
-                GetRequiredUserId(), projectId, repository.Id, cancellationToken);
+                GetRequiredUserId(),
+                projectId,
+                repository.Id,
+                cancellationToken
+            );
         }
 
         return ApiOk(new GitHubProjectSyncQueuedResponse(projectId, "QUEUED"));
@@ -117,7 +150,8 @@ public sealed class SupervisorGitHubCompatibilityController : ApiControllerBase
         long installationId,
         [FromQuery] int page = 1,
         [FromQuery] int size = 30,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default
+    )
     {
         var response = await _installationRepositoryService.GetInstallationPageAsync(
             GetRequiredUserId(),
@@ -125,7 +159,8 @@ public sealed class SupervisorGitHubCompatibilityController : ApiControllerBase
             installationId,
             page,
             size,
-            cancellationToken);
+            cancellationToken
+        );
         return ApiOk(response);
     }
 
@@ -140,7 +175,8 @@ public sealed class SupervisorGitHubCompatibilityController : ApiControllerBase
     public async Task<ActionResult<ApiResponse<ProjectGitHubRepositoryLinkResponse>>> Link(
         Guid projectId,
         [FromBody] LinkProjectGitHubRepositoryRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         var userId = GetRequiredUserId();
         var selection = await _installationRepositoryService.ResolveLegacySelectionAsync(
@@ -148,19 +184,22 @@ public sealed class SupervisorGitHubCompatibilityController : ApiControllerBase
             projectId,
             request.InstallationId,
             request.RepositoryId,
-            cancellationToken);
+            cancellationToken
+        );
 
         var linked = await _repositoryLinkService.LinkAsync(
             userId,
             new LinkGitHubRepositoriesRequest(
                 projectId,
                 selection.SourceId,
-                [new LinkGitHubRepositoryRequestItem(selection.RepositoryId, null, true)]),
-            cancellationToken);
+                [new LinkGitHubRepositoryRequestItem(selection.RepositoryId, null, true)]
+            ),
+            cancellationToken
+        );
 
         var repository = linked.Repositories.Single(item =>
-            item.SourceId == selection.SourceId
-            && item.GitHubRepoId == selection.GitHubRepositoryId);
+            item.SourceId == selection.SourceId && item.GitHubRepoId == selection.GitHubRepositoryId
+        );
 
         return ApiCreated(
             null,
@@ -173,20 +212,19 @@ public sealed class SupervisorGitHubCompatibilityController : ApiControllerBase
                 repository.Url ?? string.Empty,
                 repository.OwnerLogin ?? string.Empty,
                 repository.DefaultBranch,
-                repository.LastSyncedAt));
+                repository.LastSyncedAt
+            )
+        );
     }
-
 
     [HttpGet("repositories/inventory")]
     [ProducesResponseType<ApiResponse<ProjectGitHubRepositoryListingResponse>>(StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<ProjectGitHubRepositoryListingResponse>>> GetInventory(
         Guid projectId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
-        var result = await _inventoryService.GetAsync(
-            GetRequiredUserId(),
-            projectId,
-            cancellationToken);
+        var result = await _inventoryService.GetAsync(GetRequiredUserId(), projectId, cancellationToken);
         return ApiOk(result);
     }
 
@@ -195,13 +233,15 @@ public sealed class SupervisorGitHubCompatibilityController : ApiControllerBase
     public async Task<ActionResult<ApiResponse<GitHubSyncQueuedResponse>>> SyncRepository(
         Guid projectId,
         Guid linkedRepositoryId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         await _repositoryLinkService.RequestManualSyncAsync(
             GetRequiredUserId(),
             projectId,
             linkedRepositoryId,
-            cancellationToken);
+            cancellationToken
+        );
         return ApiOk(new GitHubSyncQueuedResponse(linkedRepositoryId, "QUEUED"));
     }
 
@@ -211,15 +251,19 @@ public sealed class SupervisorGitHubCompatibilityController : ApiControllerBase
         Guid linkedRepositoryId,
         [FromQuery] int page = 1,
         [FromQuery] int size = 50,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default
+    )
     {
-        return ApiOk(await _evidenceQueryService.GetCommitsAsync(
-            GetRequiredUserId(),
-            projectId,
-            linkedRepositoryId,
-            page,
-            size,
-            cancellationToken));
+        return ApiOk(
+            await _evidenceQueryService.GetCommitsAsync(
+                GetRequiredUserId(),
+                projectId,
+                linkedRepositoryId,
+                page,
+                size,
+                cancellationToken
+            )
+        );
     }
 
     [HttpGet("repositories/{linkedRepositoryId:guid}/contributors")]
@@ -228,15 +272,19 @@ public sealed class SupervisorGitHubCompatibilityController : ApiControllerBase
         Guid linkedRepositoryId,
         [FromQuery] int page = 1,
         [FromQuery] int size = 50,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default
+    )
     {
-        return ApiOk(await _evidenceQueryService.GetContributorsAsync(
-            GetRequiredUserId(),
-            projectId,
-            linkedRepositoryId,
-            page,
-            size,
-            cancellationToken));
+        return ApiOk(
+            await _evidenceQueryService.GetContributorsAsync(
+                GetRequiredUserId(),
+                projectId,
+                linkedRepositoryId,
+                page,
+                size,
+                cancellationToken
+            )
+        );
     }
 
     [HttpGet("repositories/{linkedRepositoryId:guid}/pull-requests")]
@@ -247,17 +295,21 @@ public sealed class SupervisorGitHubCompatibilityController : ApiControllerBase
         [FromQuery] int size = 50,
         [FromQuery] string? status = null,
         [FromQuery] string? search = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default
+    )
     {
-        return ApiOk(await _evidenceQueryService.GetPullRequestsAsync(
-            GetRequiredUserId(),
-            projectId,
-            linkedRepositoryId,
-            page,
-            size,
-            status,
-            search,
-            cancellationToken));
+        return ApiOk(
+            await _evidenceQueryService.GetPullRequestsAsync(
+                GetRequiredUserId(),
+                projectId,
+                linkedRepositoryId,
+                page,
+                size,
+                status,
+                search,
+                cancellationToken
+            )
+        );
     }
 
     [HttpGet("repositories/{linkedRepositoryId:guid}/sync-runs")]
@@ -266,15 +318,19 @@ public sealed class SupervisorGitHubCompatibilityController : ApiControllerBase
         Guid linkedRepositoryId,
         [FromQuery] int page = 1,
         [FromQuery] int size = 25,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default
+    )
     {
-        return ApiOk(await _evidenceQueryService.GetSyncRunsAsync(
-            GetRequiredUserId(),
-            projectId,
-            linkedRepositoryId,
-            page,
-            size,
-            cancellationToken));
+        return ApiOk(
+            await _evidenceQueryService.GetSyncRunsAsync(
+                GetRequiredUserId(),
+                projectId,
+                linkedRepositoryId,
+                page,
+                size,
+                cancellationToken
+            )
+        );
     }
 
     private Guid GetRequiredUserId()
@@ -288,6 +344,7 @@ public sealed class SupervisorGitHubCompatibilityController : ApiControllerBase
         throw new ApiException(
             StatusCodes.Status401Unauthorized,
             ErrorCodes.Unauthorized,
-            "Authentication is required.");
+            "Authentication is required."
+        );
     }
 }

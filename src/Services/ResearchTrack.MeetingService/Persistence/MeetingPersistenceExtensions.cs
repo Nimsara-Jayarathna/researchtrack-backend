@@ -8,16 +8,14 @@ public static class MeetingPersistenceExtensions
 {
     public static IServiceCollection AddMeetingPersistence(
         this IServiceCollection services,
-        IConfiguration configuration)
+        IConfiguration configuration
+    )
     {
         var connectionString = DatabaseConnectionStringResolver.Resolve(configuration);
 
-        services.AddDbContextFactory<MeetingDbContext>(
-            options => options.UseMySQL(connectionString));
+        services.AddDbContextFactory<MeetingDbContext>(options => options.UseMySQL(connectionString));
 
-        services.AddHealthChecks().AddCheck<DatabaseHealthCheck<MeetingDbContext>>(
-            "mysql",
-            tags: ["ready"]);
+        services.AddHealthChecks().AddCheck<DatabaseHealthCheck<MeetingDbContext>>("mysql", tags: ["ready"]);
 
         return services;
     }

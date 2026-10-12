@@ -6,9 +6,7 @@ namespace ResearchTrack.ProjectService.Persistence;
 public sealed class ProjectDbContext : DbContext
 {
     public ProjectDbContext(DbContextOptions<ProjectDbContext> options)
-        : base(options)
-    {
-    }
+        : base(options) { }
 
     public DbSet<Project> Projects => Set<Project>();
     public DbSet<ProjectMember> ProjectMembers => Set<ProjectMember>();

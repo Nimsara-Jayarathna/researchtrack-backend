@@ -5,7 +5,8 @@ public sealed record GitHubWebhookOptions(
     int MaxPayloadBytes,
     int MaxAttempts,
     TimeSpan ProcessingLease,
-    TimeSpan PollInterval)
+    TimeSpan PollInterval
+)
 {
     public const int DefaultMaxPayloadBytes = 1_048_576;
     public const int DefaultMaxAttempts = 5;

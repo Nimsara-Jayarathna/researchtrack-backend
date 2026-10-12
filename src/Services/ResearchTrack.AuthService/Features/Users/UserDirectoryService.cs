@@ -17,7 +17,8 @@ public sealed class UserDirectoryService : IUserDirectoryService
 
     public async Task<IReadOnlyList<UserDirectoryResponse>> SearchStudentsAsync(
         string? query,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         var normalized = query?.Trim();
         if (string.IsNullOrWhiteSpace(normalized) || normalized.Length < 3)
@@ -25,18 +26,17 @@ public sealed class UserDirectoryService : IUserDirectoryService
             return [];
         }
 
-        await using var dbContext =
-            await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
-        return await dbContext.Users
-            .AsNoTracking()
+        return await dbContext
+            .Users.AsNoTracking()
             .Where(user => user.Role == UserRole.Student)
             .Where(user =>
                 user.FirstName.Contains(normalized)
                 || user.LastName.Contains(normalized)
                 || user.Email.Contains(normalized)
-                || (user.RegistrationNumber != null
-                    && user.RegistrationNumber.Contains(normalized)))
+                || (user.RegistrationNumber != null && user.RegistrationNumber.Contains(normalized))
+            )
             .OrderBy(user => user.FirstName)
             .ThenBy(user => user.LastName)
             .Take(SearchResultLimit)
@@ -46,13 +46,15 @@ public sealed class UserDirectoryService : IUserDirectoryService
                 user.LastName,
                 user.Email,
                 user.RegistrationNumber,
-                user.Role == UserRole.Student ? "STUDENT" : "SUPERVISOR"))
+                user.Role == UserRole.Student ? "STUDENT" : "SUPERVISOR"
+            ))
             .ToListAsync(cancellationToken);
     }
 
     public async Task<IReadOnlyList<UserDirectoryResponse>> ResolveStudentsAsync(
         IReadOnlyCollection<Guid> studentIds,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         if (studentIds.Count == 0)
         {
@@ -61,11 +63,10 @@ public sealed class UserDirectoryService : IUserDirectoryService
 
         var uniqueIds = studentIds.Distinct().ToList();
 
-        await using var dbContext =
-            await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
-        return await dbContext.Users
-            .AsNoTracking()
+        return await dbContext
+            .Users.AsNoTracking()
             .Where(user => uniqueIds.Contains(user.Id) && user.Role == UserRole.Student)
             .OrderBy(user => user.FirstName)
             .ThenBy(user => user.LastName)
@@ -75,19 +76,17 @@ public sealed class UserDirectoryService : IUserDirectoryService
                 user.LastName,
                 user.Email,
                 user.RegistrationNumber,
-                user.Role == UserRole.Student ? "STUDENT" : "SUPERVISOR"))
+                user.Role == UserRole.Student ? "STUDENT" : "SUPERVISOR"
+            ))
             .ToListAsync(cancellationToken);
     }
 
-    public async Task<UserDirectoryResponse?> GetUserAsync(
-        Guid userId,
-        CancellationToken cancellationToken)
+    public async Task<UserDirectoryResponse?> GetUserAsync(Guid userId, CancellationToken cancellationToken)
     {
-        await using var dbContext =
-            await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
-        return await dbContext.Users
-            .AsNoTracking()
+        return await dbContext
+            .Users.AsNoTracking()
             .Where(user => user.Id == userId)
             .Select(user => new UserDirectoryResponse(
                 user.Id,
@@ -95,8 +94,8 @@ public sealed class UserDirectoryService : IUserDirectoryService
                 user.LastName,
                 user.Email,
                 user.RegistrationNumber,
-                user.Role == UserRole.Student ? "STUDENT" : "SUPERVISOR"))
+                user.Role == UserRole.Student ? "STUDENT" : "SUPERVISOR"
+            ))
             .SingleOrDefaultAsync(cancellationToken);
     }
-
 }

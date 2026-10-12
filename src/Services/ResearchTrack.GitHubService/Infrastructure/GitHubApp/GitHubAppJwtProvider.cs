@@ -21,17 +21,17 @@ public sealed class GitHubAppJwtProvider : IGitHubAppJwtProvider
         var now = _timeProvider.GetUtcNow();
         var issuedAt = now.AddSeconds(-30).ToUnixTimeSeconds();
         var expiresAt = now.AddMinutes(9).ToUnixTimeSeconds();
-        var header = Base64UrlEncode(JsonSerializer.SerializeToUtf8Bytes(new
-        {
-            alg = "RS256",
-            typ = "JWT"
-        }));
-        var payload = Base64UrlEncode(JsonSerializer.SerializeToUtf8Bytes(new
-        {
-            iat = issuedAt,
-            exp = expiresAt,
-            iss = _options.AppId.ToString(System.Globalization.CultureInfo.InvariantCulture)
-        }));
+        var header = Base64UrlEncode(JsonSerializer.SerializeToUtf8Bytes(new { alg = "RS256", typ = "JWT" }));
+        var payload = Base64UrlEncode(
+            JsonSerializer.SerializeToUtf8Bytes(
+                new
+                {
+                    iat = issuedAt,
+                    exp = expiresAt,
+                    iss = _options.AppId.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                }
+            )
+        );
         var unsignedToken = $"{header}.{payload}";
 
         using var rsa = RSA.Create();
@@ -42,13 +42,12 @@ public sealed class GitHubAppJwtProvider : IGitHubAppJwtProvider
         var signature = rsa.SignData(
             Encoding.ASCII.GetBytes(unsignedToken),
             HashAlgorithmName.SHA256,
-            RSASignaturePadding.Pkcs1);
+            RSASignaturePadding.Pkcs1
+        );
 
         return $"{unsignedToken}.{Base64UrlEncode(signature)}";
     }
 
-    private static string Base64UrlEncode(byte[] bytes) => Convert.ToBase64String(bytes)
-        .TrimEnd('=')
-        .Replace('+', '-')
-        .Replace('/', '_');
+    private static string Base64UrlEncode(byte[] bytes) =>
+        Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 }

@@ -6,9 +6,7 @@ namespace ResearchTrack.SubmissionService.Persistence;
 public sealed class SubmissionDbContext : DbContext
 {
     public SubmissionDbContext(DbContextOptions<SubmissionDbContext> options)
-        : base(options)
-    {
-    }
+        : base(options) { }
 
     public DbSet<SubmissionRequirement> SubmissionRequirements => Set<SubmissionRequirement>();
     public DbSet<ResearchSubmission> ResearchSubmissions => Set<ResearchSubmission>();

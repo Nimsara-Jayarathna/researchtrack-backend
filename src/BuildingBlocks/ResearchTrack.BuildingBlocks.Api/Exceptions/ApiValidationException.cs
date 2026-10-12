@@ -5,7 +5,10 @@ namespace ResearchTrack.BuildingBlocks.Api.Exceptions;
 
 public sealed class ApiValidationException : ApiException
 {
-    public ApiValidationException(IReadOnlyList<ApiFieldError> fieldErrors, string message = "Validation failed.")
+    public ApiValidationException(
+        IReadOnlyList<ApiFieldError> fieldErrors,
+        string message = "Validation failed."
+    )
         : base(StatusCodes.Status400BadRequest, ErrorCodes.ValidationError, message)
     {
         FieldErrors = fieldErrors;

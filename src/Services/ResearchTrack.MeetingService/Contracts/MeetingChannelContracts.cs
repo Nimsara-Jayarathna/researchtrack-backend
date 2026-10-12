@@ -4,23 +4,15 @@ using ResearchTrack.MeetingService.Domain;
 namespace ResearchTrack.MeetingService.Contracts;
 
 public sealed record MeetingChannelCreateRequest(
-    [Required]
-    [MaxLength(32)]
-    string Platform,
-    [Required]
-    [MaxLength(MeetingChannelConstants.ChannelNameMaxLength)]
-    string ChannelName,
-    [Required]
-    [MaxLength(MeetingChannelConstants.LinkMaxLength)]
-    string LinkOrIdentifier);
+    [Required] [MaxLength(32)] string Platform,
+    [Required] [MaxLength(MeetingChannelConstants.ChannelNameMaxLength)] string ChannelName,
+    [Required] [MaxLength(MeetingChannelConstants.LinkMaxLength)] string LinkOrIdentifier
+);
 
 public sealed record MeetingChannelUpdateRequest(
-    [Required]
-    [MaxLength(MeetingChannelConstants.ChannelNameMaxLength)]
-    string ChannelName,
-    [Required]
-    [MaxLength(MeetingChannelConstants.LinkMaxLength)]
-    string LinkOrIdentifier);
+    [Required] [MaxLength(MeetingChannelConstants.ChannelNameMaxLength)] string ChannelName,
+    [Required] [MaxLength(MeetingChannelConstants.LinkMaxLength)] string LinkOrIdentifier
+);
 
 public sealed record MeetingChannelResponse(
     Guid Id,
@@ -36,4 +28,5 @@ public sealed record MeetingChannelResponse(
     string? ApprovedByName,
     DateTimeOffset? ApprovedAt,
     DateTimeOffset CreatedAt,
-    DateTimeOffset? UpdatedAt);
+    DateTimeOffset? UpdatedAt
+);

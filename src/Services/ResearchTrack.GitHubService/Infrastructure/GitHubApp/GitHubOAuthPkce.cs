@@ -30,8 +30,6 @@ public sealed class GitHubOAuthPkce
         return Base64UrlEncode(SHA256.HashData(Encoding.ASCII.GetBytes(verifier)));
     }
 
-    private static string Base64UrlEncode(byte[] bytes) => Convert.ToBase64String(bytes)
-        .TrimEnd('=')
-        .Replace('+', '-')
-        .Replace('/', '_');
+    private static string Base64UrlEncode(byte[] bytes) =>
+        Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 }

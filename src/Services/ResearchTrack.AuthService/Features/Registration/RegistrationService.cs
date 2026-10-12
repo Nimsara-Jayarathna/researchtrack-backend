@@ -39,7 +39,8 @@ public sealed class RegistrationService : IRegistrationService
         IPasswordHasher passwordHasher,
         IAccessTokenService accessTokenService,
         IRegistrationEmailService emailService,
-        ILogger<RegistrationService> logger)
+        ILogger<RegistrationService> logger
+    )
     {
         _dbContextFactory = dbContextFactory;
         _registration = registration;
@@ -52,11 +53,15 @@ public sealed class RegistrationService : IRegistrationService
         _studentIdentifierRegex = new Regex(
             registration.StudentIdentifierPattern,
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
-            TimeSpan.FromSeconds(1));
+            TimeSpan.FromSeconds(1)
+        );
     }
 
     // Existing ResearchTrack endpoint. Kept unchanged in purpose/contract.
-    public async Task<RegisterResponse> RegisterAsync(RegisterRequest request, CancellationToken cancellationToken)
+    public async Task<RegisterResponse> RegisterAsync(
+        RegisterRequest request,
+        CancellationToken cancellationToken
+    )
     {
         ArgumentNullException.ThrowIfNull(request);
 
@@ -75,7 +80,13 @@ public sealed class RegistrationService : IRegistrationService
 
         if (!string.IsNullOrWhiteSpace(rawEmail) && rawEmail.Length <= _registration.MaxEmailLength)
         {
-            ValidateAndResolveEmailForDirectRegistration(rawEmail, errors, out normalizedEmail, out emailLocalPart, out role);
+            ValidateAndResolveEmailForDirectRegistration(
+                rawEmail,
+                errors,
+                out normalizedEmail,
+                out emailLocalPart,
+                out role
+            );
         }
 
         if (!string.IsNullOrEmpty(password))
@@ -97,7 +108,13 @@ public sealed class RegistrationService : IRegistrationService
         var resolvedRole = role!.Value;
 
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-        await EnsureNoDuplicateUserAsync(dbContext, resolvedEmail, resolvedRole, registrationNumber, cancellationToken);
+        await EnsureNoDuplicateUserAsync(
+            dbContext,
+            resolvedEmail,
+            resolvedRole,
+            registrationNumber,
+            cancellationToken
+        );
 
         var now = DateTime.UtcNow;
         var user = new User
@@ -109,7 +126,7 @@ public sealed class RegistrationService : IRegistrationService
             PasswordHash = _passwordHasher.Hash(password!),
             Role = resolvedRole,
             RegistrationNumber = resolvedRole == UserRole.Student ? registrationNumber : null,
-            CreatedAt = now
+            CreatedAt = now,
         };
 
         dbContext.Users.Add(user);
@@ -129,7 +146,8 @@ public sealed class RegistrationService : IRegistrationService
             user.LastName,
             user.RegistrationNumber,
             ToApiRole(user.Role),
-            user.CreatedAt);
+            user.CreatedAt
+        );
     }
 
     public async Task InitRegistrationAsync(string? email, CancellationToken cancellationToken)
@@ -150,7 +168,7 @@ public sealed class RegistrationService : IRegistrationService
             Email = normalizedEmail,
             OtpHash = Sha256Base64(rawOtp),
             ExpiresAt = now.AddSeconds(_registration.OtpExpirySeconds),
-            CreatedAt = now
+            CreatedAt = now,
         };
 
         await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
@@ -165,10 +183,13 @@ public sealed class RegistrationService : IRegistrationService
     public async Task<RegisterVerifyResponse> VerifyOtpAsync(
         string? email,
         string? otp,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         var normalizedEmail = ValidateBasicEmail(email, "email");
-        if (string.IsNullOrWhiteSpace(otp) || !Regex.IsMatch(otp, "^[0-9]{6}$", RegexOptions.CultureInvariant))
+        if (
+            string.IsNullOrWhiteSpace(otp) || !Regex.IsMatch(otp, "^[0-9]{6}$", RegexOptions.CultureInvariant)
+        )
         {
             throw Validation("otp", "OTP must be exactly 6 digits.");
         }
@@ -176,10 +197,10 @@ public sealed class RegistrationService : IRegistrationService
         var now = DateTime.UtcNow;
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
-        var emailOtp = await dbContext.EmailOtps
-            .Where(candidate => candidate.Email == normalizedEmail
-                && candidate.UsedAt == null
-                && candidate.ExpiresAt > now)
+        var emailOtp = await dbContext
+            .EmailOtps.Where(candidate =>
+                candidate.Email == normalizedEmail && candidate.UsedAt == null && candidate.ExpiresAt > now
+            )
             .OrderByDescending(candidate => candidate.CreatedAt)
             .FirstOrDefaultAsync(cancellationToken);
 
@@ -199,7 +220,7 @@ public sealed class RegistrationService : IRegistrationService
             Email = normalizedEmail,
             Role = resolvedRole,
             ExpiresAt = now.AddSeconds(_registration.SessionExpirySeconds),
-            CreatedAt = now
+            CreatedAt = now,
         };
 
         dbContext.RegistrationSessions.Add(session);
@@ -208,12 +229,14 @@ public sealed class RegistrationService : IRegistrationService
         return new RegisterVerifyResponse(
             RegistrationTokenPrefix + rawToken,
             resolvedRole is null,
-            resolvedRole is null ? null : ToApiRole(resolvedRole.Value));
+            resolvedRole is null ? null : ToApiRole(resolvedRole.Value)
+        );
     }
 
     public async Task<RegistrationCompletionResult> CompleteRegistrationAsync(
         RegisterCompleteRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         ArgumentNullException.ThrowIfNull(request);
 
@@ -236,9 +259,16 @@ public sealed class RegistrationService : IRegistrationService
             ValidatePassword(password, errors);
         }
 
-        if (registrationNumber is not null && registrationNumber.Length > _registration.MaxRegistrationNumberLength)
+        if (
+            registrationNumber is not null
+            && registrationNumber.Length > _registration.MaxRegistrationNumberLength
+        )
         {
-            AddError(errors, "name", $"Registration number must not exceed {_registration.MaxRegistrationNumberLength} characters.");
+            AddError(
+                errors,
+                "name",
+                $"Registration number must not exceed {_registration.MaxRegistrationNumberLength} characters."
+            );
         }
 
         if (errors.Count > 0)
@@ -253,8 +283,10 @@ public sealed class RegistrationService : IRegistrationService
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
         await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
 
-        var session = await dbContext.RegistrationSessions
-            .SingleOrDefaultAsync(candidate => candidate.TokenHash == Sha256Base64(rawToken), cancellationToken);
+        var session = await dbContext.RegistrationSessions.SingleOrDefaultAsync(
+            candidate => candidate.TokenHash == Sha256Base64(rawToken),
+            cancellationToken
+        );
 
         if (session is null)
         {
@@ -280,14 +312,24 @@ public sealed class RegistrationService : IRegistrationService
         if (effectiveRole == UserRole.Student)
         {
             var studentErrors = new List<ApiFieldError>();
-            ValidateStudentIdentity(ExtractEmailLocalPart(session.Email), registrationNumber, studentErrors, "name");
+            ValidateStudentIdentity(
+                ExtractEmailLocalPart(session.Email),
+                registrationNumber,
+                studentErrors,
+                "name"
+            );
             if (studentErrors.Count > 0)
             {
                 throw new ApiValidationException(studentErrors);
             }
 
-            if (registrationNumber is not null
-                && await dbContext.Users.AnyAsync(user => user.RegistrationNumber == registrationNumber, cancellationToken))
+            if (
+                registrationNumber is not null
+                && await dbContext.Users.AnyAsync(
+                    user => user.RegistrationNumber == registrationNumber,
+                    cancellationToken
+                )
+            )
             {
                 throw Conflict("An account with this registration number already exists.");
             }
@@ -302,7 +344,7 @@ public sealed class RegistrationService : IRegistrationService
             PasswordHash = _passwordHasher.Hash(password!),
             Role = effectiveRole,
             RegistrationNumber = effectiveRole == UserRole.Student ? registrationNumber : null,
-            CreatedAt = now
+            CreatedAt = now,
         };
 
         var rawRefreshToken = GenerateRawToken();
@@ -312,7 +354,7 @@ public sealed class RegistrationService : IRegistrationService
             UserId = user.Id,
             TokenHash = Sha256Base64(rawRefreshToken),
             ExpiresAt = now.AddDays(_jwtOptions.RefreshTokenDays),
-            CreatedAt = now
+            CreatedAt = now,
         };
 
         session.UsedAt = now;
@@ -334,7 +376,11 @@ public sealed class RegistrationService : IRegistrationService
 
         try
         {
-            await _emailService.SendRegistrationSuccessEmailAsync(user.Email, user.FirstName, cancellationToken);
+            await _emailService.SendRegistrationSuccessEmailAsync(
+                user.Email,
+                user.FirstName,
+                cancellationToken
+            );
         }
         catch (Exception exception)
         {
@@ -343,7 +389,14 @@ public sealed class RegistrationService : IRegistrationService
         }
 
         var response = new RegistrationCompleteResponse(
-            new RegistrationUserResponse(user.Id, user.Email, user.FirstName, user.LastName, ToApiRole(user.Role)));
+            new RegistrationUserResponse(
+                user.Id,
+                user.Email,
+                user.FirstName,
+                user.LastName,
+                ToApiRole(user.Role)
+            )
+        );
 
         return new RegistrationCompletionResult(accessToken, rawRefreshToken, response);
     }
@@ -352,11 +405,11 @@ public sealed class RegistrationService : IRegistrationService
     {
         var now = DateTime.UtcNow;
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-        await dbContext.EmailOtps
-            .Where(otp => otp.ExpiresAt < now || otp.UsedAt != null)
+        await dbContext
+            .EmailOtps.Where(otp => otp.ExpiresAt < now || otp.UsedAt != null)
             .ExecuteDeleteAsync(cancellationToken);
-        await dbContext.RegistrationSessions
-            .Where(session => session.ExpiresAt < now || session.UsedAt != null)
+        await dbContext
+            .RegistrationSessions.Where(session => session.ExpiresAt < now || session.UsedAt != null)
             .ExecuteDeleteAsync(cancellationToken);
     }
 
@@ -369,8 +422,10 @@ public sealed class RegistrationService : IRegistrationService
             throw Validation("email", "Email domain not permitted for registration.");
         }
 
-        if (_registration.EffectiveStudentEmailPrefixRestrictionEnabled
-            && InferRole(normalizedEmail) == UserRole.Student)
+        if (
+            _registration.EffectiveStudentEmailPrefixRestrictionEnabled
+            && InferRole(normalizedEmail) == UserRole.Student
+        )
         {
             var localPart = ExtractEmailLocalPart(normalizedEmail);
             if (localPart is null || !_studentIdentifierRegex.IsMatch(localPart))
@@ -410,12 +465,13 @@ public sealed class RegistrationService : IRegistrationService
         }
     }
 
-    private UserRole? InferRole(string normalizedEmail) => _registration.InferRole(normalizedEmail) switch
-    {
-        UserRoleResolution.Student => UserRole.Student,
-        UserRoleResolution.Supervisor => UserRole.Supervisor,
-        _ => null
-    };
+    private UserRole? InferRole(string normalizedEmail) =>
+        _registration.InferRole(normalizedEmail) switch
+        {
+            UserRoleResolution.Student => UserRole.Student,
+            UserRoleResolution.Supervisor => UserRole.Supervisor,
+            _ => null,
+        };
 
     private UserRole ResolveEffectiveRole(UserRole? sessionRole, string? requestedRole)
     {
@@ -433,7 +489,7 @@ public sealed class RegistrationService : IRegistrationService
         {
             "STUDENT" => UserRole.Student,
             "SUPERVISOR" => UserRole.Supervisor,
-            _ => throw Validation("role", "Role must be STUDENT or SUPERVISOR.")
+            _ => throw Validation("role", "Role must be STUDENT or SUPERVISOR."),
         };
     }
 
@@ -442,7 +498,8 @@ public sealed class RegistrationService : IRegistrationService
         ICollection<ApiFieldError> errors,
         out string? normalizedEmail,
         out string? localPart,
-        out UserRole? role)
+        out UserRole? role
+    )
     {
         normalizedEmail = null;
         localPart = null;
@@ -476,13 +533,22 @@ public sealed class RegistrationService : IRegistrationService
         role = resolvedRole;
         if (role == UserRole.Student && !_studentIdentifierRegex.IsMatch(localPart ?? string.Empty))
         {
-            AddError(errors, "email", "Student email identifier does not match the configured institutional pattern.");
+            AddError(
+                errors,
+                "email",
+                "Student email identifier does not match the configured institutional pattern."
+            );
         }
 
         normalizedEmail = parsed.Address.ToLowerInvariant();
     }
 
-    private void ValidateStudentIdentity(string? emailLocalPart, string? registrationNumber, ICollection<ApiFieldError> errors, string field)
+    private void ValidateStudentIdentity(
+        string? emailLocalPart,
+        string? registrationNumber,
+        ICollection<ApiFieldError> errors,
+        string field
+    )
     {
         if (_registration.RequireStudentRegistrationNumber && string.IsNullOrWhiteSpace(registrationNumber))
         {
@@ -497,30 +563,46 @@ public sealed class RegistrationService : IRegistrationService
 
         if (registrationNumber.Length > _registration.MaxRegistrationNumberLength)
         {
-            AddError(errors, field, $"Registration number must not exceed {_registration.MaxRegistrationNumberLength} characters.");
+            AddError(
+                errors,
+                field,
+                $"Registration number must not exceed {_registration.MaxRegistrationNumberLength} characters."
+            );
             return;
         }
 
-        if (_registration.EffectiveStudentEmailPrefixRestrictionEnabled && !_studentIdentifierRegex.IsMatch(registrationNumber))
+        if (
+            _registration.EffectiveStudentEmailPrefixRestrictionEnabled
+            && !_studentIdentifierRegex.IsMatch(registrationNumber)
+        )
         {
             AddError(errors, field, "Invalid IT number format. Use ITXXXXXXXX.");
             return;
         }
 
-        if (_registration.EffectiveStudentEmailPrefixRestrictionEnabled
+        if (
+            _registration.EffectiveStudentEmailPrefixRestrictionEnabled
             && _registration.RequireStudentRegistrationNumberToMatchEmail
-            && !string.Equals(emailLocalPart, registrationNumber, StringComparison.OrdinalIgnoreCase))
+            && !string.Equals(emailLocalPart, registrationNumber, StringComparison.OrdinalIgnoreCase)
+        )
         {
             AddError(errors, field, "Registration number must match student email ID.");
         }
     }
 
-    private void ValidateRequiredAndLengths(string? firstName, string? lastName, string? email, string? password, ICollection<ApiFieldError> errors)
+    private void ValidateRequiredAndLengths(
+        string? firstName,
+        string? lastName,
+        string? email,
+        string? password,
+        ICollection<ApiFieldError> errors
+    )
     {
         AddRequiredOrLengthError(errors, "firstName", firstName, _registration.MaxFirstNameLength);
         AddRequiredOrLengthError(errors, "lastName", lastName, _registration.MaxLastNameLength);
         AddRequiredOrLengthError(errors, "email", email, _registration.MaxEmailLength);
-        if (string.IsNullOrWhiteSpace(password)) AddError(errors, "password", "Password is required.");
+        if (string.IsNullOrWhiteSpace(password))
+            AddError(errors, "password", "Password is required.");
     }
 
     private void ValidatePassword(string password, ICollection<ApiFieldError> errors)
@@ -531,37 +613,97 @@ public sealed class RegistrationService : IRegistrationService
         }
     }
 
-    private static async Task EnsureNoDuplicateUserAsync(AuthDbContext dbContext, string email, UserRole role, string? registrationNumber, CancellationToken cancellationToken)
+    private static async Task EnsureNoDuplicateUserAsync(
+        AuthDbContext dbContext,
+        string email,
+        UserRole role,
+        string? registrationNumber,
+        CancellationToken cancellationToken
+    )
     {
-        if (await dbContext.Users.AnyAsync(user => user.Email == email, cancellationToken)) throw Conflict("An account with this email already exists.");
-        if (role == UserRole.Student && registrationNumber is not null
-            && await dbContext.Users.AnyAsync(user => user.RegistrationNumber == registrationNumber, cancellationToken))
+        if (await dbContext.Users.AnyAsync(user => user.Email == email, cancellationToken))
+            throw Conflict("An account with this email already exists.");
+        if (
+            role == UserRole.Student
+            && registrationNumber is not null
+            && await dbContext.Users.AnyAsync(
+                user => user.RegistrationNumber == registrationNumber,
+                cancellationToken
+            )
+        )
             throw Conflict("An account with this registration number already exists.");
     }
 
-    private static void AddRequiredOrLengthError(ICollection<ApiFieldError> errors, string field, string? value, int maxLength)
+    private static void AddRequiredOrLengthError(
+        ICollection<ApiFieldError> errors,
+        string field,
+        string? value,
+        int maxLength
+    )
     {
-        if (string.IsNullOrWhiteSpace(value)) AddError(errors, field, $"{ToDisplayName(field)} is required.");
-        else if (value.Length > maxLength) AddError(errors, field, $"{ToDisplayName(field)} must not exceed {maxLength} characters.");
+        if (string.IsNullOrWhiteSpace(value))
+            AddError(errors, field, $"{ToDisplayName(field)} is required.");
+        else if (value.Length > maxLength)
+            AddError(errors, field, $"{ToDisplayName(field)} must not exceed {maxLength} characters.");
     }
 
-    private static void AddError(ICollection<ApiFieldError> errors, string field, string message) => errors.Add(new ApiFieldError(field, new[] { message }));
-    private static ApiValidationException Validation(string field, string message) => new(new List<ApiFieldError> { new(field, new[] { message }) });
-    private static ApiException Conflict(string message, Exception? inner = null) => new(StatusCodes.Status409Conflict, ErrorCodes.Conflict, message, innerException: inner);
-    private static string? NormalizeRegistrationNumber(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim().ToUpperInvariant();
-    private static string? ExtractEmailLocalPart(string email) { var at = email.IndexOf('@'); return at <= 0 ? null : email[..at].Trim().ToUpperInvariant(); }
+    private static void AddError(ICollection<ApiFieldError> errors, string field, string message) =>
+        errors.Add(new ApiFieldError(field, new[] { message }));
+
+    private static ApiValidationException Validation(string field, string message) =>
+        new(new List<ApiFieldError> { new(field, new[] { message }) });
+
+    private static ApiException Conflict(string message, Exception? inner = null) =>
+        new(StatusCodes.Status409Conflict, ErrorCodes.Conflict, message, innerException: inner);
+
+    private static string? NormalizeRegistrationNumber(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim().ToUpperInvariant();
+
+    private static string? ExtractEmailLocalPart(string email)
+    {
+        var at = email.IndexOf('@');
+        return at <= 0 ? null : email[..at].Trim().ToUpperInvariant();
+    }
+
     private static string ToApiRole(UserRole role) => role == UserRole.Student ? "STUDENT" : "SUPERVISOR";
-    private static string GenerateRawToken() => Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
-    private static string Sha256Base64(string raw) => Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes(raw)));
-    private static bool HashesEqual(string left, string right) => CryptographicOperations.FixedTimeEquals(Convert.FromBase64String(left), Convert.FromBase64String(right));
-    private static string ToDisplayName(string field) => field switch { "firstName" => "First name", "lastName" => "Last name", "email" => "Email", "fname" => "First name", "lname" => "Last name", "registrationToken" => "Registration token", _ => field };
+
+    private static string GenerateRawToken() =>
+        Convert
+            .ToBase64String(RandomNumberGenerator.GetBytes(32))
+            .TrimEnd('=')
+            .Replace('+', '-')
+            .Replace('/', '_');
+
+    private static string Sha256Base64(string raw) =>
+        Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes(raw)));
+
+    private static bool HashesEqual(string left, string right) =>
+        CryptographicOperations.FixedTimeEquals(
+            Convert.FromBase64String(left),
+            Convert.FromBase64String(right)
+        );
+
+    private static string ToDisplayName(string field) =>
+        field switch
+        {
+            "firstName" => "First name",
+            "lastName" => "Last name",
+            "email" => "Email",
+            "fname" => "First name",
+            "lname" => "Last name",
+            "registrationToken" => "Registration token",
+            _ => field,
+        };
 
     private static bool IsDuplicateKey(DbUpdateException exception)
     {
         for (Exception? current = exception; current is not null; current = current.InnerException)
         {
-            if (current.Message.Contains("Duplicate entry", StringComparison.OrdinalIgnoreCase)
-                || current.Message.Contains("duplicate key", StringComparison.OrdinalIgnoreCase)) return true;
+            if (
+                current.Message.Contains("Duplicate entry", StringComparison.OrdinalIgnoreCase)
+                || current.Message.Contains("duplicate key", StringComparison.OrdinalIgnoreCase)
+            )
+                return true;
         }
         return false;
     }
