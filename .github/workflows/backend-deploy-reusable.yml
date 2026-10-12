@@ -180,6 +180,9 @@ jobs:
           write_secret gateway.env "$GATEWAY_ENV_FILE"
           write_secret grafana.env "$GRAFANA_ENV_FILE"
 
+          # Older Test secrets predate the optional k6 exemption. Add only
+          # missing disabled-feature defaults; preserve every existing value.
+          python3 deploy/prepare-gateway-env.py "$secret_dir/gateway.env"
           ./deploy/validate-env-files.sh "$secret_dir" config/env "${{ inputs.environment_name }}"
 
       - name: Upload deployment definition and environment files

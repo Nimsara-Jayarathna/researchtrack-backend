@@ -52,7 +52,7 @@ Local evidence: `artifacts/actions-failure-fixes-20261012/` (ignored by Git).
 |---|---|
 | MySQL runtime model before / after | FAIL 9/9 → PASS 9/9, zero skips |
 | JWT wiring before / after | FAIL on wrapped call/comment-only false positives → PASS 5 methods and real checker |
-| Full offline Azure Python regression discovery | PASS 103 methods, zero skips |
+| Full offline Azure Python regression discovery | PASS 109 methods, zero skips, including six Gateway preservation/default safety methods |
 | Existing complete code-quality check | PASS on 426 eligible production C# files; all eight style checks and production builds pass |
 | Environment composition and Azure environment validators | PASS; synthetic values only |
 | JWT checker shell syntax / ShellCheck | PASS |
@@ -64,10 +64,11 @@ Local evidence: `artifacts/actions-failure-fixes-20261012/` (ignored by Git).
 
 The new source has the following changes in addition to this report:
 
-- `.github/workflows/backend-ci.yml`: run the new offline JWT regressions before the real wiring check.
+- `.github/workflows/backend-ci.yml`: run the new offline JWT/Gateway regressions in required CI.
 - `deploy/validate-shared-auth-wiring.sh` and `deploy/azure/validation/test_shared_auth_wiring.py`: formatting-aware validation and regressions.
 - `tests/ResearchTrack.JiraService.Tests/Persistence/JiraTimestampMappingTests.cs`: nine provider-model regressions.
 - `src/Services/ResearchTrack.JiraService/Persistence/JiraDbContext.cs`: restore nine timestamp mappings and apply existing formatting.
+- `.github/workflows/backend-deploy-reusable.yml`, `deploy/prepare-gateway-env.py`, `test_prepare_gateway_env.py` and the existing legacy Test bundle case in `test_kafka_topics_config.py`: safely prepare missing optional disabled Gateway settings before unchanged strict Test validation.
 - Formatting only in six shared Kafka files (`KafkaClients`, `KafkaMessagingWorkers`, `KafkaMetrics`, `KafkaPersistence`, `KafkaRuntimeOptions`, `KafkaWebhookContract`); GitHub `GitHubKafkaEventHandler`, `GitHubWebhookDeliveryStore`, `GitHubWebhookIngressService`, `GitHubDbContext`, `Program`; Jira `JiraKafkaEventHandler`, `JiraSyncScheduler`, `JiraWebhookService`, `Program`.
 
 The ordinary tests include the new mappings and preserved main Auth cookie regressions.
@@ -91,8 +92,13 @@ performance-test keys. The Test secret metadata still reports its prior update t
 and the supplied complete local `gateway.env` does not exist. Its contents cannot be
 read through the GitHub secret API. No secret was replaced with a partial/example file.
 
-The owner must supply the full authoritative Test file or update the full secret while
-preserving existing values. The intended disabled settings are:
+The Test deployment now prepares its existing protected runtime file with
+`deploy/prepare-gateway-env.py` before the unchanged validator. It preserves every
+original byte/value and adds only absent settings for the **disabled** optional
+exemption. An explicit enabled exemption must already have complete nonempty settings;
+defaults cannot make a broken enabled configuration pass. Invalid/duplicate keys and
+empty/invalid enable flags fail without changing the file. Other required environment
+keys remain mandatory. The added defaults are:
 
 ```env
 RateLimiting__PerformanceTest__Enabled=false
@@ -100,7 +106,14 @@ RateLimiting__PerformanceTest__AllowedIp=0.0.0.0
 RateLimiting__PerformanceTest__Token=DISABLED
 ```
 
-Avoid duplicate keys. Once the complete Test secret is corrected, rerun its failed
-deployment jobs on the accepted source. This repository correction does not weaken the
-canonical contract, change production secrets, alter OIDC/Environment/concurrency/
-triggers, or run heavy performance/production chaos scenarios.
+Six standalone tests exercise preservation, disabled defaults, idempotence, explicit
+enabled settings, failure-without-write and unrelated required fields. The existing
+synthetic complete Test bundle case also reproduces strict validation failure, applies
+the real helper, passes validation, and confirms a missing AUTH_SERVICE_URL still fails.
+GitHub's stored secret is not changed or exported. For future secret maintenance, the
+owner can add these keys to the full authoritative copy when available.
+
+This repository correction does not weaken the canonical validator, change production
+secrets, alter OIDC/Environment/concurrency/triggers, or run heavy performance/production
+chaos scenarios. Test deployment will be rerun on the published compatibility fix; any
+additional configuration failure must remain visible rather than be defaulted away.

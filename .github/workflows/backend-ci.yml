@@ -122,7 +122,9 @@ jobs:
           ./deploy/validate-shared-auth-wiring.sh
 
       - name: Test Container Apps environment composition (synthetic values)
-        run: ./deploy/azure/validation/test-service-env-composition.sh
+        run: |
+          python3 deploy/azure/validation/test_prepare_gateway_env.py
+          ./deploy/azure/validation/test-service-env-composition.sh
 
       - name: Setup .NET
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0; Node 24

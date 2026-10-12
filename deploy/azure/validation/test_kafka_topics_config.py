@@ -399,6 +399,30 @@ else: sys.exit(9)
                                    str(ROOT / "config/env"), "test"], capture_output=True, text=True, timeout=30)
         result = run()
         self.assertEqual(0, result.returncode, result.stderr)
+        # Legacy Gateway secrets predate the optional exemption too. The
+        # deployment helper supplies disabled defaults before strict validation,
+        # preserving the original file and all other required-key checks.
+        gateway = env_dir / "gateway.env"
+        legacy = "\n".join(line for line in gateway.read_text().splitlines()
+                           if not line.startswith("RateLimiting__PerformanceTest__")) + "\n"
+        gateway.write_text(legacy)
+        self.assertNotEqual(0, run().returncode)
+        prepared = subprocess.run([sys.executable, str(ROOT / "deploy/prepare-gateway-env.py"), str(gateway)],
+                                  capture_output=True, text=True)
+        self.assertEqual(0, prepared.returncode, prepared.stderr)
+        self.assertTrue(gateway.read_text().startswith(legacy))
+        result = run()
+        self.assertEqual(0, result.returncode, result.stderr)
+        complete = gateway.read_text()
+        gateway.write_text("\n".join(line for line in complete.splitlines()
+                                     if not line.startswith("AUTH_SERVICE_URL=")) + "\n")
+        prepared = subprocess.run([sys.executable, str(ROOT / "deploy/prepare-gateway-env.py"), str(gateway)],
+                                  capture_output=True, text=True)
+        self.assertEqual(0, prepared.returncode)
+        result = run()
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("AUTH_SERVICE_URL", result.stderr)
+        gateway.write_text(complete)
         with (env_dir / "github.env").open("a") as handle:
             handle.write("Kafka__Enabled=true\n")
         result = run()
