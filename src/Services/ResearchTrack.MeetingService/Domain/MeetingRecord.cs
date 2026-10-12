@@ -4,9 +4,7 @@ namespace ResearchTrack.MeetingService.Domain;
 
 public sealed class MeetingRecord
 {
-    private MeetingRecord()
-    {
-    }
+    private MeetingRecord() { }
 
     public Guid Id { get; private set; }
     public Guid ProjectId { get; private set; }
@@ -34,7 +32,8 @@ public sealed class MeetingRecord
         Guid? channelId,
         Guid supervisorId,
         string supervisorName,
-        DateTimeOffset now)
+        DateTimeOffset now
+    )
     {
         return new MeetingRecord
         {
@@ -53,7 +52,7 @@ public sealed class MeetingRecord
             ApprovedByName = supervisorName,
             ApprovedAt = now,
             CreatedAt = now,
-            UpdatedAt = null
+            UpdatedAt = null,
         };
     }
 
@@ -66,7 +65,8 @@ public sealed class MeetingRecord
         Guid? channelId,
         Guid studentId,
         string studentName,
-        DateTimeOffset now)
+        DateTimeOffset now
+    )
     {
         return new MeetingRecord
         {
@@ -85,7 +85,7 @@ public sealed class MeetingRecord
             ApprovedByName = null,
             ApprovedAt = null,
             CreatedAt = now,
-            UpdatedAt = null
+            UpdatedAt = null,
         };
     }
 
@@ -95,7 +95,8 @@ public sealed class MeetingRecord
         string discussionSummary,
         string? discussionDetails,
         Guid? channelId,
-        DateTimeOffset now)
+        DateTimeOffset now
+    )
     {
         MeetingDate = meetingDate;
         DurationMinutes = durationMinutes;

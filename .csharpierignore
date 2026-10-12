@@ -1,0 +1,12 @@
+# The CLI also passes explicit, eligible production .cs files. These
+# exclusions are a second layer of protection for editor integrations.
+**/Migrations/**
+**/bin/**
+**/obj/**
+**/*.g.cs
+**/*.g.i.cs
+**/*.generated.cs
+**/*.designer.cs
+**/*.Designer.cs
+**/TemporaryGeneratedFile_*.cs
+**/AssemblyInfo.cs

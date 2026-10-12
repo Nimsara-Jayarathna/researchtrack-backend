@@ -30,7 +30,8 @@ public sealed class UserAuthenticationService : IUserAuthenticationService
         IPasswordHasher passwordHasher,
         InvalidPasswordTimingGuard timingGuard,
         IAccessTokenService accessTokenService,
-        JwtOptions jwtOptions)
+        JwtOptions jwtOptions
+    )
     {
         _dbContextFactory = dbContextFactory;
         _passwordHasher = passwordHasher;
@@ -39,9 +40,7 @@ public sealed class UserAuthenticationService : IUserAuthenticationService
         _jwtOptions = jwtOptions;
     }
 
-    public async Task<AuthSessionResult> LoginAsync(
-        LoginRequest request,
-        CancellationToken cancellationToken)
+    public async Task<AuthSessionResult> LoginAsync(LoginRequest request, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
 
@@ -49,8 +48,8 @@ public sealed class UserAuthenticationService : IUserAuthenticationService
         var password = request.Password!;
 
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-        var user = await dbContext.Users
-            .AsNoTracking()
+        var user = await dbContext
+            .Users.AsNoTracking()
             .SingleOrDefaultAsync(candidate => candidate.Email == normalizedEmail, cancellationToken);
 
         if (user is null)
@@ -73,7 +72,8 @@ public sealed class UserAuthenticationService : IUserAuthenticationService
 
     public async Task<AuthSessionResult> RefreshAsync(
         string rawRefreshToken,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         if (string.IsNullOrWhiteSpace(rawRefreshToken))
         {
@@ -86,19 +86,17 @@ public sealed class UserAuthenticationService : IUserAuthenticationService
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
         await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
 
-        var currentToken = await dbContext.RefreshTokens
-            .AsNoTracking()
+        var currentToken = await dbContext
+            .RefreshTokens.AsNoTracking()
             .SingleOrDefaultAsync(token => token.TokenHash == tokenHash, cancellationToken);
 
-        if (currentToken is null
-            || currentToken.RevokedAt is not null
-            || currentToken.ExpiresAt <= now)
+        if (currentToken is null || currentToken.RevokedAt is not null || currentToken.ExpiresAt <= now)
         {
             throw Unauthorized(InvalidSessionMessage);
         }
 
-        var user = await dbContext.Users
-            .AsNoTracking()
+        var user = await dbContext
+            .Users.AsNoTracking()
             .SingleOrDefaultAsync(candidate => candidate.Id == currentToken.UserId, cancellationToken);
 
         if (user is null)
@@ -108,13 +106,14 @@ public sealed class UserAuthenticationService : IUserAuthenticationService
 
         // Atomic claim prevents two concurrent refresh requests from successfully
         // rotating the same one-time token.
-        var revoked = await dbContext.RefreshTokens
-            .Where(token => token.Id == currentToken.Id
-                && token.RevokedAt == null
-                && token.ExpiresAt > now)
+        var revoked = await dbContext
+            .RefreshTokens.Where(token =>
+                token.Id == currentToken.Id && token.RevokedAt == null && token.ExpiresAt > now
+            )
             .ExecuteUpdateAsync(
                 updates => updates.SetProperty(token => token.RevokedAt, now),
-                cancellationToken);
+                cancellationToken
+            );
 
         if (revoked != 1)
         {
@@ -129,9 +128,7 @@ public sealed class UserAuthenticationService : IUserAuthenticationService
         return CreateSessionResult(user, replacementRawToken);
     }
 
-    public async Task RevokeRefreshTokenAsync(
-        string? rawRefreshToken,
-        CancellationToken cancellationToken)
+    public async Task RevokeRefreshTokenAsync(string? rawRefreshToken, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(rawRefreshToken))
         {
@@ -141,16 +138,18 @@ public sealed class UserAuthenticationService : IUserAuthenticationService
         var tokenHash = HashRefreshToken(rawRefreshToken);
         var now = DateTime.UtcNow;
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-        await dbContext.RefreshTokens
-            .Where(token => token.TokenHash == tokenHash && token.RevokedAt == null)
+        await dbContext
+            .RefreshTokens.Where(token => token.TokenHash == tokenHash && token.RevokedAt == null)
             .ExecuteUpdateAsync(
                 updates => updates.SetProperty(token => token.RevokedAt, now),
-                cancellationToken);
+                cancellationToken
+            );
     }
 
     public async Task<LoginResponse> GetCurrentUserAsync(
         ClaimsPrincipal principal,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         var subject = principal.FindFirstValue(AuthSecurityConstants.SubjectClaim);
         if (!Guid.TryParse(subject, out var userId))
@@ -159,8 +158,8 @@ public sealed class UserAuthenticationService : IUserAuthenticationService
         }
 
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-        var user = await dbContext.Users
-            .AsNoTracking()
+        var user = await dbContext
+            .Users.AsNoTracking()
             .SingleOrDefaultAsync(candidate => candidate.Id == userId, cancellationToken);
 
         if (user is null)
@@ -171,36 +170,34 @@ public sealed class UserAuthenticationService : IUserAuthenticationService
         return new LoginResponse(ToResponse(user));
     }
 
-    private AuthSessionResult CreateSessionResult(User user, string rawRefreshToken) => new(
-        _accessTokenService.Generate(user),
-        rawRefreshToken,
-        new LoginResponse(ToResponse(user)));
+    private AuthSessionResult CreateSessionResult(User user, string rawRefreshToken) =>
+        new(_accessTokenService.Generate(user), rawRefreshToken, new LoginResponse(ToResponse(user)));
 
-    private RefreshToken CreateRefreshToken(Guid userId, string rawToken, DateTime now) => new()
-    {
-        Id = Guid.NewGuid(),
-        UserId = userId,
-        TokenHash = HashRefreshToken(rawToken),
-        ExpiresAt = now.AddDays(_jwtOptions.RefreshTokenDays),
-        CreatedAt = now
-    };
+    private RefreshToken CreateRefreshToken(Guid userId, string rawToken, DateTime now) =>
+        new()
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            TokenHash = HashRefreshToken(rawToken),
+            ExpiresAt = now.AddDays(_jwtOptions.RefreshTokenDays),
+            CreatedAt = now,
+        };
 
-    private static AuthUserResponse ToResponse(User user) => new(
-        user.Id,
-        user.Email,
-        user.FirstName,
-        user.LastName,
-        user.Role == UserRole.Student
-            ? AuthSecurityConstants.Roles.Student
-            : AuthSecurityConstants.Roles.Supervisor);
+    private static AuthUserResponse ToResponse(User user) =>
+        new(
+            user.Id,
+            user.Email,
+            user.FirstName,
+            user.LastName,
+            user.Role == UserRole.Student
+                ? AuthSecurityConstants.Roles.Student
+                : AuthSecurityConstants.Roles.Supervisor
+        );
 
     private static string GenerateRawRefreshToken()
     {
         var bytes = RandomNumberGenerator.GetBytes(32);
-        return Convert.ToBase64String(bytes)
-            .TrimEnd('=')
-            .Replace('+', '-')
-            .Replace('/', '_');
+        return Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
     }
 
     private static string HashRefreshToken(string rawToken)
@@ -209,8 +206,6 @@ public sealed class UserAuthenticationService : IUserAuthenticationService
         return Convert.ToBase64String(bytes);
     }
 
-    private static ApiException Unauthorized(string message) => new(
-        StatusCodes.Status401Unauthorized,
-        ErrorCodes.Unauthorized,
-        message);
+    private static ApiException Unauthorized(string message) =>
+        new(StatusCodes.Status401Unauthorized, ErrorCodes.Unauthorized, message);
 }

@@ -5,5 +5,6 @@ public interface IGitHubUserAuthorizationClient
     Task<GitHubUserAccessToken> ExchangeCodeAsync(
         string code,
         string codeVerifier,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken
+    );
 }

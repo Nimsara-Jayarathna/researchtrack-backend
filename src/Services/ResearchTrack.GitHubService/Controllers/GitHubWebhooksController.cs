@@ -22,7 +22,8 @@ public sealed class GitHubWebhooksController : ApiControllerBase
     [HttpPost]
     [Consumes("application/json")]
     public async Task<ActionResult<ApiResponse<GitHubWebhookAcceptedResponse>>> Receive(
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         var result = await _ingress.AcceptAsync(
             Request.Body,
@@ -30,15 +31,18 @@ public sealed class GitHubWebhooksController : ApiControllerBase
             Request.Headers[GitHubWebhookHeaders.Signature256].FirstOrDefault(),
             Request.Headers[GitHubWebhookHeaders.Delivery].FirstOrDefault(),
             Request.Headers[GitHubWebhookHeaders.Event].FirstOrDefault(),
-            cancellationToken);
+            cancellationToken
+        );
 
         var response = ApiResponse<GitHubWebhookAcceptedResponse>.Ok(
             new GitHubWebhookAcceptedResponse(
                 result.DeliveryId,
                 result.EventType,
                 result.Duplicate,
-                result.Status),
-            new ApiMeta(HttpContext.TraceIdentifier, DateTimeOffset.UtcNow));
+                result.Status
+            ),
+            new ApiMeta(HttpContext.TraceIdentifier, DateTimeOffset.UtcNow)
+        );
         return StatusCode(StatusCodes.Status202Accepted, response);
     }
 }

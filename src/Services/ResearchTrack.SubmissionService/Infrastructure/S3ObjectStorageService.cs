@@ -20,7 +20,11 @@ public sealed class S3ObjectStorageService : IObjectStorageService
         _timeProvider = timeProvider;
     }
 
-    public async Task<ObjectUploadGrant> CreateUploadGrantAsync(string objectKey, string contentType, CancellationToken cancellationToken)
+    public async Task<ObjectUploadGrant> CreateUploadGrantAsync(
+        string objectKey,
+        string contentType,
+        CancellationToken cancellationToken
+    )
     {
         cancellationToken.ThrowIfCancellationRequested();
         var expiresAt = _timeProvider.GetUtcNow().AddSeconds(_options.PresignedUrlExpirySeconds);
@@ -30,24 +34,32 @@ public sealed class S3ObjectStorageService : IObjectStorageService
             Key = objectKey,
             Verb = HttpVerb.PUT,
             ContentType = contentType,
-            Expires = expiresAt.UtcDateTime
+            Expires = expiresAt.UtcDateTime,
         };
 
         try
         {
             var url = await _s3.GetPreSignedURLAsync(request);
-            return new ObjectUploadGrant(url, expiresAt, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-            {
-                ["Content-Type"] = contentType
-            });
+            return new ObjectUploadGrant(
+                url,
+                expiresAt,
+                new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["Content-Type"] = contentType,
+                }
+            );
         }
-        catch (Exception exception) when (exception is Amazon.Runtime.AmazonServiceException or InvalidOperationException)
+        catch (Exception exception)
+            when (exception is Amazon.Runtime.AmazonServiceException or InvalidOperationException)
         {
             throw StorageUnavailable("Unable to create a secure upload URL.", exception);
         }
     }
 
-    public async Task<StoredObjectMetadata?> GetMetadataAsync(string objectKey, CancellationToken cancellationToken)
+    public async Task<StoredObjectMetadata?> GetMetadataAsync(
+        string objectKey,
+        CancellationToken cancellationToken
+    )
     {
         try
         {
@@ -55,7 +67,8 @@ public sealed class S3ObjectStorageService : IObjectStorageService
             return new StoredObjectMetadata(
                 response.ContentLength,
                 response.ContentType ?? string.Empty,
-                response.ETag);
+                response.ETag
+            );
         }
         catch (AmazonS3Exception exception) when (exception.StatusCode == HttpStatusCode.NotFound)
         {
@@ -67,17 +80,24 @@ public sealed class S3ObjectStorageService : IObjectStorageService
         }
     }
 
-    public async Task PromoteAsync(string temporaryObjectKey, string finalObjectKey, CancellationToken cancellationToken)
+    public async Task PromoteAsync(
+        string temporaryObjectKey,
+        string finalObjectKey,
+        CancellationToken cancellationToken
+    )
     {
         try
         {
-            await _s3.CopyObjectAsync(new CopyObjectRequest
-            {
-                SourceBucket = _options.Bucket,
-                SourceKey = temporaryObjectKey,
-                DestinationBucket = _options.Bucket,
-                DestinationKey = finalObjectKey
-            }, cancellationToken);
+            await _s3.CopyObjectAsync(
+                new CopyObjectRequest
+                {
+                    SourceBucket = _options.Bucket,
+                    SourceKey = temporaryObjectKey,
+                    DestinationBucket = _options.Bucket,
+                    DestinationKey = finalObjectKey,
+                },
+                cancellationToken
+            );
         }
         catch (AmazonS3Exception exception)
         {
@@ -89,22 +109,24 @@ public sealed class S3ObjectStorageService : IObjectStorageService
     {
         try
         {
-            await _s3.DeleteObjectAsync(new DeleteObjectRequest
-            {
-                BucketName = _options.Bucket,
-                Key = objectKey
-            }, cancellationToken);
+            await _s3.DeleteObjectAsync(
+                new DeleteObjectRequest { BucketName = _options.Bucket, Key = objectKey },
+                cancellationToken
+            );
         }
-        catch (AmazonS3Exception exception) when (exception.StatusCode == HttpStatusCode.NotFound)
-        {
-        }
+        catch (AmazonS3Exception exception) when (exception.StatusCode == HttpStatusCode.NotFound) { }
         catch (AmazonS3Exception exception)
         {
             throw StorageUnavailable("Unable to remove the temporary upload object.", exception);
         }
     }
 
-    public async Task<ObjectDownloadGrant> CreateDownloadGrantAsync(string objectKey, string fileName, bool inline, CancellationToken cancellationToken)
+    public async Task<ObjectDownloadGrant> CreateDownloadGrantAsync(
+        string objectKey,
+        string fileName,
+        bool inline,
+        CancellationToken cancellationToken
+    )
     {
         cancellationToken.ThrowIfCancellationRequested();
         var expiresAt = _timeProvider.GetUtcNow().AddSeconds(_options.PresignedUrlExpirySeconds);
@@ -118,8 +140,8 @@ public sealed class S3ObjectStorageService : IObjectStorageService
             Expires = expiresAt.UtcDateTime,
             ResponseHeaderOverrides = new ResponseHeaderOverrides
             {
-                ContentDisposition = $"{disposition}; filename=\"{safeFileName}\""
-            }
+                ContentDisposition = $"{disposition}; filename=\"{safeFileName}\"",
+            },
         };
 
         try
@@ -127,12 +149,18 @@ public sealed class S3ObjectStorageService : IObjectStorageService
             var url = await _s3.GetPreSignedURLAsync(request);
             return new ObjectDownloadGrant(url, expiresAt);
         }
-        catch (Exception exception) when (exception is Amazon.Runtime.AmazonServiceException or InvalidOperationException)
+        catch (Exception exception)
+            when (exception is Amazon.Runtime.AmazonServiceException or InvalidOperationException)
         {
             throw StorageUnavailable("Unable to create a secure download URL.", exception);
         }
     }
 
     private static ApiException StorageUnavailable(string message, Exception exception) =>
-        new(StatusCodes.Status503ServiceUnavailable, ErrorCodes.DependencyUnavailable, message, innerException: exception);
+        new(
+            StatusCodes.Status503ServiceUnavailable,
+            ErrorCodes.DependencyUnavailable,
+            message,
+            innerException: exception
+        );
 }

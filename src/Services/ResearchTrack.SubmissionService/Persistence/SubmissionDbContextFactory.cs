@@ -9,8 +9,7 @@ public sealed class SubmissionDbContextFactory : IDesignTimeDbContextFactory<Sub
     public SubmissionDbContext CreateDbContext(string[] args)
     {
         var optionsBuilder = new DbContextOptionsBuilder<SubmissionDbContext>();
-        optionsBuilder.UseMySQL(
-            DesignTimeDatabase.CreateConnectionString("researchtrack_submission_design"));
+        optionsBuilder.UseMySQL(DesignTimeDatabase.CreateConnectionString("researchtrack_submission_design"));
 
         return new SubmissionDbContext(optionsBuilder.Options);
     }

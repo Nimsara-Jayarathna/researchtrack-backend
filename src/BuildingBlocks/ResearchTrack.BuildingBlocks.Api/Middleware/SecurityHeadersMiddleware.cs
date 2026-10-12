@@ -22,7 +22,10 @@ public sealed class SecurityHeadersMiddleware
             // Swagger UI requires scripts/styles. CSP is therefore applied only to non-Swagger API responses.
             if (!context.Request.Path.StartsWithSegments("/swagger"))
             {
-                headers.TryAdd("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; base-uri 'none'");
+                headers.TryAdd(
+                    "Content-Security-Policy",
+                    "default-src 'none'; frame-ancestors 'none'; base-uri 'none'"
+                );
             }
             return Task.CompletedTask;
         });

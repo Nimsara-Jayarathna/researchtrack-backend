@@ -18,7 +18,8 @@ public sealed class GitHubInstallationStateService : IGitHubInstallationStateSer
     public GitHubInstallationStateService(
         IGitHubInstallationStateStore store,
         GitHubAppOptions options,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider
+    )
     {
         _store = store;
         _options = options;
@@ -31,7 +32,8 @@ public sealed class GitHubInstallationStateService : IGitHubInstallationStateSer
         string flowType,
         string returnPath,
         CancellationToken cancellationToken,
-        Guid? accessRequestId = null)
+        Guid? accessRequestId = null
+    )
     {
         if (projectId == Guid.Empty || initiatingUserId == Guid.Empty)
         {
@@ -55,9 +57,10 @@ public sealed class GitHubInstallationStateService : IGitHubInstallationStateSer
                 FlowType = flowType,
                 ReturnPath = returnPath,
                 CreatedAt = now,
-                ExpiresAt = expiresAt
+                ExpiresAt = expiresAt,
             },
-            cancellationToken);
+            cancellationToken
+        );
 
         return new GitHubInstallationState(value, expiresAt);
     }
@@ -66,16 +69,17 @@ public sealed class GitHubInstallationStateService : IGitHubInstallationStateSer
         string state,
         Guid expectedUserId,
         string expectedFlowType,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
-        var existing = await GetValidStateAsync(
-            state, expectedUserId, expectedFlowType, cancellationToken);
+        var existing = await GetValidStateAsync(state, expectedUserId, expectedFlowType, cancellationToken);
         return MapValidated(existing);
     }
 
     public async Task<ValidatedGitHubInstallationState> ValidateExternalCallbackAsync(
         string state,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         if (string.IsNullOrWhiteSpace(state))
         {
@@ -83,8 +87,12 @@ public sealed class GitHubInstallationStateService : IGitHubInstallationStateSer
         }
         var existing = await _store.FindAsync(HashState(state), cancellationToken);
         var now = _timeProvider.GetUtcNow().UtcDateTime;
-        if (existing is null || existing.ConsumedAt is not null || existing.ExpiresAt <= now
-            || !GitHubInstallationFlowTypes.IsSupported(existing.FlowType))
+        if (
+            existing is null
+            || existing.ConsumedAt is not null
+            || existing.ExpiresAt <= now
+            || !GitHubInstallationFlowTypes.IsSupported(existing.FlowType)
+        )
         {
             throw InvalidState("GitHub installation state is unknown, expired, or already used.");
         }
@@ -95,20 +103,18 @@ public sealed class GitHubInstallationStateService : IGitHubInstallationStateSer
         string state,
         long installationId,
         string expectedFlowType,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         if (installationId <= 0)
         {
             throw InvalidState("GitHub installation id is invalid.");
         }
 
-        var existing = await GetValidExternalStateAsync(
-            state, expectedFlowType, cancellationToken);
-        if (existing.PendingInstallationId is not null
-            && existing.PendingInstallationId != installationId)
+        var existing = await GetValidExternalStateAsync(state, expectedFlowType, cancellationToken);
+        if (existing.PendingInstallationId is not null && existing.PendingInstallationId != installationId)
         {
-            throw InvalidState(
-                "GitHub installation state is already bound to a different installation.");
+            throw InvalidState("GitHub installation state is already bound to a different installation.");
         }
 
         var now = _timeProvider.GetUtcNow().UtcDateTime;
@@ -117,7 +123,8 @@ public sealed class GitHubInstallationStateService : IGitHubInstallationStateSer
             installationId,
             expectedFlowType,
             now,
-            cancellationToken);
+            cancellationToken
+        );
         if (bound is null)
         {
             throw InvalidState("GitHub installation state could not be bound to the installation.");
@@ -130,7 +137,8 @@ public sealed class GitHubInstallationStateService : IGitHubInstallationStateSer
         string state,
         Guid expectedUserId,
         string expectedFlowType,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         if (string.IsNullOrWhiteSpace(state))
         {
@@ -145,7 +153,8 @@ public sealed class GitHubInstallationStateService : IGitHubInstallationStateSer
             expectedUserId,
             expectedFlowType,
             now,
-            cancellationToken);
+            cancellationToken
+        );
         if (consumed is not null)
         {
             return consumed;
@@ -158,7 +167,8 @@ public sealed class GitHubInstallationStateService : IGitHubInstallationStateSer
     private async Task<GitHubInstallationFlowState> GetValidExternalStateAsync(
         string state,
         string expectedFlowType,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         if (string.IsNullOrWhiteSpace(state))
         {
@@ -196,7 +206,8 @@ public sealed class GitHubInstallationStateService : IGitHubInstallationStateSer
         string state,
         Guid expectedUserId,
         string expectedFlowType,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         if (string.IsNullOrWhiteSpace(state))
         {
@@ -222,24 +233,29 @@ public sealed class GitHubInstallationStateService : IGitHubInstallationStateSer
             throw InvalidState("GitHub installation state has expired.");
         }
 
-        if (existing.InitiatingUserId != expectedUserId
-            || !string.Equals(existing.FlowType, expectedFlowType, StringComparison.Ordinal))
+        if (
+            existing.InitiatingUserId != expectedUserId
+            || !string.Equals(existing.FlowType, expectedFlowType, StringComparison.Ordinal)
+        )
         {
-            throw InvalidState("GitHub installation state does not match the expected ResearchTrack context.");
+            throw InvalidState(
+                "GitHub installation state does not match the expected ResearchTrack context."
+            );
         }
 
         return existing;
     }
 
-    private static ValidatedGitHubInstallationState MapValidated(
-        GitHubInstallationFlowState state) => new(
+    private static ValidatedGitHubInstallationState MapValidated(GitHubInstallationFlowState state) =>
+        new(
             state.ProjectId,
             state.InitiatingUserId,
             state.FlowType,
             state.ReturnPath,
             state.AccessRequestId,
             state.PendingInstallationId,
-            state.AuthorizationStartedAt);
+            state.AuthorizationStartedAt
+        );
 
     internal static string HashState(string state)
     {
@@ -247,10 +263,8 @@ public sealed class GitHubInstallationStateService : IGitHubInstallationStateSer
         return Convert.ToHexString(hash).ToLowerInvariant();
     }
 
-    private static string Base64UrlEncode(byte[] bytes) => Convert.ToBase64String(bytes)
-        .TrimEnd('=')
-        .Replace('+', '-')
-        .Replace('/', '_');
+    private static string Base64UrlEncode(byte[] bytes) =>
+        Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 
     private static void ValidateFlowType(string flowType)
     {
@@ -262,17 +276,20 @@ public sealed class GitHubInstallationStateService : IGitHubInstallationStateSer
 
     private static void ValidateReturnPath(string returnPath)
     {
-        if (string.IsNullOrWhiteSpace(returnPath)
+        if (
+            string.IsNullOrWhiteSpace(returnPath)
             || !returnPath.StartsWith("/", StringComparison.Ordinal)
             || returnPath.StartsWith("//", StringComparison.Ordinal)
-            || returnPath.StartsWith("/\\", StringComparison.Ordinal))
+            || returnPath.StartsWith("/\\", StringComparison.Ordinal)
+        )
         {
-            throw new ArgumentException("Return context must be a local ResearchTrack path.", nameof(returnPath));
+            throw new ArgumentException(
+                "Return context must be a local ResearchTrack path.",
+                nameof(returnPath)
+            );
         }
     }
 
-    private static ApiException InvalidState(string message) => new(
-        StatusCodes.Status400BadRequest,
-        ErrorCodes.ValidationError,
-        message);
+    private static ApiException InvalidState(string message) =>
+        new(StatusCodes.Status400BadRequest, ErrorCodes.ValidationError, message);
 }

@@ -6,9 +6,7 @@ namespace ResearchTrack.AuthService.Persistence;
 public sealed class AuthDbContext : DbContext
 {
     public AuthDbContext(DbContextOptions<AuthDbContext> options)
-        : base(options)
-    {
-    }
+        : base(options) { }
 
     public DbSet<User> Users => Set<User>();
     public DbSet<EmailOtp> EmailOtps => Set<EmailOtp>();

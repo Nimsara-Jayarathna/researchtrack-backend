@@ -30,7 +30,8 @@ public sealed class ExceptionHandlingMiddleware
                     exception.StatusCode,
                     exception.Code,
                     exception.Message,
-                    fieldErrors: exception.FieldErrors);
+                    fieldErrors: exception.FieldErrors
+                );
             }
         }
         catch (ApiException exception)
@@ -42,34 +43,49 @@ public sealed class ExceptionHandlingMiddleware
                     exception.StatusCode,
                     exception.Code,
                     exception.Message,
-                    exception.Details);
+                    exception.Details
+                );
             }
         }
         catch (Exception exception)
         {
             if (context.Response.HasStarted)
             {
-                _logger.LogError(exception, "Unhandled exception after response started. TraceId={TraceId}", context.TraceIdentifier);
+                _logger.LogError(
+                    exception,
+                    "Unhandled exception after response started. TraceId={TraceId}",
+                    context.TraceIdentifier
+                );
                 throw;
             }
 
             if (DatabaseUnavailableDetector.IsDatabaseUnavailable(exception))
             {
-                _logger.LogWarning(exception, "Database unavailable. TraceId={TraceId}", context.TraceIdentifier);
+                _logger.LogWarning(
+                    exception,
+                    "Database unavailable. TraceId={TraceId}",
+                    context.TraceIdentifier
+                );
                 await ApiErrorResponseWriter.WriteAsync(
                     context,
                     StatusCodes.Status503ServiceUnavailable,
                     ErrorCodes.ServiceUnavailable,
-                    "The service is temporarily unavailable.");
+                    "The service is temporarily unavailable."
+                );
                 return;
             }
 
-            _logger.LogError(exception, "Unhandled API exception. TraceId={TraceId}", context.TraceIdentifier);
+            _logger.LogError(
+                exception,
+                "Unhandled API exception. TraceId={TraceId}",
+                context.TraceIdentifier
+            );
             await ApiErrorResponseWriter.WriteAsync(
                 context,
                 StatusCodes.Status500InternalServerError,
                 ErrorCodes.InternalError,
-                "An unexpected error occurred.");
+                "An unexpected error occurred."
+            );
         }
     }
 }

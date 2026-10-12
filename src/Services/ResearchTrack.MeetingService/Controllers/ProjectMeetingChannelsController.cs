@@ -17,43 +17,38 @@ public sealed class ProjectMeetingChannelsController : ApiControllerBase
 {
     private readonly IMeetingChannelService _meetingChannelService;
 
-    public ProjectMeetingChannelsController(
-        IMeetingChannelService meetingChannelService)
+    public ProjectMeetingChannelsController(IMeetingChannelService meetingChannelService)
     {
         _meetingChannelService = meetingChannelService;
     }
 
     [HttpGet]
-    [ProducesResponseType<ApiResponse<IReadOnlyList<MeetingChannelResponse>>>(
-        StatusCodes.Status200OK)]
+    [ProducesResponseType<ApiResponse<IReadOnlyList<MeetingChannelResponse>>>(StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<IReadOnlyList<MeetingChannelResponse>>>> List(
         Guid projectId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
-        return ApiOk(
-            await _meetingChannelService.ListAsync(
-                projectId,
-                cancellationToken));
+        return ApiOk(await _meetingChannelService.ListAsync(projectId, cancellationToken));
     }
 
     [HttpPost]
-    [ProducesResponseType<ApiResponse<MeetingChannelResponse>>(
-        StatusCodes.Status201Created)]
+    [ProducesResponseType<ApiResponse<MeetingChannelResponse>>(StatusCodes.Status201Created)]
     public async Task<ActionResult<ApiResponse<MeetingChannelResponse>>> Create(
         Guid projectId,
         [FromBody] MeetingChannelCreateRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         var created = await _meetingChannelService.CreateAsync(
             projectId,
             GetRequiredUserId(),
             GetRequiredRole(),
             request,
-            cancellationToken);
+            cancellationToken
+        );
 
-        return ApiCreated(
-            $"/api/v1/projects/{projectId}/meetings/channels/{created.Id}",
-            created);
+        return ApiCreated($"/api/v1/projects/{projectId}/meetings/channels/{created.Id}", created);
     }
 
     [Authorize(Policy = AuthSecurityConstants.Policies.SupervisorOnly)]
@@ -62,14 +57,12 @@ public sealed class ProjectMeetingChannelsController : ApiControllerBase
         Guid projectId,
         Guid channelId,
         [FromBody] MeetingChannelUpdateRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         return ApiOk(
-            await _meetingChannelService.UpdateAsync(
-                projectId,
-                channelId,
-                request,
-                cancellationToken));
+            await _meetingChannelService.UpdateAsync(projectId, channelId, request, cancellationToken)
+        );
     }
 
     [Authorize(Policy = AuthSecurityConstants.Policies.SupervisorOnly)]
@@ -78,12 +71,10 @@ public sealed class ProjectMeetingChannelsController : ApiControllerBase
     public async Task<IActionResult> Delete(
         Guid projectId,
         Guid channelId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
-        await _meetingChannelService.DeleteAsync(
-            projectId,
-            channelId,
-            cancellationToken);
+        await _meetingChannelService.DeleteAsync(projectId, channelId, cancellationToken);
 
         return NoContent();
     }
@@ -93,37 +84,33 @@ public sealed class ProjectMeetingChannelsController : ApiControllerBase
     public async Task<ActionResult<ApiResponse<MeetingChannelResponse>>> Approve(
         Guid projectId,
         Guid channelId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         return ApiOk(
             await _meetingChannelService.ApproveAsync(
                 projectId,
                 channelId,
                 GetRequiredUserId(),
-                cancellationToken));
+                cancellationToken
+            )
+        );
     }
 
     private Guid GetRequiredUserId()
     {
         var value = User.FindFirstValue(AuthSecurityConstants.SubjectClaim);
 
-        return Guid.TryParse(value, out var userId)
-            ? userId
-            : throw AuthenticationRequired();
+        return Guid.TryParse(value, out var userId) ? userId : throw AuthenticationRequired();
     }
 
     private string GetRequiredRole()
     {
         var role = User.FindFirstValue(AuthSecurityConstants.RoleClaim);
 
-        return string.IsNullOrWhiteSpace(role)
-            ? throw AuthenticationRequired()
-            : role;
+        return string.IsNullOrWhiteSpace(role) ? throw AuthenticationRequired() : role;
     }
 
     private static ApiException AuthenticationRequired() =>
-        new(
-            StatusCodes.Status401Unauthorized,
-            ErrorCodes.Unauthorized,
-            "Authentication is required.");
+        new(StatusCodes.Status401Unauthorized, ErrorCodes.Unauthorized, "Authentication is required.");
 }

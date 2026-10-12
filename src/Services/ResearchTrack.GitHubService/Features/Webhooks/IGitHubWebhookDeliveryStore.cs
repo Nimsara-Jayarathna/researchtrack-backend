@@ -7,11 +7,10 @@ public interface IGitHubWebhookDeliveryStore
     Task<GitHubWebhookAcceptResult> AcceptAsync(
         GitHubWebhookEnvelope envelope,
         DateTime now,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken
+    );
 
-    Task<GitHubWebhookDelivery?> TryClaimNextDueAsync(
-        DateTime now,
-        CancellationToken cancellationToken);
+    Task<GitHubWebhookDelivery?> TryClaimNextDueAsync(DateTime now, CancellationToken cancellationToken);
 
     Task<DateTime?> GetNextDueAtAsync(DateTime now, CancellationToken cancellationToken);
 
@@ -24,5 +23,6 @@ public interface IGitHubWebhookDeliveryStore
         string error,
         DateTime now,
         DateTime? nextAttemptAt,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken
+    );
 }

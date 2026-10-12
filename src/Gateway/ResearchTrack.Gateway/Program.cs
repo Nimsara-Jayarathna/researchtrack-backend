@@ -32,36 +32,52 @@ builder.WebHost.ConfigureKestrel(options =>
 var gatewayEnvironmentOverrides = new Dictionary<string, string?>
 {
     ["Frontend:AllowedOrigins:0"] = Environment.GetEnvironmentVariable("FRONTEND_ORIGIN"),
-    ["ReverseProxy:Clusters:auth:Destinations:primary:Address"] = Environment.GetEnvironmentVariable("AUTH_SERVICE_URL"),
-    ["ReverseProxy:Clusters:project:Destinations:primary:Address"] = Environment.GetEnvironmentVariable("PROJECT_SERVICE_URL"),
-    ["ReverseProxy:Clusters:github:Destinations:primary:Address"] = Environment.GetEnvironmentVariable("GITHUB_SERVICE_URL"),
-    ["ReverseProxy:Clusters:jira:Destinations:primary:Address"] = Environment.GetEnvironmentVariable("JIRA_SERVICE_URL"),
-    ["ReverseProxy:Clusters:meeting:Destinations:primary:Address"] = Environment.GetEnvironmentVariable("MEETING_SERVICE_URL"),
-    ["ReverseProxy:Clusters:submission:Destinations:primary:Address"] = Environment.GetEnvironmentVariable("SUBMISSION_SERVICE_URL")
+    ["ReverseProxy:Clusters:auth:Destinations:primary:Address"] = Environment.GetEnvironmentVariable(
+        "AUTH_SERVICE_URL"
+    ),
+    ["ReverseProxy:Clusters:project:Destinations:primary:Address"] = Environment.GetEnvironmentVariable(
+        "PROJECT_SERVICE_URL"
+    ),
+    ["ReverseProxy:Clusters:github:Destinations:primary:Address"] = Environment.GetEnvironmentVariable(
+        "GITHUB_SERVICE_URL"
+    ),
+    ["ReverseProxy:Clusters:jira:Destinations:primary:Address"] = Environment.GetEnvironmentVariable(
+        "JIRA_SERVICE_URL"
+    ),
+    ["ReverseProxy:Clusters:meeting:Destinations:primary:Address"] = Environment.GetEnvironmentVariable(
+        "MEETING_SERVICE_URL"
+    ),
+    ["ReverseProxy:Clusters:submission:Destinations:primary:Address"] = Environment.GetEnvironmentVariable(
+        "SUBMISSION_SERVICE_URL"
+    ),
 };
 
 builder.Configuration.AddInMemoryCollection(
-    gatewayEnvironmentOverrides.Where(pair => !string.IsNullOrWhiteSpace(pair.Value)));
+    gatewayEnvironmentOverrides.Where(pair => !string.IsNullOrWhiteSpace(pair.Value))
+);
 
 builder.Services.AddResearchTrackApi("ResearchTrack API Gateway");
 builder.Services.AddTrustedProxyForwarding();
 builder.Services.AddReverseProxy().LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"));
 
-var allowedOrigins = builder.Configuration.GetSection("Frontend:AllowedOrigins").Get<string[]>() ?? Array.Empty<string>();
+var allowedOrigins =
+    builder.Configuration.GetSection("Frontend:AllowedOrigins").Get<string[]>() ?? Array.Empty<string>();
 if (allowedOrigins.Length == 0)
 {
-    throw new InvalidOperationException("At least one Frontend:AllowedOrigins entry is required for the gateway.");
+    throw new InvalidOperationException(
+        "At least one Frontend:AllowedOrigins entry is required for the gateway."
+    );
 }
 
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("frontend", policy =>
-    {
-        policy.WithOrigins(allowedOrigins)
-            .AllowAnyHeader()
-            .AllowAnyMethod()
-            .AllowCredentials();
-    });
+    options.AddPolicy(
+        "frontend",
+        policy =>
+        {
+            policy.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod().AllowCredentials();
+        }
+    );
 });
 
 // Fail at startup if an explicitly enabled performance exemption is misconfigured.
@@ -70,8 +86,9 @@ var performanceRateLimit = new PerformanceRateLimitPolicy(builder.Configuration)
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-    options.GlobalLimiter = System.Threading.RateLimiting.PartitionedRateLimiter
-        .Create<HttpContext, string>(performanceRateLimit.Partition);
+    options.GlobalLimiter = System.Threading.RateLimiting.PartitionedRateLimiter.Create<HttpContext, string>(
+        performanceRateLimit.Partition
+    );
     options.OnRejected = async (context, _) =>
     {
         if (!context.HttpContext.Response.HasStarted)
@@ -80,25 +97,30 @@ builder.Services.AddRateLimiter(options =>
                 context.HttpContext,
                 StatusCodes.Status429TooManyRequests,
                 ErrorCodes.RateLimited,
-                "Too many requests. Please try again later.");
+                "Too many requests. Please try again later."
+            );
         }
     };
 });
 
 var app = builder.Build();
+
 // Must run first so rate limiting, logging and YARP see the real client address.
 app.UseForwardedHeaders();
 app.UseHttpMetrics();
 app.UseResearchTrackApi();
 app.UseCors("frontend");
 app.UseRateLimiter();
+
 // The gateway is the only component that needs this secret. Never forward it
 // to downstream services, and do not echo it to request/response logs.
-app.Use(async (context, next) =>
-{
-    context.Request.Headers.Remove(PerformanceRateLimitPolicy.AuthorizationHeader);
-    await next(context);
-});
+app.Use(
+    async (context, next) =>
+    {
+        context.Request.Headers.Remove(PerformanceRateLimitPolicy.AuthorizationHeader);
+        await next(context);
+    }
+);
 app.MapReverseProxy();
 app.MapMetrics().RequireHost("*:9100"); // only answers on 9100, not the public 8080
 app.Run();

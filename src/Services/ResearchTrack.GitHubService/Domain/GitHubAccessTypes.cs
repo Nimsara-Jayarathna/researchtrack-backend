@@ -9,10 +9,14 @@ public static class GitHubAccessTypes
         string.Equals(value, InstallationDirect, StringComparison.Ordinal)
         || string.Equals(value, InstallationRequested, StringComparison.Ordinal);
 
-    public static string FromFlowType(string flowType) => flowType switch
-    {
-        GitHubInstallationFlowTypes.Direct => InstallationDirect,
-        GitHubInstallationFlowTypes.Requested => InstallationRequested,
-        _ => throw new ArgumentOutOfRangeException(nameof(flowType), "Unsupported GitHub installation flow type.")
-    };
+    public static string FromFlowType(string flowType) =>
+        flowType switch
+        {
+            GitHubInstallationFlowTypes.Direct => InstallationDirect,
+            GitHubInstallationFlowTypes.Requested => InstallationRequested,
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(flowType),
+                "Unsupported GitHub installation flow type."
+            ),
+        };
 }

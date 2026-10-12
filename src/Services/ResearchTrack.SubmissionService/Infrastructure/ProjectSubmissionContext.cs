@@ -4,11 +4,13 @@ public sealed record ProjectStudentContext(
     Guid Id,
     string DisplayName,
     string Email,
-    string? RegistrationNumber);
+    string? RegistrationNumber
+);
 
 public sealed record ProjectSubmissionContext(
     ProjectStudentContext? Leader,
-    IReadOnlyList<ProjectStudentContext> Students)
+    IReadOnlyList<ProjectStudentContext> Students
+)
 {
     public ProjectStudentContext? FindStudent(Guid studentId) =>
         Students.FirstOrDefault(x => x.Id == studentId);

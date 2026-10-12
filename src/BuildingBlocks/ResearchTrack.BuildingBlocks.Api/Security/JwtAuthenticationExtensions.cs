@@ -10,7 +10,8 @@ public static class JwtAuthenticationExtensions
 {
     public static IServiceCollection AddResearchTrackJwtAuthentication(
         this IServiceCollection services,
-        IConfiguration configuration)
+        IConfiguration configuration
+    )
     {
         var issuer = Require(configuration, "Jwt:Issuer");
         var audience = Require(configuration, "Jwt:Audience");
@@ -19,7 +20,9 @@ public static class JwtAuthenticationExtensions
 
         if (signingKeyBytes.Length < 32)
         {
-            throw new InvalidOperationException("Configuration 'Jwt:SigningKey' must contain at least 32 UTF-8 bytes for HS256.");
+            throw new InvalidOperationException(
+                "Configuration 'Jwt:SigningKey' must contain at least 32 UTF-8 bytes for HS256."
+            );
         }
 
         services
@@ -45,39 +48,43 @@ public static class JwtAuthenticationExtensions
                     RequireSignedTokens = true,
                     ClockSkew = TimeSpan.FromSeconds(30),
                     NameClaimType = AuthSecurityConstants.SubjectClaim,
-                    RoleClaimType = AuthSecurityConstants.RoleClaim
+                    RoleClaimType = AuthSecurityConstants.RoleClaim,
                 };
                 options.Events = new JwtBearerEvents
                 {
                     OnMessageReceived = context =>
                     {
-                        if (string.IsNullOrWhiteSpace(context.Token)
+                        if (
+                            string.IsNullOrWhiteSpace(context.Token)
                             && context.Request.Cookies.TryGetValue(
                                 AuthSecurityConstants.AccessCookieName,
-                                out var cookieToken))
+                                out var cookieToken
+                            )
+                        )
                         {
                             context.Token = cookieToken;
                         }
 
                         return Task.CompletedTask;
-                    }
+                    },
                 };
             });
 
-        services.AddAuthorizationBuilder()
+        services
+            .AddAuthorizationBuilder()
             .AddPolicy(
                 AuthSecurityConstants.Policies.Authenticated,
-                policy => policy.RequireAuthenticatedUser())
+                policy => policy.RequireAuthenticatedUser()
+            )
             .AddPolicy(
                 AuthSecurityConstants.Policies.StudentOnly,
-                policy => policy
-                    .RequireAuthenticatedUser()
-                    .RequireRole(AuthSecurityConstants.Roles.Student))
+                policy => policy.RequireAuthenticatedUser().RequireRole(AuthSecurityConstants.Roles.Student)
+            )
             .AddPolicy(
                 AuthSecurityConstants.Policies.SupervisorOnly,
-                policy => policy
-                    .RequireAuthenticatedUser()
-                    .RequireRole(AuthSecurityConstants.Roles.Supervisor));
+                policy =>
+                    policy.RequireAuthenticatedUser().RequireRole(AuthSecurityConstants.Roles.Supervisor)
+            );
 
         return services;
     }
@@ -85,11 +92,11 @@ public static class JwtAuthenticationExtensions
     private static string Require(IConfiguration configuration, string key)
     {
         var value = configuration[key];
-        if (string.IsNullOrWhiteSpace(value)
-            || value.Equals("CHANGE_ME", StringComparison.OrdinalIgnoreCase))
+        if (string.IsNullOrWhiteSpace(value) || value.Equals("CHANGE_ME", StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException(
-                $"Required configuration '{key}' is missing or still contains a placeholder value.");
+                $"Required configuration '{key}' is missing or still contains a placeholder value."
+            );
         }
 
         return value.Trim();

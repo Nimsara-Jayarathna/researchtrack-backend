@@ -23,8 +23,16 @@ public static class GitHubAppOptionsFactory
             ? RequireValue(configuration, "GitHub:PrivateKeyPath")
             : string.Empty;
         ValidatePrivateKeyBase64(privateKeyBase64);
-        var setupCallbackUrl = RequireHttpsUrl(configuration, "GitHub:SetupCallbackUrl", allowLocalHttp: true);
-        var frontendReturnOrigin = RequireHttpsOrigin(configuration, "GitHub:FrontendReturnOrigin", allowLocalHttp: true);
+        var setupCallbackUrl = RequireHttpsUrl(
+            configuration,
+            "GitHub:SetupCallbackUrl",
+            allowLocalHttp: true
+        );
+        var frontendReturnOrigin = RequireHttpsOrigin(
+            configuration,
+            "GitHub:FrontendReturnOrigin",
+            allowLocalHttp: true
+        );
         var stateExpiryMinutes = configuration.GetValue<int>("GitHub:StateExpiryMinutes");
         if (stateExpiryMinutes is < 1 or > 30)
         {
@@ -46,19 +54,20 @@ public static class GitHubAppOptionsFactory
             setupCallbackUrl,
             frontendReturnOrigin,
             TimeSpan.FromMinutes(stateExpiryMinutes),
-            TimeSpan.FromHours(accessRequestExpiryHours))
+            TimeSpan.FromHours(accessRequestExpiryHours)
+        )
         {
-            PrivateKeyBase64 = privateKeyBase64
+            PrivateKeyBase64 = privateKeyBase64,
         };
     }
 
     private static string? OptionalValue(IConfiguration configuration, string key)
     {
         var value = configuration[key]?.Trim();
-        return string.IsNullOrWhiteSpace(value)
-            || value.Equals("CHANGE_ME", StringComparison.OrdinalIgnoreCase)
-                ? null
-                : value;
+        return
+            string.IsNullOrWhiteSpace(value) || value.Equals("CHANGE_ME", StringComparison.OrdinalIgnoreCase)
+            ? null
+            : value;
     }
 
     private static void ValidatePrivateKeyBase64(string? value)
@@ -71,8 +80,10 @@ public static class GitHubAppOptionsFactory
         try
         {
             var pem = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(value));
-            if (!pem.Contains("-----BEGIN", StringComparison.Ordinal)
-                || !pem.Contains("PRIVATE KEY-----", StringComparison.Ordinal))
+            if (
+                !pem.Contains("-----BEGIN", StringComparison.Ordinal)
+                || !pem.Contains("PRIVATE KEY-----", StringComparison.Ordinal)
+            )
             {
                 throw Invalid("GitHub:PrivateKeyBase64", "must contain a base64-encoded PEM private key.");
             }
@@ -86,8 +97,7 @@ public static class GitHubAppOptionsFactory
     private static string RequireValue(IConfiguration configuration, string key)
     {
         var value = configuration[key]?.Trim();
-        if (string.IsNullOrWhiteSpace(value)
-            || value.Equals("CHANGE_ME", StringComparison.OrdinalIgnoreCase))
+        if (string.IsNullOrWhiteSpace(value) || value.Equals("CHANGE_ME", StringComparison.OrdinalIgnoreCase))
         {
             throw Invalid(key, "is required.");
         }
@@ -95,28 +105,28 @@ public static class GitHubAppOptionsFactory
         return value;
     }
 
-    private static Uri RequireHttpsUrl(
-        IConfiguration configuration,
-        string key,
-        bool allowLocalHttp)
+    private static Uri RequireHttpsUrl(IConfiguration configuration, string key, bool allowLocalHttp)
     {
         var value = RequireValue(configuration, key);
-        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri)
-            || !IsAllowedScheme(uri, allowLocalHttp))
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) || !IsAllowedScheme(uri, allowLocalHttp))
         {
-            throw Invalid(key, "must be an absolute HTTPS URL (HTTP is allowed only for localhost development). ");
+            throw Invalid(
+                key,
+                "must be an absolute HTTPS URL (HTTP is allowed only for localhost development). "
+            );
         }
 
         return uri;
     }
 
-    private static Uri RequireHttpsOrigin(
-        IConfiguration configuration,
-        string key,
-        bool allowLocalHttp)
+    private static Uri RequireHttpsOrigin(IConfiguration configuration, string key, bool allowLocalHttp)
     {
         var uri = RequireHttpsUrl(configuration, key, allowLocalHttp);
-        if (uri.AbsolutePath != "/" || !string.IsNullOrEmpty(uri.Query) || !string.IsNullOrEmpty(uri.Fragment))
+        if (
+            uri.AbsolutePath != "/"
+            || !string.IsNullOrEmpty(uri.Query)
+            || !string.IsNullOrEmpty(uri.Fragment)
+        )
         {
             throw Invalid(key, "must be an origin only, without path, query, or fragment.");
         }
@@ -136,6 +146,6 @@ public static class GitHubAppOptionsFactory
             && (uri.IsLoopback || uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase));
     }
 
-    private static InvalidOperationException Invalid(string key, string detail) => new(
-        $"Required GitHub App configuration '{key}' {detail}");
+    private static InvalidOperationException Invalid(string key, string detail) =>
+        new($"Required GitHub App configuration '{key}' {detail}");
 }

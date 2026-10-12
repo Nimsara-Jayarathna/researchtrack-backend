@@ -37,19 +37,22 @@ public sealed class ProjectRepositoryLinkConfiguration : IEntityTypeConfiguratio
         builder.Property(link => link.SyncStatus).HasMaxLength(32).IsRequired();
         builder.Property(link => link.UpdatedAt).IsRequired();
 
-        builder.HasIndex(link => new { link.ProjectId, link.Active })
+        builder
+            .HasIndex(link => new { link.ProjectId, link.Active })
             .HasDatabaseName("ix_project_repository_links_project_active");
-        builder.HasIndex(link => link.SourceId)
-            .HasDatabaseName("ix_project_repository_links_source_id");
-        builder.HasIndex(link => link.PrimaryProjectKey)
+        builder.HasIndex(link => link.SourceId).HasDatabaseName("ix_project_repository_links_source_id");
+        builder
+            .HasIndex(link => link.PrimaryProjectKey)
             .IsUnique()
             .HasDatabaseName("ux_project_repository_links_primary_project");
 
-        builder.HasOne<GitHubAccessSource>()
+        builder
+            .HasOne<GitHubAccessSource>()
             .WithMany()
             .HasForeignKey(link => link.SourceId)
             .OnDelete(DeleteBehavior.Restrict);
-        builder.HasOne<GitHubRepository>()
+        builder
+            .HasOne<GitHubRepository>()
             .WithMany()
             .HasForeignKey(link => link.GitHubRepositoryId)
             .OnDelete(DeleteBehavior.Restrict);

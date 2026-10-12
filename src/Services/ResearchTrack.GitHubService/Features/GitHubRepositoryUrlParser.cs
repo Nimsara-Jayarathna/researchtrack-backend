@@ -19,15 +19,19 @@ public static partial class GitHubRepositoryUrlParser
             input = $"https://{input}";
         }
 
-        if (!Uri.TryCreate(input, UriKind.Absolute, out var uri)
+        if (
+            !Uri.TryCreate(input, UriKind.Absolute, out var uri)
             || !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
-            || (!string.Equals(uri.Host, "github.com", StringComparison.OrdinalIgnoreCase)
-                && !string.Equals(uri.Host, "www.github.com", StringComparison.OrdinalIgnoreCase))
+            || (
+                !string.Equals(uri.Host, "github.com", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(uri.Host, "www.github.com", StringComparison.OrdinalIgnoreCase)
+            )
             || !string.IsNullOrEmpty(uri.UserInfo)
             || !uri.IsDefaultPort
             || !string.IsNullOrEmpty(uri.Query)
             || !string.IsNullOrEmpty(uri.Fragment)
-            || uri.AbsolutePath.Contains('%', StringComparison.Ordinal))
+            || uri.AbsolutePath.Contains('%', StringComparison.Ordinal)
+        )
         {
             throw InvalidUrl();
         }
@@ -45,16 +49,16 @@ public static partial class GitHubRepositoryUrlParser
             throw InvalidUrl();
         }
 
-        return new GitHubRepositoryAddress(
-            owner,
-            repository,
-            $"https://github.com/{owner}/{repository}");
+        return new GitHubRepositoryAddress(owner, repository, $"https://github.com/{owner}/{repository}");
     }
 
-    private static ApiValidationException InvalidUrl() => new(
-        [new ApiFieldError(
-            "repositoryUrl",
-            ["Enter a valid GitHub repository URL in the form https://github.com/owner/repository."])]);
+    private static ApiValidationException InvalidUrl() =>
+        new([
+            new ApiFieldError(
+                "repositoryUrl",
+                ["Enter a valid GitHub repository URL in the form https://github.com/owner/repository."]
+            ),
+        ]);
 
     [GeneratedRegex("\\.git$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex GitSuffixRegex();

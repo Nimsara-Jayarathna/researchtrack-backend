@@ -20,7 +20,8 @@ public sealed class GitHubWebhookIngressService : IGitHubWebhookIngressService
         IGitHubWebhookSignatureVerifier signatureVerifier,
         IGitHubWebhookDeliveryStore store,
         GitHubWebhookSignal signal,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider
+    )
     {
         _options = options;
         _signatureVerifier = signatureVerifier;
@@ -35,7 +36,8 @@ public sealed class GitHubWebhookIngressService : IGitHubWebhookIngressService
         string? signature,
         string? deliveryId,
         string? eventType,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         deliveryId = NormalizeHeader(deliveryId);
         eventType = NormalizeHeader(eventType)?.ToLowerInvariant();
@@ -55,7 +57,8 @@ public sealed class GitHubWebhookIngressService : IGitHubWebhookIngressService
             throw new ApiException(
                 StatusCodes.Status413PayloadTooLarge,
                 ErrorCodes.BadRequest,
-                "GitHub webhook payload exceeds the configured size limit.");
+                "GitHub webhook payload exceeds the configured size limit."
+            );
         }
 
         var payload = await ReadBoundedAsync(body, _options.MaxPayloadBytes, cancellationToken);
@@ -65,7 +68,8 @@ public sealed class GitHubWebhookIngressService : IGitHubWebhookIngressService
             throw new ApiException(
                 StatusCodes.Status401Unauthorized,
                 ErrorCodes.Unauthorized,
-                "GitHub webhook signature validation failed.");
+                "GitHub webhook signature validation failed."
+            );
         }
 
         string payloadJson;
@@ -88,7 +92,8 @@ public sealed class GitHubWebhookIngressService : IGitHubWebhookIngressService
                 StatusCodes.Status400BadRequest,
                 ErrorCodes.BadRequest,
                 "GitHub webhook payload is not valid JSON.",
-                innerException: exception);
+                innerException: exception
+            );
         }
 
         var hash = Convert.ToHexString(SHA256.HashData(payload)).ToLowerInvariant();
@@ -99,11 +104,13 @@ public sealed class GitHubWebhookIngressService : IGitHubWebhookIngressService
             installationId,
             repositoryId,
             payloadJson,
-            hash);
+            hash
+        );
         var result = await _store.AcceptAsync(
             envelope,
             _timeProvider.GetUtcNow().UtcDateTime,
-            cancellationToken);
+            cancellationToken
+        );
 
         GitHubWebhookMetrics.Received.WithLabels(eventType).Inc();
         _signal.Pulse();
@@ -113,21 +120,24 @@ public sealed class GitHubWebhookIngressService : IGitHubWebhookIngressService
     private static async Task<byte[]> ReadBoundedAsync(
         Stream body,
         int maxBytes,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         using var buffer = new MemoryStream(Math.Min(maxBytes, 64 * 1024));
         var chunk = new byte[16 * 1024];
         while (true)
         {
             var read = await body.ReadAsync(chunk.AsMemory(0, chunk.Length), cancellationToken);
-            if (read == 0) break;
+            if (read == 0)
+                break;
             if (buffer.Length + read > maxBytes)
             {
                 GitHubWebhookMetrics.Rejected.WithLabels("payload_too_large").Inc();
                 throw new ApiException(
                     StatusCodes.Status413PayloadTooLarge,
                     ErrorCodes.BadRequest,
-                    "GitHub webhook payload exceeds the configured size limit.");
+                    "GitHub webhook payload exceeds the configured size limit."
+                );
             }
             await buffer.WriteAsync(chunk.AsMemory(0, read), cancellationToken);
         }
@@ -150,18 +160,18 @@ public sealed class GitHubWebhookIngressService : IGitHubWebhookIngressService
 
     private static long? ReadNestedInt64(JsonElement root, string parent, string child)
     {
-        if (!root.TryGetProperty(parent, out var parentValue)
+        if (
+            !root.TryGetProperty(parent, out var parentValue)
             || parentValue.ValueKind != JsonValueKind.Object
             || !parentValue.TryGetProperty(child, out var childValue)
-            || !childValue.TryGetInt64(out var result))
+            || !childValue.TryGetInt64(out var result)
+        )
         {
             return null;
         }
         return result;
     }
 
-    private static ApiException BadRequest(string message) => new(
-        StatusCodes.Status400BadRequest,
-        ErrorCodes.BadRequest,
-        message);
+    private static ApiException BadRequest(string message) =>
+        new(StatusCodes.Status400BadRequest, ErrorCodes.BadRequest, message);
 }

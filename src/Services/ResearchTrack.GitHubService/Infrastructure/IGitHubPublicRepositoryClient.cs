@@ -5,5 +5,6 @@ public interface IGitHubPublicRepositoryClient
     Task<GitHubPublicRepository> GetAsync(
         string owner,
         string repository,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken
+    );
 }

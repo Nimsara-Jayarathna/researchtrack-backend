@@ -1,0 +1,83 @@
+name: Backend SonarQube Cloud Analysis
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# Avoid simultaneous scans overwriting one project's single main-branch view.
+concurrency:
+  group: backend-sonarqube-main
+  cancel-in-progress: false
+
+jobs:
+  sonar-analysis:
+    if: github.ref == 'refs/heads/main'
+    name: SonarScanner for .NET 10
+    runs-on: ubuntu-latest
+    # Environment-level secrets and variables are available only after this
+    # job has been assigned the matching GitHub Environment.
+    environment:
+      name: production
+    timeout-minutes: 60
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      SONAR_PROJECT_KEY: ${{ vars.SONAR_PROJECT_KEY }}
+      SONAR_ORGANIZATION: ${{ vars.SONAR_ORGANIZATION }}
+      SONAR_REGION: ${{ vars.SONAR_REGION }}
+      SONAR_ENFORCE_GATE: ${{ vars.SONAR_ENFORCE_GATE }}
+      DOTNET_NOLOGO: 'true'
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+
+    steps:
+      - name: Checkout full Git history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Set up Java runtime
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Validate SonarQube Cloud configuration
+        shell: bash
+        run: bash ./scripts/code-quality/sonar-cloud.sh doctor
+
+      - name: Install pinned SonarScanner for .NET
+        shell: bash
+        run: bash ./scripts/code-quality/sonar-cloud.sh setup
+
+      - name: Restore and analyze all 8 production projects
+        shell: bash
+        run: bash ./scripts/code-quality/sonar-cloud.sh scan ci
+
+      - name: Fetch completed analysis, metrics and gate status
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f artifacts/code-quality/sonar/ci/report-task.txt ]] || \
+             [[ -f .sonarqube/out/.sonar/report-task.txt ]]; then
+            bash ./scripts/code-quality/sonar-metrics.sh ci
+          else
+            echo 'Scanner did not upload an analysis; see the scan logs.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload SonarQube analysis evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-sonarqube-analysis
+          path: artifacts/code-quality/sonar/ci/
+          if-no-files-found: warn
+          retention-days: 30

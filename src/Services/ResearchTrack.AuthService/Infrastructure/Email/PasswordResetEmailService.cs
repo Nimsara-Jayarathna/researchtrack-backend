@@ -18,7 +18,8 @@ public sealed class PasswordResetEmailService : IPasswordResetEmailService
         string to,
         string resetUrl,
         int expiryMinutes,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         var safeUrl = WebUtility.HtmlEncode(resetUrl);
         var html = $"""
@@ -35,6 +36,7 @@ public sealed class PasswordResetEmailService : IPasswordResetEmailService
             to,
             $"Reset your {_options.SenderName} password",
             html,
-            cancellationToken);
+            cancellationToken
+        );
     }
 }

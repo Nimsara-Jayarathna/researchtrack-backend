@@ -19,13 +19,19 @@ public sealed class GitHubSyncStateQueryService : IGitHubSyncStateQueryService
     public async Task<GitHubSyncStateResponse> GetAsync(Guid projectId, CancellationToken cancellationToken)
     {
         await _authorization.EnsureCanViewAsync(projectId, cancellationToken);
-        var repositories = await _dbContext.ProjectRepositoryLinks
-            .AsNoTracking()
+        var repositories = await _dbContext
+            .ProjectRepositoryLinks.AsNoTracking()
             .Where(x => x.ProjectId == projectId && x.Active)
             .OrderByDescending(x => x.Primary)
             .ThenBy(x => x.LinkedAt)
             .Select(x => new GitHubRepositorySyncStateResponse(
-                x.Id, x.SyncRevision, x.SyncStatus, x.LastSyncedAt, x.Enabled, x.Primary))
+                x.Id,
+                x.SyncRevision,
+                x.SyncStatus,
+                x.LastSyncedAt,
+                x.Enabled,
+                x.Primary
+            ))
             .ToListAsync(cancellationToken);
         return new GitHubSyncStateResponse(projectId, repositories);
     }

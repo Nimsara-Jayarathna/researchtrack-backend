@@ -1,0 +1,39 @@
+name: Backend Code Quality
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+
+permissions:
+  contents: read
+
+jobs:
+  code-quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Install CSharpier
+        run: bash ./scripts/code-quality.sh setup
+
+      - name: Verify Code Quality
+        run: bash ./scripts/code-quality.sh check ci
+
+      - name: Upload Reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-code-quality
+          path: artifacts/code-quality/ci/
+          if-no-files-found: warn
+          retention-days: 14

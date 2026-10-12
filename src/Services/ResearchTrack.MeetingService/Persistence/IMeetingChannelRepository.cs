@@ -6,12 +6,10 @@ public interface IMeetingChannelRepository
 {
     Task<IReadOnlyList<MeetingChannel>> ListByProjectAsync(
         Guid projectId,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken
+    );
 
-    Task<MeetingChannel?> FindAsync(
-        Guid projectId,
-        Guid channelId,
-        CancellationToken cancellationToken);
+    Task<MeetingChannel?> FindAsync(Guid projectId, Guid channelId, CancellationToken cancellationToken);
 
     Task AddAsync(MeetingChannel channel, CancellationToken cancellationToken);
     Task SaveAsync(MeetingChannel channel, CancellationToken cancellationToken);

@@ -9,4 +9,5 @@ public sealed record SupervisorDashboardProjectResponse(
     DateTime? LastActivityAt,
     int ProgressPercent,
     int MemberCount,
-    string JiraHealthIndicator);
+    string JiraHealthIndicator
+);

@@ -7,4 +7,5 @@ public sealed record GitHubPublicRepository(
     string Name,
     string FullName,
     string HtmlUrl,
-    string? DefaultBranch);
+    string? DefaultBranch
+);

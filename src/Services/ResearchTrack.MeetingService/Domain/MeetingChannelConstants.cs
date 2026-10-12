@@ -9,13 +9,14 @@ public static class MeetingChannelConstants
     public const string StatusPending = "PENDING";
     public const string StatusApproved = "APPROVED";
 
-    public static readonly IReadOnlySet<string> SupportedPlatforms =
-        new HashSet<string>(StringComparer.Ordinal)
-        {
-            "GOOGLE_MEET",
-            "ZOOM",
-            "TEAMS",
-            "WHATSAPP",
-            "OTHER"
-        };
+    public static readonly IReadOnlySet<string> SupportedPlatforms = new HashSet<string>(
+        StringComparer.Ordinal
+    )
+    {
+        "GOOGLE_MEET",
+        "ZOOM",
+        "TEAMS",
+        "WHATSAPP",
+        "OTHER",
+    };
 }

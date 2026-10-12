@@ -18,7 +18,8 @@ public sealed class GitHubWebhookDeliveryWorker : BackgroundService
         GitHubWebhookSignal signal,
         GitHubWebhookOptions options,
         TimeProvider timeProvider,
-        ILogger<GitHubWebhookDeliveryWorker> logger)
+        ILogger<GitHubWebhookDeliveryWorker> logger
+    )
     {
         _scopeFactory = scopeFactory;
         _signal = signal;
@@ -85,10 +86,7 @@ public sealed class GitHubWebhookDeliveryWorker : BackgroundService
         }
     }
 
-
-    private async Task WaitForSignalOrDelayAsync(
-        TimeSpan delay,
-        CancellationToken cancellationToken)
+    private async Task WaitForSignalOrDelayAsync(TimeSpan delay, CancellationToken cancellationToken)
     {
         using var wakeCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var signalTask = _signal.WaitAsync(wakeCancellation.Token);
@@ -116,7 +114,8 @@ public sealed class GitHubWebhookDeliveryWorker : BackgroundService
                 var store = scope.ServiceProvider.GetRequiredService<IGitHubWebhookDeliveryStore>();
                 delivery = await store.TryClaimNextDueAsync(
                     _timeProvider.GetUtcNow().UtcDateTime,
-                    cancellationToken);
+                    cancellationToken
+                );
             }
 
             if (delivery is null)
@@ -129,9 +128,7 @@ public sealed class GitHubWebhookDeliveryWorker : BackgroundService
         return processedAny;
     }
 
-    private async Task ProcessOneAsync(
-        GitHubWebhookDelivery delivery,
-        CancellationToken cancellationToken)
+    private async Task ProcessOneAsync(GitHubWebhookDelivery delivery, CancellationToken cancellationToken)
     {
         var started = _timeProvider.GetUtcNow().UtcDateTime;
         var stopwatch = Stopwatch.StartNew();
@@ -142,7 +139,8 @@ public sealed class GitHubWebhookDeliveryWorker : BackgroundService
             using var scope = _scopeFactory.CreateScope();
             var processor = scope.ServiceProvider.GetRequiredService<IGitHubWebhookEventProcessor>();
             var store = scope.ServiceProvider.GetRequiredService<IGitHubWebhookDeliveryStore>();
-            var synchronization = scope.ServiceProvider.GetRequiredService<IGitHubRepositorySynchronizationService>();
+            var synchronization =
+                scope.ServiceProvider.GetRequiredService<IGitHubRepositorySynchronizationService>();
 
             var plan = await processor.ProcessAsync(delivery, cancellationToken);
             if (!plan.Ignored)
@@ -152,19 +150,21 @@ public sealed class GitHubWebhookDeliveryWorker : BackgroundService
                     var outcome = await synchronization.SynchronizeAsync(
                         linkedRepositoryId,
                         GitHubSyncTriggers.Webhook,
-                        cancellationToken);
+                        cancellationToken
+                    );
                     if (outcome == GitHubSynchronizationOutcome.AlreadyRunning)
                     {
                         throw new InvalidOperationException(
-                            "A linked repository is already synchronizing; this webhook will be retried so the newer GitHub state is not lost.");
+                            "A linked repository is already synchronizing; this webhook will be retried so the newer GitHub state is not lost."
+                        );
                     }
                 }
             }
 
             var completedAt = _timeProvider.GetUtcNow().UtcDateTime;
             await store.MarkProcessedAsync(delivery.Id, plan.Ignored, completedAt, cancellationToken);
-            GitHubWebhookMetrics.Processed
-                .WithLabels(delivery.EventType, plan.Ignored ? "ignored" : "processed")
+            GitHubWebhookMetrics
+                .Processed.WithLabels(delivery.EventType, plan.Ignored ? "ignored" : "processed")
                 .Inc();
             _logger.LogInformation(
                 "GitHub webhook delivery processed. DeliveryId={DeliveryId} Event={EventType} Action={Action} Ignored={Ignored} SyncTargets={SyncTargetCount} DurationMs={DurationMs}",
@@ -173,7 +173,8 @@ public sealed class GitHubWebhookDeliveryWorker : BackgroundService
                 delivery.Action,
                 plan.Ignored,
                 plan.LinkedRepositoryIds.Count,
-                (completedAt - started).TotalMilliseconds);
+                (completedAt - started).TotalMilliseconds
+            );
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -204,8 +205,8 @@ public sealed class GitHubWebhookDeliveryWorker : BackgroundService
             finally
             {
                 stopwatch.Stop();
-                GitHubWebhookMetrics.ProcessingDuration
-                    .WithLabels(delivery.EventType)
+                GitHubWebhookMetrics
+                    .ProcessingDuration.WithLabels(delivery.EventType)
                     .Observe(stopwatch.Elapsed.TotalSeconds);
             }
         }
@@ -225,7 +226,8 @@ public sealed class GitHubWebhookDeliveryWorker : BackgroundService
                 await store.RenewProcessingLeaseAsync(
                     deliveryId,
                     _timeProvider.GetUtcNow().UtcDateTime,
-                    cancellationToken);
+                    cancellationToken
+                );
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -239,7 +241,8 @@ public sealed class GitHubWebhookDeliveryWorker : BackgroundService
                 _logger.LogWarning(
                     exception,
                     "Unable to renew GitHub webhook processing lease. DeliveryRecordId={DeliveryRecordId}",
-                    deliveryId);
+                    deliveryId
+                );
             }
         }
     }
@@ -248,29 +251,23 @@ public sealed class GitHubWebhookDeliveryWorker : BackgroundService
         GitHubWebhookDelivery delivery,
         Exception exception,
         bool permanent,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         var now = _timeProvider.GetUtcNow().UtcDateTime;
         var exhausted = delivery.AttemptCount >= _options.MaxAttempts;
-        var nextAttempt = permanent || exhausted
-            ? (DateTime?)null
-            : now + RetryDelay(delivery.AttemptCount);
+        var nextAttempt = permanent || exhausted ? (DateTime?)null : now + RetryDelay(delivery.AttemptCount);
 
         using var scope = _scopeFactory.CreateScope();
         var store = scope.ServiceProvider.GetRequiredService<IGitHubWebhookDeliveryStore>();
-        await store.MarkFailedAsync(
-            delivery.Id,
-            exception.Message,
-            now,
-            nextAttempt,
-            cancellationToken);
+        await store.MarkFailedAsync(delivery.Id, exception.Message, now, nextAttempt, cancellationToken);
         if (nextAttempt.HasValue)
         {
             _signal.Pulse();
         }
 
-        GitHubWebhookMetrics.Processed
-            .WithLabels(delivery.EventType, nextAttempt.HasValue ? "retry" : "failed")
+        GitHubWebhookMetrics
+            .Processed.WithLabels(delivery.EventType, nextAttempt.HasValue ? "retry" : "failed")
             .Inc();
         _logger.LogError(
             exception,
@@ -281,15 +278,17 @@ public sealed class GitHubWebhookDeliveryWorker : BackgroundService
             delivery.AttemptCount,
             _options.MaxAttempts,
             permanent,
-            nextAttempt);
+            nextAttempt
+        );
     }
 
-    private static TimeSpan RetryDelay(int attempt) => attempt switch
-    {
-        <= 1 => TimeSpan.FromSeconds(30),
-        2 => TimeSpan.FromMinutes(2),
-        3 => TimeSpan.FromMinutes(10),
-        4 => TimeSpan.FromMinutes(30),
-        _ => TimeSpan.FromHours(1)
-    };
+    private static TimeSpan RetryDelay(int attempt) =>
+        attempt switch
+        {
+            <= 1 => TimeSpan.FromSeconds(30),
+            2 => TimeSpan.FromMinutes(2),
+            3 => TimeSpan.FromMinutes(10),
+            4 => TimeSpan.FromMinutes(30),
+            _ => TimeSpan.FromHours(1),
+        };
 }

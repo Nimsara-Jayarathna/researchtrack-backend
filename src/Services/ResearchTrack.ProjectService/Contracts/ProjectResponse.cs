@@ -13,4 +13,5 @@ public sealed record ProjectResponse(
     ProjectUserResponse? Supervisor,
     ProjectUserResponse? Leader,
     IReadOnlyList<ProjectMemberResponse> Members,
-    IReadOnlyList<ProjectMilestoneResponse> Milestones);
+    IReadOnlyList<ProjectMilestoneResponse> Milestones
+);

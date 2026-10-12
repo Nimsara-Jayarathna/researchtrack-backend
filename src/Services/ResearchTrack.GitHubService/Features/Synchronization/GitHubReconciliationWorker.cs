@@ -13,7 +13,8 @@ public sealed class GitHubReconciliationWorker : BackgroundService
         IServiceScopeFactory scopeFactory,
         GitHubReconciliationOptions options,
         TimeProvider timeProvider,
-        ILogger<GitHubReconciliationWorker> logger)
+        ILogger<GitHubReconciliationWorker> logger
+    )
     {
         _scopeFactory = scopeFactory;
         _options = options;
@@ -27,7 +28,8 @@ public sealed class GitHubReconciliationWorker : BackgroundService
     {
         _logger.LogInformation(
             "GitHub reconciliation worker started. IntervalMinutes={IntervalMinutes}",
-            _options.Interval.TotalMinutes);
+            _options.Interval.TotalMinutes
+        );
 
         await RunCycleAsync(stoppingToken);
 
@@ -63,7 +65,8 @@ public sealed class GitHubReconciliationWorker : BackgroundService
                 result.EligibleLinks,
                 result.CheckedLinks,
                 result.QueuedLinks,
-                result.FailedChecks);
+                result.FailedChecks
+            );
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

@@ -5,4 +5,5 @@ namespace ResearchTrack.GitHubService.Infrastructure;
 
 public sealed record RepositoryLinkPersistenceResult(
     ProjectGitHubRepositoriesResponse Response,
-    IReadOnlyList<InitialRepositorySyncRequest> SyncRequests);
+    IReadOnlyList<InitialRepositorySyncRequest> SyncRequests
+);

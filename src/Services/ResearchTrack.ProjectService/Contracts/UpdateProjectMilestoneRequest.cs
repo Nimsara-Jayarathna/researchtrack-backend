@@ -4,4 +4,5 @@ public sealed record UpdateProjectMilestoneRequest(
     string? Title,
     string? Description,
     DateOnly? DueDate,
-    string? Status);
+    string? Status
+);

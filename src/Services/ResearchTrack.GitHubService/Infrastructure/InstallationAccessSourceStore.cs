@@ -22,7 +22,8 @@ public sealed class InstallationAccessSourceStore : IInstallationAccessSourceSto
         GitHubInstallationInfo installation,
         string accessType,
         DateTime now,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         if (!GitHubAccessTypes.IsGitHubAppBacked(accessType))
         {
@@ -30,10 +31,12 @@ public sealed class InstallationAccessSourceStore : IInstallationAccessSourceSto
         }
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
         var existing = await dbContext.AccessSources.SingleOrDefaultAsync(
-            source => source.ProjectId == projectId
+            source =>
+                source.ProjectId == projectId
                 && source.InstallationId == installation.InstallationId
                 && source.Active,
-            cancellationToken);
+            cancellationToken
+        );
         if (existing is not null)
         {
             existing.OwnerLogin = installation.OwnerLogin;
@@ -64,7 +67,7 @@ public sealed class InstallationAccessSourceStore : IInstallationAccessSourceSto
             Active = true,
             ActiveInstallationKey = activeInstallationKey,
             CreatedAt = now,
-            UpdatedAt = now
+            UpdatedAt = now,
         };
 
         dbContext.AccessSources.Add(source);
@@ -77,11 +80,15 @@ public sealed class InstallationAccessSourceStore : IInstallationAccessSourceSto
             // Another callback may have completed the same installation between
             // our initial read and insert. Treat that race as idempotent.
             dbContext.ChangeTracker.Clear();
-            var raced = await dbContext.AccessSources.AsNoTracking().SingleOrDefaultAsync(
-                item => item.ProjectId == projectId
-                    && item.InstallationId == installation.InstallationId
-                    && item.Active,
-                cancellationToken);
+            var raced = await dbContext
+                .AccessSources.AsNoTracking()
+                .SingleOrDefaultAsync(
+                    item =>
+                        item.ProjectId == projectId
+                        && item.InstallationId == installation.InstallationId
+                        && item.Active,
+                    cancellationToken
+                );
             if (raced is not null)
             {
                 return raced.Id;
@@ -91,7 +98,8 @@ public sealed class InstallationAccessSourceStore : IInstallationAccessSourceSto
                 StatusCodes.Status409Conflict,
                 ErrorCodes.Conflict,
                 "An active GitHub App installation source already exists for this project.",
-                innerException: exception);
+                innerException: exception
+            );
         }
         return source.Id;
     }
@@ -100,8 +108,10 @@ public sealed class InstallationAccessSourceStore : IInstallationAccessSourceSto
     {
         for (Exception? current = exception; current is not null; current = current.InnerException)
         {
-            if (current.Message.Contains("Duplicate entry", StringComparison.OrdinalIgnoreCase)
-                || current.Message.Contains("duplicate key", StringComparison.OrdinalIgnoreCase))
+            if (
+                current.Message.Contains("Duplicate entry", StringComparison.OrdinalIgnoreCase)
+                || current.Message.Contains("duplicate key", StringComparison.OrdinalIgnoreCase)
+            )
             {
                 return true;
             }

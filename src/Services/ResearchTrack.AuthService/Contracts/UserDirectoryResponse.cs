@@ -6,4 +6,5 @@ public sealed record UserDirectoryResponse(
     string LastName,
     string Email,
     string? RegistrationNumber,
-    string Role);
+    string Role
+);

@@ -6,5 +6,6 @@ public interface IGitHubInstallationRepositoryInventoryService
 {
     Task<GitHubAvailableRepositoriesResponse?> TryRefreshAsync(
         Guid sourceId,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken
+    );
 }

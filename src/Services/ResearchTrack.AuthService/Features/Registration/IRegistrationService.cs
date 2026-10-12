@@ -9,7 +9,14 @@ public interface IRegistrationService
 
     // Multi-step registration flow used by the ResearchTrack web client.
     Task InitRegistrationAsync(string? email, CancellationToken cancellationToken);
-    Task<RegisterVerifyResponse> VerifyOtpAsync(string? email, string? otp, CancellationToken cancellationToken);
-    Task<RegistrationCompletionResult> CompleteRegistrationAsync(RegisterCompleteRequest request, CancellationToken cancellationToken);
+    Task<RegisterVerifyResponse> VerifyOtpAsync(
+        string? email,
+        string? otp,
+        CancellationToken cancellationToken
+    );
+    Task<RegistrationCompletionResult> CompleteRegistrationAsync(
+        RegisterCompleteRequest request,
+        CancellationToken cancellationToken
+    );
     Task CleanupExpiredSessionsAndOtpsAsync(CancellationToken cancellationToken);
 }

@@ -1,0 +1,20 @@
+# Production C# policy. This file is intentionally scoped to src/; it does
+# not affect tests or any other testing paradigm.
+[*.cs]
+# CSharpier, not dotnet format whitespace, owns C# layout and line wrapping.
+dotnet_diagnostic.IDE0055.severity = none
+
+# Preserve the repository's original var preferences in root .editorconfig,
+# but do not force bulk var -> explicit-type rewrites in quality checks.
+dotnet_diagnostic.IDE0007.severity = none
+dotnet_diagnostic.IDE0008.severity = none
+
+# Safe, mechanically fixable IDE checks. These are verified explicitly with
+# dotnet format style --diagnostics; not promoted into build-wide warnings.
+dotnet_diagnostic.IDE0005.severity = suggestion
+dotnet_diagnostic.IDE0065.severity = suggestion
+csharp_using_directive_placement = outside_namespace:suggestion
+
+# Consistent project naming and import ordering preferences.
+dotnet_sort_system_directives_first = true
+dotnet_separate_import_directive_groups = false

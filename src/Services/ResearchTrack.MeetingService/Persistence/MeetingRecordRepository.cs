@@ -14,15 +14,15 @@ public sealed class MeetingRecordRepository : IMeetingRecordRepository
 
     public async Task<IReadOnlyList<MeetingRecord>> ListByProjectAsync(
         Guid projectId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
-        return await db.MeetingRecords
-            .AsNoTracking()
+        return await db
+            .MeetingRecords.AsNoTracking()
             .Where(record => record.ProjectId == projectId)
-            .OrderBy(record =>
-                record.Status == MeetingRecordConstants.StatusPending ? 0 : 1)
+            .OrderBy(record => record.Status == MeetingRecordConstants.StatusPending ? 0 : 1)
             .ThenByDescending(record => record.MeetingDate)
             .ThenByDescending(record => record.CreatedAt)
             .ThenBy(record => record.Id)
@@ -32,13 +32,15 @@ public sealed class MeetingRecordRepository : IMeetingRecordRepository
     public async Task<MeetingRecord?> FindAsync(
         Guid projectId,
         Guid recordId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
         return await db.MeetingRecords.SingleOrDefaultAsync(
             record => record.Id == recordId && record.ProjectId == projectId,
-            cancellationToken);
+            cancellationToken
+        );
     }
 
     public async Task AddAsync(MeetingRecord record, CancellationToken cancellationToken)

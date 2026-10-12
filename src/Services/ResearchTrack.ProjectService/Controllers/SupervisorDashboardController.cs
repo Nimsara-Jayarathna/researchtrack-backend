@@ -17,23 +17,20 @@ public sealed class SupervisorDashboardController : ApiControllerBase
 {
     private readonly ISupervisorDashboardService _dashboardService;
 
-    public SupervisorDashboardController(
-        ISupervisorDashboardService dashboardService)
+    public SupervisorDashboardController(ISupervisorDashboardService dashboardService)
     {
         _dashboardService = dashboardService;
     }
 
     [HttpGet]
-    [ProducesResponseType<ApiResponse<SupervisorDashboardResponse>>(
-        StatusCodes.Status200OK)]
+    [ProducesResponseType<ApiResponse<SupervisorDashboardResponse>>(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<ApiResponse<SupervisorDashboardResponse>>> Get(
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
-        var dashboard = await _dashboardService.GetAsync(
-            GetRequiredUserId(),
-            cancellationToken);
+        var dashboard = await _dashboardService.GetAsync(GetRequiredUserId(), cancellationToken);
 
         return ApiOk(dashboard);
     }
@@ -48,8 +45,6 @@ public sealed class SupervisorDashboardController : ApiControllerBase
         return userId;
     }
 
-    private static ApiException CreateUnauthorizedException() => new(
-        StatusCodes.Status401Unauthorized,
-        ErrorCodes.Unauthorized,
-        "Authentication is required.");
+    private static ApiException CreateUnauthorizedException() =>
+        new(StatusCodes.Status401Unauthorized, ErrorCodes.Unauthorized, "Authentication is required.");
 }

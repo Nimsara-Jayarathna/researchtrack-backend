@@ -20,7 +20,8 @@ public sealed class GitHubWebhookEventProcessor : IGitHubWebhookEventProcessor
         IGitHubInstallationRepositoryInventoryService inventoryService,
         IGitHubAppClient gitHubAppClient,
         TimeProvider timeProvider,
-        ILogger<GitHubWebhookEventProcessor> logger)
+        ILogger<GitHubWebhookEventProcessor> logger
+    )
     {
         _dbContextFactory = dbContextFactory;
         _inventoryService = inventoryService;
@@ -31,7 +32,8 @@ public sealed class GitHubWebhookEventProcessor : IGitHubWebhookEventProcessor
 
     public async Task<GitHubWebhookProcessingPlan> ProcessAsync(
         GitHubWebhookDelivery delivery,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         using var document = Parse(delivery.PayloadJson);
         var root = document.RootElement;
@@ -44,31 +46,41 @@ public sealed class GitHubWebhookEventProcessor : IGitHubWebhookEventProcessor
             "pull_request" or "pull_request_review" or "pull_request_review_comment" =>
                 await ProcessRepositorySyncEventAsync(delivery, root, cancellationToken),
             "repository" => await ProcessRepositoryEventAsync(delivery, root, cancellationToken),
-            "installation_repositories" => await ProcessInstallationRepositoriesAsync(delivery, root, cancellationToken),
+            "installation_repositories" => await ProcessInstallationRepositoriesAsync(
+                delivery,
+                root,
+                cancellationToken
+            ),
             "installation" => await ProcessInstallationAsync(delivery, root, cancellationToken),
-            _ => GitHubWebhookProcessingPlan.Ignore($"unsupported_event:{eventType}")
+            _ => GitHubWebhookProcessingPlan.Ignore($"unsupported_event:{eventType}"),
         };
     }
 
     private async Task<GitHubWebhookProcessingPlan> ProcessPushAsync(
         GitHubWebhookDelivery delivery,
         JsonElement root,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         var installationId = RequireInstallationId(delivery);
         var repository = RequireRepository(root);
         await UpdateRepositoryMetadataFromWebhookAsync(installationId, repository, cancellationToken);
 
         var reference = ReadString(root, "ref");
-        if (string.IsNullOrWhiteSpace(reference) || !reference.StartsWith("refs/heads/", StringComparison.Ordinal))
+        if (
+            string.IsNullOrWhiteSpace(reference)
+            || !reference.StartsWith("refs/heads/", StringComparison.Ordinal)
+        )
         {
             return GitHubWebhookProcessingPlan.Ignore("push_without_branch_ref");
         }
 
         var links = await LoadEligibleLinksAsync(installationId, repository.Id, cancellationToken);
         var selected = links
-            .Where(link => !string.IsNullOrWhiteSpace(link.DefaultBranch)
-                && string.Equals(reference, $"refs/heads/{link.DefaultBranch}", StringComparison.Ordinal))
+            .Where(link =>
+                !string.IsNullOrWhiteSpace(link.DefaultBranch)
+                && string.Equals(reference, $"refs/heads/{link.DefaultBranch}", StringComparison.Ordinal)
+            )
             .Select(link => link.Id)
             .Distinct()
             .ToList();
@@ -81,7 +93,8 @@ public sealed class GitHubWebhookEventProcessor : IGitHubWebhookEventProcessor
     private async Task<GitHubWebhookProcessingPlan> ProcessRepositorySyncEventAsync(
         GitHubWebhookDelivery delivery,
         JsonElement root,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         var installationId = RequireInstallationId(delivery);
         var repository = RequireRepository(root);
@@ -95,7 +108,8 @@ public sealed class GitHubWebhookEventProcessor : IGitHubWebhookEventProcessor
     private async Task<GitHubWebhookProcessingPlan> ProcessRepositoryEventAsync(
         GitHubWebhookDelivery delivery,
         JsonElement root,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         var installationId = RequireInstallationId(delivery);
         var repository = RequireRepository(root);
@@ -117,7 +131,8 @@ public sealed class GitHubWebhookEventProcessor : IGitHubWebhookEventProcessor
     private async Task<GitHubWebhookProcessingPlan> ProcessInstallationRepositoriesAsync(
         GitHubWebhookDelivery delivery,
         JsonElement root,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         var installationId = RequireInstallationId(delivery);
         // installation_repositories is not authoritative for the installation
@@ -135,9 +150,9 @@ public sealed class GitHubWebhookEventProcessor : IGitHubWebhookEventProcessor
         await RefreshInstallationInventoriesAsync(installationId, cancellationToken);
         if (addedIds.Count == 0)
         {
-            return GitHubWebhookProcessingPlan.Ignore(removedIds.Count > 0
-                ? "repository_access_removed"
-                : "installation_repository_scope_unchanged");
+            return GitHubWebhookProcessingPlan.Ignore(
+                removedIds.Count > 0 ? "repository_access_removed" : "installation_repository_scope_unchanged"
+            );
         }
 
         var links = await LoadEligibleLinksAsync(installationId, repositoryId: null, cancellationToken);
@@ -155,10 +170,12 @@ public sealed class GitHubWebhookEventProcessor : IGitHubWebhookEventProcessor
     private async Task<GitHubWebhookProcessingPlan> ProcessInstallationAsync(
         GitHubWebhookDelivery delivery,
         JsonElement root,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         var installationId = RequireInstallationId(delivery);
-        var action = delivery.Action?.ToLowerInvariant()
+        var action =
+            delivery.Action?.ToLowerInvariant()
             ?? throw new GitHubWebhookPermanentException("Installation webhook is missing its action.");
 
         switch (action)
@@ -168,7 +185,8 @@ public sealed class GitHubWebhookEventProcessor : IGitHubWebhookEventProcessor
                     installationId,
                     GitHubConnectionStatuses.Removed,
                     clearInstallationKey: true,
-                    cancellationToken);
+                    cancellationToken
+                );
                 await MarkAllInstallationRepositoriesUnavailableAsync(installationId, cancellationToken);
                 return GitHubWebhookProcessingPlan.Ignore("installation_deleted");
 
@@ -177,7 +195,8 @@ public sealed class GitHubWebhookEventProcessor : IGitHubWebhookEventProcessor
                     installationId,
                     GitHubConnectionStatuses.Suspended,
                     clearInstallationKey: false,
-                    cancellationToken);
+                    cancellationToken
+                );
                 return GitHubWebhookProcessingPlan.Ignore("installation_suspended");
 
             case "unsuspend":
@@ -187,14 +206,18 @@ public sealed class GitHubWebhookEventProcessor : IGitHubWebhookEventProcessor
                 // lifecycle state. This prevents a delayed/duplicated lifecycle
                 // event from reopening a source after the installation has
                 // already been deleted at GitHub.
-                var installation = await _gitHubAppClient.GetInstallationAsync(installationId, cancellationToken);
+                var installation = await _gitHubAppClient.GetInstallationAsync(
+                    installationId,
+                    cancellationToken
+                );
                 if (installation.Suspended)
                 {
                     await SetInstallationConnectionStatusAsync(
                         installationId,
                         GitHubConnectionStatuses.Suspended,
                         clearInstallationKey: false,
-                        cancellationToken);
+                        cancellationToken
+                    );
                     return GitHubWebhookProcessingPlan.Ignore("installation_still_suspended");
                 }
 
@@ -202,13 +225,18 @@ public sealed class GitHubWebhookEventProcessor : IGitHubWebhookEventProcessor
                     installationId,
                     GitHubConnectionStatuses.Connected,
                     clearInstallationKey: false,
-                    cancellationToken);
+                    cancellationToken
+                );
                 var refreshed = await RefreshInstallationInventoriesAsync(installationId, cancellationToken);
                 if (!refreshed)
                 {
                     return GitHubWebhookProcessingPlan.Ignore("installation_not_managed_by_researchtrack");
                 }
-                var links = await LoadEligibleLinksAsync(installationId, repositoryId: null, cancellationToken);
+                var links = await LoadEligibleLinksAsync(
+                    installationId,
+                    repositoryId: null,
+                    cancellationToken
+                );
                 return links.Count == 0
                     ? GitHubWebhookProcessingPlan.Ignore("installation_has_no_enabled_links")
                     : GitHubWebhookProcessingPlan.Process(links.Select(link => link.Id).Distinct().ToList());
@@ -217,7 +245,8 @@ public sealed class GitHubWebhookEventProcessor : IGitHubWebhookEventProcessor
                 _logger.LogDebug(
                     "Ignoring GitHub installation action. InstallationId={InstallationId} Action={Action}",
                     installationId,
-                    action);
+                    action
+                );
                 return GitHubWebhookProcessingPlan.Ignore($"unsupported_installation_action:{action}");
         }
     }
@@ -225,17 +254,20 @@ public sealed class GitHubWebhookEventProcessor : IGitHubWebhookEventProcessor
     private async Task UpdateRepositoryMetadataFromWebhookAsync(
         long installationId,
         RepositoryPayload repository,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         var now = _timeProvider.GetUtcNow().UtcDateTime;
         await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
         var repositories = await (
             from item in db.Repositories
             join source in db.AccessSources on item.SourceId equals source.Id
-            where source.Active
+            where
+                source.Active
                 && source.InstallationId == installationId
                 && item.GitHubRepositoryId == repository.Id
-            select item).ToListAsync(cancellationToken);
+            select item
+        ).ToListAsync(cancellationToken);
 
         foreach (var item in repositories)
         {
@@ -253,11 +285,13 @@ public sealed class GitHubWebhookEventProcessor : IGitHubWebhookEventProcessor
         var links = await (
             from link in db.ProjectRepositoryLinks
             join source in db.AccessSources on link.SourceId equals source.Id
-            where link.Active
+            where
+                link.Active
                 && source.Active
                 && source.InstallationId == installationId
                 && link.GitHubRepoId == repository.Id
-            select link).ToListAsync(cancellationToken);
+            select link
+        ).ToListAsync(cancellationToken);
         foreach (var link in links)
         {
             link.FullName = repository.FullName;
@@ -274,17 +308,20 @@ public sealed class GitHubWebhookEventProcessor : IGitHubWebhookEventProcessor
     private async Task MarkRepositoryUnavailableAsync(
         long installationId,
         long repositoryId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         var now = _timeProvider.GetUtcNow().UtcDateTime;
         await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
         var repositories = await (
             from item in db.Repositories
             join source in db.AccessSources on item.SourceId equals source.Id
-            where source.Active
+            where
+                source.Active
                 && source.InstallationId == installationId
                 && item.GitHubRepositoryId == repositoryId
-            select item).ToListAsync(cancellationToken);
+            select item
+        ).ToListAsync(cancellationToken);
         foreach (var repository in repositories)
         {
             repository.Available = false;
@@ -295,7 +332,8 @@ public sealed class GitHubWebhookEventProcessor : IGitHubWebhookEventProcessor
 
     private async Task MarkAllInstallationRepositoriesUnavailableAsync(
         long installationId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         var now = _timeProvider.GetUtcNow().UtcDateTime;
         await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
@@ -303,7 +341,8 @@ public sealed class GitHubWebhookEventProcessor : IGitHubWebhookEventProcessor
             from item in db.Repositories
             join source in db.AccessSources on item.SourceId equals source.Id
             where source.Active && source.InstallationId == installationId
-            select item).ToListAsync(cancellationToken);
+            select item
+        ).ToListAsync(cancellationToken);
         foreach (var repository in repositories)
         {
             repository.Available = false;
@@ -316,17 +355,19 @@ public sealed class GitHubWebhookEventProcessor : IGitHubWebhookEventProcessor
         long installationId,
         string status,
         bool clearInstallationKey,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         var now = _timeProvider.GetUtcNow().UtcDateTime;
         await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-        var sources = await db.AccessSources
-            .Where(source => source.Active && source.InstallationId == installationId)
+        var sources = await db
+            .AccessSources.Where(source => source.Active && source.InstallationId == installationId)
             .ToListAsync(cancellationToken);
         foreach (var source in sources)
         {
             source.ConnectionStatus = status;
-            if (clearInstallationKey) source.ActiveInstallationKey = null;
+            if (clearInstallationKey)
+                source.ActiveInstallationKey = null;
             source.UpdatedAt = now;
         }
         await db.SaveChangesAsync(cancellationToken);
@@ -334,16 +375,21 @@ public sealed class GitHubWebhookEventProcessor : IGitHubWebhookEventProcessor
 
     private async Task<bool> RefreshInstallationInventoriesAsync(
         long installationId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-        var sourceIds = await db.AccessSources.AsNoTracking()
-            .Where(source => source.Active
+        var sourceIds = await db
+            .AccessSources.AsNoTracking()
+            .Where(source =>
+                source.Active
                 && source.InstallationId == installationId
-                && source.ConnectionStatus == GitHubConnectionStatuses.Connected)
+                && source.ConnectionStatus == GitHubConnectionStatuses.Connected
+            )
             .Select(source => source.Id)
             .ToListAsync(cancellationToken);
-        if (sourceIds.Count == 0) return false;
+        if (sourceIds.Count == 0)
+            return false;
 
         foreach (var sourceId in sourceIds)
         {
@@ -355,14 +401,16 @@ public sealed class GitHubWebhookEventProcessor : IGitHubWebhookEventProcessor
     private async Task<List<EligibleLink>> LoadEligibleLinksAsync(
         long installationId,
         long? repositoryId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
         var query =
             from link in db.ProjectRepositoryLinks.AsNoTracking()
             join source in db.AccessSources.AsNoTracking() on link.SourceId equals source.Id
             join repository in db.Repositories.AsNoTracking() on link.GitHubRepositoryId equals repository.Id
-            where link.Active
+            where
+                link.Active
                 && link.Enabled
                 && source.Active
                 && source.InstallationId == installationId
@@ -372,7 +420,7 @@ public sealed class GitHubWebhookEventProcessor : IGitHubWebhookEventProcessor
             {
                 link.Id,
                 link.GitHubRepoId,
-                link.DefaultBranch
+                link.DefaultBranch,
             };
 
         if (repositoryId.HasValue)
@@ -394,44 +442,57 @@ public sealed class GitHubWebhookEventProcessor : IGitHubWebhookEventProcessor
         }
         catch (JsonException exception)
         {
-            throw new GitHubWebhookPermanentException($"Stored GitHub webhook JSON is invalid: {exception.Message}");
+            throw new GitHubWebhookPermanentException(
+                $"Stored GitHub webhook JSON is invalid: {exception.Message}"
+            );
         }
     }
 
     private static long RequireInstallationId(GitHubWebhookDelivery delivery) =>
         delivery.InstallationId is > 0
             ? delivery.InstallationId.Value
-            : throw new GitHubWebhookPermanentException("GitHub webhook does not include a valid installation id.");
+            : throw new GitHubWebhookPermanentException(
+                "GitHub webhook does not include a valid installation id."
+            );
 
     private static RepositoryPayload RequireRepository(JsonElement root)
     {
-        if (!root.TryGetProperty("repository", out var repository)
-            || repository.ValueKind != JsonValueKind.Object)
+        if (
+            !root.TryGetProperty("repository", out var repository)
+            || repository.ValueKind != JsonValueKind.Object
+        )
         {
             throw new GitHubWebhookPermanentException("GitHub webhook does not include repository metadata.");
         }
-        var id = ReadInt64(repository, "id")
+        var id =
+            ReadInt64(repository, "id")
             ?? throw new GitHubWebhookPermanentException("GitHub repository id is missing.");
-        var name = ReadString(repository, "name")
+        var name =
+            ReadString(repository, "name")
             ?? throw new GitHubWebhookPermanentException("GitHub repository name is missing.");
-        var fullName = ReadString(repository, "full_name")
+        var fullName =
+            ReadString(repository, "full_name")
             ?? throw new GitHubWebhookPermanentException("GitHub repository full name is missing.");
-        var htmlUrl = ReadString(repository, "html_url")
+        var htmlUrl =
+            ReadString(repository, "html_url")
             ?? throw new GitHubWebhookPermanentException("GitHub repository URL is missing.");
         var defaultBranch = ReadString(repository, "default_branch");
         string ownerLogin;
-        if (repository.TryGetProperty("owner", out var owner)
-            && owner.ValueKind == JsonValueKind.Object)
+        if (repository.TryGetProperty("owner", out var owner) && owner.ValueKind == JsonValueKind.Object)
         {
-            ownerLogin = ReadString(owner, "login")
+            ownerLogin =
+                ReadString(owner, "login")
                 ?? throw new GitHubWebhookPermanentException("GitHub repository owner login is missing.");
         }
         else
         {
             var slash = fullName.IndexOf('/');
-            ownerLogin = slash > 0
-                ? fullName[..slash]
-                : throw new GitHubWebhookPermanentException("GitHub repository owner metadata is missing.");
+            ownerLogin =
+                slash > 0
+                    ? fullName[..slash]
+                    : throw new GitHubWebhookPermanentException(
+                        "GitHub repository owner metadata is missing."
+                    );
         }
         return new RepositoryPayload(id, name, fullName, ownerLogin, defaultBranch, htmlUrl);
     }
@@ -445,11 +506,13 @@ public sealed class GitHubWebhookEventProcessor : IGitHubWebhookEventProcessor
         }
         foreach (var item in array.EnumerateArray())
         {
-            if (item.ValueKind == JsonValueKind.Object
+            if (
+                item.ValueKind == JsonValueKind.Object
                 && item.TryGetProperty("id", out var id)
                 && id.ValueKind == JsonValueKind.Number
                 && id.TryGetInt64(out var value)
-                && value > 0)
+                && value > 0
+            )
             {
                 result.Add(value);
             }
@@ -475,7 +538,8 @@ public sealed class GitHubWebhookEventProcessor : IGitHubWebhookEventProcessor
         string FullName,
         string OwnerLogin,
         string? DefaultBranch,
-        string HtmlUrl);
+        string HtmlUrl
+    );
 
     private sealed record EligibleLink(Guid Id, long GitHubRepoId, string? DefaultBranch);
 }

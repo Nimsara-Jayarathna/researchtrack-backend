@@ -29,19 +29,27 @@ public sealed class PerformanceRateLimitPolicy
 
         var ip = configuration["RateLimiting:PerformanceTest:AllowedIp"];
         var token = configuration["RateLimiting:PerformanceTest:Token"];
-        if (!IPAddress.TryParse(ip, out var allowedIp) ||
-            IPAddress.Any.Equals(allowedIp) || IPAddress.IPv6Any.Equals(allowedIp) ||
-            IPAddress.IsLoopback(allowedIp))
+        if (
+            !IPAddress.TryParse(ip, out var allowedIp)
+            || IPAddress.Any.Equals(allowedIp)
+            || IPAddress.IPv6Any.Equals(allowedIp)
+            || IPAddress.IsLoopback(allowedIp)
+        )
         {
             throw new InvalidOperationException(
-                "RateLimiting:PerformanceTest:AllowedIp must be one explicit, non-loopback IP address.");
+                "RateLimiting:PerformanceTest:AllowedIp must be one explicit, non-loopback IP address."
+            );
         }
 
-        if (string.IsNullOrWhiteSpace(token) || token.Length < 32 ||
-            token.Contains("CHANGE_ME", StringComparison.OrdinalIgnoreCase))
+        if (
+            string.IsNullOrWhiteSpace(token)
+            || token.Length < 32
+            || token.Contains("CHANGE_ME", StringComparison.OrdinalIgnoreCase)
+        )
         {
             throw new InvalidOperationException(
-                "RateLimiting:PerformanceTest:Token must be a non-placeholder secret of at least 32 characters.");
+                "RateLimiting:PerformanceTest:Token must be a non-placeholder secret of at least 32 characters."
+            );
         }
 
         _allowedIp = Normalize(allowedIp);
@@ -50,9 +58,13 @@ public sealed class PerformanceRateLimitPolicy
 
     public bool IsExempt(HttpContext context)
     {
-        if (!Enabled || _allowedIp is null || _tokenBytes is null ||
-            context.Connection.RemoteIpAddress is not { } remote ||
-            !Normalize(remote).Equals(_allowedIp))
+        if (
+            !Enabled
+            || _allowedIp is null
+            || _tokenBytes is null
+            || context.Connection.RemoteIpAddress is not { } remote
+            || !Normalize(remote).Equals(_allowedIp)
+        )
         {
             return false;
         }
@@ -67,15 +79,16 @@ public sealed class PerformanceRateLimitPolicy
         return CryptographicOperations.FixedTimeEquals(suppliedBytes, _tokenBytes);
     }
 
-    public (string Bucket, int PermitLimit) SelectBucket(string path) => path switch
-    {
-        "/api/v1/auth/login" => ("auth-login", 10),
-        "/api/v1/auth/refresh" => ("auth-refresh", 30),
-        "/api/v1/auth/forgot-password" => ("auth-forgot-password", 5),
-        "/api/v1/auth/reset-password" => ("auth-reset-password", 10),
-        "/api/github/webhooks" or "/api/v1/github/webhooks" => ("github-webhooks", 600),
-        _ => ("general", 120)
-    };
+    public (string Bucket, int PermitLimit) SelectBucket(string path) =>
+        path switch
+        {
+            "/api/v1/auth/login" => ("auth-login", 10),
+            "/api/v1/auth/refresh" => ("auth-refresh", 30),
+            "/api/v1/auth/forgot-password" => ("auth-forgot-password", 5),
+            "/api/v1/auth/reset-password" => ("auth-reset-password", 10),
+            "/api/github/webhooks" or "/api/v1/github/webhooks" => ("github-webhooks", 600),
+            _ => ("general", 120),
+        };
 
     public RateLimitPartition<string> Partition(HttpContext context)
     {
@@ -95,8 +108,9 @@ public sealed class PerformanceRateLimitPolicy
                 PermitLimit = permits,
                 Window = TimeSpan.FromMinutes(1),
                 QueueLimit = 0,
-                AutoReplenishment = true
-            });
+                AutoReplenishment = true,
+            }
+        );
     }
 
     private static IPAddress Normalize(IPAddress address) =>

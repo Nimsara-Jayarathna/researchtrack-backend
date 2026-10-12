@@ -22,13 +22,16 @@ public sealed class GitHubRepositoryConfiguration : IEntityTypeConfiguration<Git
         builder.Property(repository => repository.CreatedAt).IsRequired();
         builder.Property(repository => repository.UpdatedAt).IsRequired();
 
-        builder.HasIndex(repository => new { repository.SourceId, repository.GitHubRepositoryId })
+        builder
+            .HasIndex(repository => new { repository.SourceId, repository.GitHubRepositoryId })
             .IsUnique()
             .HasDatabaseName("ux_github_repositories_source_github_id");
-        builder.HasIndex(repository => repository.GitHubRepositoryId)
+        builder
+            .HasIndex(repository => repository.GitHubRepositoryId)
             .HasDatabaseName("ix_github_repositories_github_id");
 
-        builder.HasOne<GitHubAccessSource>()
+        builder
+            .HasOne<GitHubAccessSource>()
             .WithMany()
             .HasForeignKey(repository => repository.SourceId)
             .OnDelete(DeleteBehavior.Cascade);

@@ -4,4 +4,5 @@ public sealed record GitHubWebhookAcceptedResponse(
     string DeliveryId,
     string EventType,
     bool Duplicate,
-    string Status);
+    string Status
+);

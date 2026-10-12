@@ -6,5 +6,6 @@ public interface IGitHubWebhookEventProcessor
 {
     Task<GitHubWebhookProcessingPlan> ProcessAsync(
         GitHubWebhookDelivery delivery,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken
+    );
 }

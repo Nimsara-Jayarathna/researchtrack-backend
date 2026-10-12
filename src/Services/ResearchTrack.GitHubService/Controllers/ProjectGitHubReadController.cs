@@ -27,7 +27,8 @@ public sealed class ProjectGitHubReadController : ApiControllerBase
     public ProjectGitHubReadController(
         IGitHubEvidenceQueryService evidenceQueryService,
         IGitHubDashboardQueryService dashboardQueryService,
-        IGitHubSyncStateQueryService syncStateQueryService)
+        IGitHubSyncStateQueryService syncStateQueryService
+    )
     {
         _evidenceQueryService = evidenceQueryService;
         _dashboardQueryService = dashboardQueryService;
@@ -39,20 +40,22 @@ public sealed class ProjectGitHubReadController : ApiControllerBase
     public async Task<ActionResult<ApiResponse<GitHubDashboardResponse>>> GetDashboard(
         Guid projectId,
         [FromQuery] Guid? linkedRepositoryId = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default
+    )
     {
         var dashboard = await _dashboardQueryService.GetDashboardAsync(
             GetRequiredUserId(),
             projectId,
             linkedRepositoryId,
-            cancellationToken);
+            cancellationToken
+        );
 
         // Installation/access-request details are management concerns and are
         // intentionally omitted from the shared read-only project contract.
         dashboard = dashboard with
         {
             AuthorizedInstallationId = null,
-            HasUnacknowledgedAccess = false
+            HasUnacknowledgedAccess = false,
         };
 
         return ApiOk(dashboard);
@@ -62,7 +65,8 @@ public sealed class ProjectGitHubReadController : ApiControllerBase
     [ProducesResponseType<ApiResponse<GitHubSyncStateResponse>>(StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<GitHubSyncStateResponse>>> GetSyncState(
         Guid projectId,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default
+    )
     {
         return ApiOk(await _syncStateQueryService.GetAsync(projectId, cancellationToken));
     }
@@ -73,32 +77,42 @@ public sealed class ProjectGitHubReadController : ApiControllerBase
         [FromQuery] Guid? linkedRepositoryId = null,
         [FromQuery] int page = 1,
         [FromQuery] int size = 10,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default
+    )
     {
-        return ApiOk(await _dashboardQueryService.GetActivityAsync(
-            GetRequiredUserId(),
-            projectId,
-            linkedRepositoryId,
-            page,
-            size,
-            cancellationToken));
+        return ApiOk(
+            await _dashboardQueryService.GetActivityAsync(
+                GetRequiredUserId(),
+                projectId,
+                linkedRepositoryId,
+                page,
+                size,
+                cancellationToken
+            )
+        );
     }
 
     [HttpGet("contributors")]
-    public async Task<ActionResult<ApiResponse<GitHubPage<GitHubDashboardContributorResponse>>>> GetContributors(
+    public async Task<
+        ActionResult<ApiResponse<GitHubPage<GitHubDashboardContributorResponse>>>
+    > GetContributors(
         Guid projectId,
         [FromQuery] Guid? linkedRepositoryId = null,
         [FromQuery] int page = 1,
         [FromQuery] int size = 10,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default
+    )
     {
-        return ApiOk(await _dashboardQueryService.GetContributorsAsync(
-            GetRequiredUserId(),
-            projectId,
-            linkedRepositoryId,
-            page,
-            size,
-            cancellationToken));
+        return ApiOk(
+            await _dashboardQueryService.GetContributorsAsync(
+                GetRequiredUserId(),
+                projectId,
+                linkedRepositoryId,
+                page,
+                size,
+                cancellationToken
+            )
+        );
     }
 
     [HttpGet("repositories/{linkedRepositoryId:guid}/commits")]
@@ -107,32 +121,42 @@ public sealed class ProjectGitHubReadController : ApiControllerBase
         Guid linkedRepositoryId,
         [FromQuery] int page = 1,
         [FromQuery] int size = 50,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default
+    )
     {
-        return ApiOk(await _evidenceQueryService.GetCommitsAsync(
-            GetRequiredUserId(),
-            projectId,
-            linkedRepositoryId,
-            page,
-            size,
-            cancellationToken));
+        return ApiOk(
+            await _evidenceQueryService.GetCommitsAsync(
+                GetRequiredUserId(),
+                projectId,
+                linkedRepositoryId,
+                page,
+                size,
+                cancellationToken
+            )
+        );
     }
 
     [HttpGet("repositories/{linkedRepositoryId:guid}/contributors")]
-    public async Task<ActionResult<ApiResponse<GitHubPage<GitHubContributorResponse>>>> GetRepositoryContributors(
+    public async Task<
+        ActionResult<ApiResponse<GitHubPage<GitHubContributorResponse>>>
+    > GetRepositoryContributors(
         Guid projectId,
         Guid linkedRepositoryId,
         [FromQuery] int page = 1,
         [FromQuery] int size = 50,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default
+    )
     {
-        return ApiOk(await _evidenceQueryService.GetContributorsAsync(
-            GetRequiredUserId(),
-            projectId,
-            linkedRepositoryId,
-            page,
-            size,
-            cancellationToken));
+        return ApiOk(
+            await _evidenceQueryService.GetContributorsAsync(
+                GetRequiredUserId(),
+                projectId,
+                linkedRepositoryId,
+                page,
+                size,
+                cancellationToken
+            )
+        );
     }
 
     [HttpGet("repositories/{linkedRepositoryId:guid}/pull-requests")]
@@ -143,17 +167,21 @@ public sealed class ProjectGitHubReadController : ApiControllerBase
         [FromQuery] int size = 50,
         [FromQuery] string? status = null,
         [FromQuery] string? search = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default
+    )
     {
-        return ApiOk(await _evidenceQueryService.GetPullRequestsAsync(
-            GetRequiredUserId(),
-            projectId,
-            linkedRepositoryId,
-            page,
-            size,
-            status,
-            search,
-            cancellationToken));
+        return ApiOk(
+            await _evidenceQueryService.GetPullRequestsAsync(
+                GetRequiredUserId(),
+                projectId,
+                linkedRepositoryId,
+                page,
+                size,
+                status,
+                search,
+                cancellationToken
+            )
+        );
     }
 
     private Guid GetRequiredUserId()
@@ -167,6 +195,7 @@ public sealed class ProjectGitHubReadController : ApiControllerBase
         throw new ApiException(
             StatusCodes.Status401Unauthorized,
             ErrorCodes.Unauthorized,
-            "Authentication is required.");
+            "Authentication is required."
+        );
     }
 }

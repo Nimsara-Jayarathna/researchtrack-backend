@@ -1,9 +1,9 @@
-using ResearchTrack.GitHubService.Contracts;
-using ResearchTrack.GitHubService.Domain;
-using ResearchTrack.GitHubService.Infrastructure;
 using ResearchTrack.BuildingBlocks.Api.Constants;
 using ResearchTrack.BuildingBlocks.Api.Contracts;
 using ResearchTrack.BuildingBlocks.Api.Exceptions;
+using ResearchTrack.GitHubService.Contracts;
+using ResearchTrack.GitHubService.Domain;
+using ResearchTrack.GitHubService.Infrastructure;
 
 namespace ResearchTrack.GitHubService.Features;
 
@@ -18,7 +18,8 @@ public sealed class PublicAccessSourceService : IPublicAccessSourceService
         IProjectAuthorizationClient projectAuthorization,
         IGitHubPublicRepositoryProbe repositoryProbe,
         IPublicAccessSourceStore store,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider
+    )
     {
         _projectAuthorization = projectAuthorization;
         _repositoryProbe = repositoryProbe;
@@ -29,14 +30,12 @@ public sealed class PublicAccessSourceService : IPublicAccessSourceService
     public async Task<GitHubAvailableRepositoriesResponse> CreateAsync(
         Guid userId,
         CreatePublicAccessSourceRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         await _projectAuthorization.EnsureCanManageAsync(request.ProjectId, cancellationToken);
         var address = GitHubRepositoryUrlParser.Parse(request.RepositoryUrl);
-        var probe = await _repositoryProbe.ProbeAsync(
-            address.Owner,
-            address.Repository,
-            cancellationToken);
+        var probe = await _repositoryProbe.ProbeAsync(address.Owner, address.Repository, cancellationToken);
 
         var repository = new GitHubPublicRepository(
             PublicRepositoryIdentity.CreateSyntheticId(probe.OwnerLogin, probe.Name),
@@ -45,37 +44,40 @@ public sealed class PublicAccessSourceService : IPublicAccessSourceService
             probe.Name,
             probe.FullName,
             probe.HtmlUrl,
-            probe.DefaultBranch);
+            probe.DefaultBranch
+        );
 
         return await _store.CreateAsync(
             request.ProjectId,
             userId,
             repository,
             _timeProvider.GetUtcNow().UtcDateTime,
-            cancellationToken);
+            cancellationToken
+        );
     }
 
     public async Task<GitHubAvailableRepositoriesResponse> GetAvailableAsync(
         Guid userId,
         Guid sourceId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         if (sourceId == Guid.Empty)
         {
             throw new ApiValidationException([
-                new ApiFieldError("sourceId", ["Access source id is required."])
+                new ApiFieldError("sourceId", ["Access source id is required."]),
             ]);
         }
 
-        var available = await _store.GetAvailableAsync(sourceId, cancellationToken)
+        var available =
+            await _store.GetAvailableAsync(sourceId, cancellationToken)
             ?? throw new ApiException(
                 StatusCodes.Status404NotFound,
                 ErrorCodes.NotFound,
-                "The active GitHub access source was not found.");
+                "The active GitHub access source was not found."
+            );
 
-        await _projectAuthorization.EnsureCanManageAsync(
-            available.ProjectId,
-            cancellationToken);
+        await _projectAuthorization.EnsureCanManageAsync(available.ProjectId, cancellationToken);
 
         return available.Response;
     }

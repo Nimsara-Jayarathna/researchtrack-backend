@@ -6,5 +6,6 @@ public interface IPasswordResetEmailService
         string to,
         string resetUrl,
         int expiryMinutes,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken
+    );
 }

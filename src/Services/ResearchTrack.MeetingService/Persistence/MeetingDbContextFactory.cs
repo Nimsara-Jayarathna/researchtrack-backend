@@ -9,8 +9,7 @@ public sealed class MeetingDbContextFactory : IDesignTimeDbContextFactory<Meetin
     public MeetingDbContext CreateDbContext(string[] args)
     {
         var optionsBuilder = new DbContextOptionsBuilder<MeetingDbContext>();
-        optionsBuilder.UseMySQL(
-            DesignTimeDatabase.CreateConnectionString("researchtrack_meeting_design"));
+        optionsBuilder.UseMySQL(DesignTimeDatabase.CreateConnectionString("researchtrack_meeting_design"));
 
         return new MeetingDbContext(optionsBuilder.Options);
     }

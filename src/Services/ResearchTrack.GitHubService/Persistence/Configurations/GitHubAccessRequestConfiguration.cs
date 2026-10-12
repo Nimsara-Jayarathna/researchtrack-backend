@@ -25,18 +25,23 @@ public sealed class GitHubAccessRequestConfiguration : IEntityTypeConfiguration<
         builder.Property(request => request.CreatedAt).IsRequired();
         builder.Property(request => request.ExpiresAt).IsRequired();
 
-        builder.HasIndex(request => request.TokenHash)
+        builder
+            .HasIndex(request => request.TokenHash)
             .IsUnique()
             .HasDatabaseName("ux_github_access_requests_token_hash");
-        builder.HasIndex(request => request.ResultTokenHash)
+        builder
+            .HasIndex(request => request.ResultTokenHash)
             .IsUnique()
             .HasDatabaseName("ux_github_access_requests_result_token_hash");
-        builder.HasIndex(request => new { request.ProjectId, request.Status })
+        builder
+            .HasIndex(request => new { request.ProjectId, request.Status })
             .HasDatabaseName("ix_github_access_requests_project_status");
-        builder.HasIndex(request => request.PendingProjectKey)
+        builder
+            .HasIndex(request => request.PendingProjectKey)
             .IsUnique()
             .HasDatabaseName("ux_github_access_requests_pending_project");
-        builder.HasIndex(request => request.ExpiresAt)
+        builder
+            .HasIndex(request => request.ExpiresAt)
             .HasDatabaseName("ix_github_access_requests_expires_at");
     }
 }

@@ -5,4 +5,5 @@ public sealed record InitialRepositorySyncRequest(
     Guid LinkedRepositoryId,
     Guid SourceId,
     Guid GitHubRepositoryId,
-    long GitHubRepoId);
+    long GitHubRepoId
+);

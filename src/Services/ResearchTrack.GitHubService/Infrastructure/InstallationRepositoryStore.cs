@@ -19,7 +19,8 @@ public sealed class InstallationRepositoryStore : IInstallationRepositoryStore
 
     public async Task<InstallationAccessSourceSnapshot?> GetSourceAsync(
         Guid sourceId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
         return await ActiveGitHubAppSources(dbContext.AccessSources.AsNoTracking())
@@ -30,26 +31,28 @@ public sealed class InstallationRepositoryStore : IInstallationRepositoryStore
                 source.InstallationId!.Value,
                 source.OwnerLogin,
                 source.OwnerType,
-                source.AccessType))
+                source.AccessType
+            ))
             .SingleOrDefaultAsync(cancellationToken);
     }
 
     public async Task<InstallationAccessSourceSnapshot?> GetSourceByInstallationAsync(
         Guid projectId,
         long installationId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
         return await ActiveGitHubAppSources(dbContext.AccessSources.AsNoTracking())
-            .Where(source => source.ProjectId == projectId
-                && source.InstallationId == installationId)
+            .Where(source => source.ProjectId == projectId && source.InstallationId == installationId)
             .Select(source => new InstallationAccessSourceSnapshot(
                 source.Id,
                 source.ProjectId,
                 source.InstallationId!.Value,
                 source.OwnerLogin,
                 source.OwnerType,
-                source.AccessType))
+                source.AccessType
+            ))
             .SingleOrDefaultAsync(cancellationToken);
     }
 
@@ -57,15 +60,23 @@ public sealed class InstallationRepositoryStore : IInstallationRepositoryStore
         Guid sourceId,
         IReadOnlyList<GitHubInstallationRepository> repositories,
         DateTime now,
-        CancellationToken cancellationToken) =>
-        UpsertAvailableCoreAsync(sourceId, repositories, now, retryOnDuplicate: true, cancellationToken: cancellationToken);
+        CancellationToken cancellationToken
+    ) =>
+        UpsertAvailableCoreAsync(
+            sourceId,
+            repositories,
+            now,
+            retryOnDuplicate: true,
+            cancellationToken: cancellationToken
+        );
 
     private async Task<GitHubAvailableRepositoriesResponse> UpsertAvailableCoreAsync(
         Guid sourceId,
         IReadOnlyList<GitHubInstallationRepository> repositories,
         DateTime now,
         bool retryOnDuplicate,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
         var sourceExists = await ActiveGitHubAppSources(dbContext.AccessSources)
@@ -75,8 +86,8 @@ public sealed class InstallationRepositoryStore : IInstallationRepositoryStore
             throw SourceNotFound();
         }
 
-        var existing = await dbContext.Repositories
-            .Where(repository => repository.SourceId == sourceId)
+        var existing = await dbContext
+            .Repositories.Where(repository => repository.SourceId == sourceId)
             .ToDictionaryAsync(repository => repository.GitHubRepositoryId, cancellationToken);
 
         foreach (var repository in existing.Values)
@@ -103,7 +114,7 @@ public sealed class InstallationRepositoryStore : IInstallationRepositoryStore
                     Available = true,
                     LastSeenAt = now,
                     CreatedAt = now,
-                    UpdatedAt = now
+                    UpdatedAt = now,
                 };
                 dbContext.Repositories.Add(entity);
                 existing[repository.Id] = entity;
@@ -116,8 +127,8 @@ public sealed class InstallationRepositoryStore : IInstallationRepositoryStore
             selectedEntities.Add(entity);
         }
 
-        var activeLinks = await dbContext.ProjectRepositoryLinks
-            .Where(link => link.SourceId == sourceId && link.Active)
+        var activeLinks = await dbContext
+            .ProjectRepositoryLinks.Where(link => link.SourceId == sourceId && link.Active)
             .ToListAsync(cancellationToken);
         var repositoryByEntityId = existing.Values.ToDictionary(repository => repository.Id);
         foreach (var link in activeLinks)
@@ -150,7 +161,8 @@ public sealed class InstallationRepositoryStore : IInstallationRepositoryStore
                 repositories,
                 now,
                 retryOnDuplicate: false,
-                cancellationToken: cancellationToken);
+                cancellationToken: cancellationToken
+            );
         }
 
         var items = selectedEntities
@@ -164,15 +176,19 @@ public sealed class InstallationRepositoryStore : IInstallationRepositoryStore
     public async Task<InstallationRepositorySelection?> GetSelectionAsync(
         Guid sourceId,
         Guid repositoryId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-        return await dbContext.Repositories
-            .AsNoTracking()
-            .Where(repository => repository.SourceId == sourceId && repository.Id == repositoryId && repository.Available)
+        return await dbContext
+            .Repositories.AsNoTracking()
+            .Where(repository =>
+                repository.SourceId == sourceId && repository.Id == repositoryId && repository.Available
+            )
             .Select(repository => new InstallationRepositorySelection(
                 repository.Id,
-                repository.GitHubRepositoryId))
+                repository.GitHubRepositoryId
+            ))
             .SingleOrDefaultAsync(cancellationToken);
     }
 
@@ -180,12 +196,14 @@ public sealed class InstallationRepositoryStore : IInstallationRepositoryStore
         Guid sourceId,
         GitHubInstallationRepository repository,
         DateTime now,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
         var entity = await dbContext.Repositories.SingleOrDefaultAsync(
             item => item.SourceId == sourceId && item.GitHubRepositoryId == repository.Id,
-            cancellationToken);
+            cancellationToken
+        );
 
         if (entity is null)
         {
@@ -202,7 +220,7 @@ public sealed class InstallationRepositoryStore : IInstallationRepositoryStore
                 Available = true,
                 LastSeenAt = now,
                 CreatedAt = now,
-                UpdatedAt = now
+                UpdatedAt = now,
             };
             dbContext.Repositories.Add(entity);
         }
@@ -215,20 +233,24 @@ public sealed class InstallationRepositoryStore : IInstallationRepositoryStore
         return entity.Id;
     }
 
-
     private static IQueryable<GitHubAccessSource> ActiveGitHubAppSources(
-        IQueryable<GitHubAccessSource> sources) =>
+        IQueryable<GitHubAccessSource> sources
+    ) =>
         sources.Where(source =>
             source.Active
             && source.ConnectionStatus == GitHubConnectionStatuses.Connected
             && source.InstallationId != null
-            && (source.AccessType == GitHubAccessTypes.InstallationDirect
-                || source.AccessType == GitHubAccessTypes.InstallationRequested));
+            && (
+                source.AccessType == GitHubAccessTypes.InstallationDirect
+                || source.AccessType == GitHubAccessTypes.InstallationRequested
+            )
+        );
 
     private static void ApplyMetadata(
         GitHubRepository entity,
         GitHubInstallationRepository repository,
-        DateTime now)
+        DateTime now
+    )
     {
         entity.FullName = repository.FullName;
         entity.Name = repository.Name;
@@ -240,21 +262,25 @@ public sealed class InstallationRepositoryStore : IInstallationRepositoryStore
         entity.UpdatedAt = now;
     }
 
-    private static GitHubRepositoryOptionResponse ToResponse(GitHubRepository repository) => new(
-        repository.Id,
-        repository.GitHubRepositoryId,
-        repository.FullName,
-        repository.Name,
-        repository.OwnerLogin,
-        repository.DefaultBranch,
-        repository.Url);
+    private static GitHubRepositoryOptionResponse ToResponse(GitHubRepository repository) =>
+        new(
+            repository.Id,
+            repository.GitHubRepositoryId,
+            repository.FullName,
+            repository.Name,
+            repository.OwnerLogin,
+            repository.DefaultBranch,
+            repository.Url
+        );
 
     private static bool IsDuplicateKey(DbUpdateException exception)
     {
         for (Exception? current = exception; current is not null; current = current.InnerException)
         {
-            if (current.Message.Contains("Duplicate entry", StringComparison.OrdinalIgnoreCase)
-                || current.Message.Contains("duplicate key", StringComparison.OrdinalIgnoreCase))
+            if (
+                current.Message.Contains("Duplicate entry", StringComparison.OrdinalIgnoreCase)
+                || current.Message.Contains("duplicate key", StringComparison.OrdinalIgnoreCase)
+            )
             {
                 return true;
             }
@@ -263,8 +289,10 @@ public sealed class InstallationRepositoryStore : IInstallationRepositoryStore
         return false;
     }
 
-    private static ApiException SourceNotFound() => new(
-        StatusCodes.Status404NotFound,
-        ErrorCodes.NotFound,
-        "The active GitHub App access source was not found.");
+    private static ApiException SourceNotFound() =>
+        new(
+            StatusCodes.Status404NotFound,
+            ErrorCodes.NotFound,
+            "The active GitHub App access source was not found."
+        );
 }

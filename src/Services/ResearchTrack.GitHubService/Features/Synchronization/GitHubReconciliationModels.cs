@@ -6,7 +6,8 @@ public sealed record GitHubReconciliationResult(
     int EligibleLinks,
     int CheckedLinks,
     int QueuedLinks,
-    int FailedChecks)
+    int FailedChecks
+)
 {
     public bool Successful => FailedChecks == 0;
 }

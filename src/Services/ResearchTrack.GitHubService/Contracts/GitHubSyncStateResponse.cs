@@ -2,7 +2,8 @@ namespace ResearchTrack.GitHubService.Contracts;
 
 public sealed record GitHubSyncStateResponse(
     Guid ProjectId,
-    IReadOnlyList<GitHubRepositorySyncStateResponse> Repositories);
+    IReadOnlyList<GitHubRepositorySyncStateResponse> Repositories
+);
 
 public sealed record GitHubRepositorySyncStateResponse(
     Guid LinkedRepositoryId,
@@ -10,4 +11,5 @@ public sealed record GitHubRepositorySyncStateResponse(
     string SyncStatus,
     DateTime? LastSyncedAt,
     bool Enabled,
-    bool Primary);
+    bool Primary
+);

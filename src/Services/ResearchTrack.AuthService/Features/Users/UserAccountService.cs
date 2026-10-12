@@ -20,7 +20,8 @@ public sealed class UserAccountService : IUserAccountService
     public UserAccountService(
         IDbContextFactory<AuthDbContext> dbContextFactory,
         IPasswordHasher passwordHasher,
-        IPasswordPolicyValidator passwordPolicyValidator)
+        IPasswordPolicyValidator passwordPolicyValidator
+    )
     {
         _dbContextFactory = dbContextFactory;
         _passwordHasher = passwordHasher;
@@ -30,7 +31,8 @@ public sealed class UserAccountService : IUserAccountService
     public async Task ChangePasswordAsync(
         Guid userId,
         ChangePasswordRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         ArgumentNullException.ThrowIfNull(request);
 
@@ -40,21 +42,16 @@ public sealed class UserAccountService : IUserAccountService
 
         if (string.IsNullOrWhiteSpace(currentPassword))
         {
-            validationErrors.Add(new ApiFieldError(
-                "currentPassword",
-                ["Current password is required."]));
+            validationErrors.Add(new ApiFieldError("currentPassword", ["Current password is required."]));
         }
 
         if (string.IsNullOrWhiteSpace(newPassword))
         {
-            validationErrors.Add(new ApiFieldError(
-                "newPassword",
-                ["New password is required."]));
+            validationErrors.Add(new ApiFieldError("newPassword", ["New password is required."]));
         }
         else
         {
-            validationErrors.AddRange(
-                _passwordPolicyValidator.Validate(newPassword, "newPassword"));
+            validationErrors.AddRange(_passwordPolicyValidator.Validate(newPassword, "newPassword"));
         }
 
         if (validationErrors.Count > 0)
@@ -67,14 +64,16 @@ public sealed class UserAccountService : IUserAccountService
 
         var user = await dbContext.Users.SingleOrDefaultAsync(
             candidate => candidate.Id == userId,
-            cancellationToken);
+            cancellationToken
+        );
 
         if (user is null)
         {
             throw new ApiException(
                 StatusCodes.Status401Unauthorized,
                 ErrorCodes.Unauthorized,
-                "Authentication is required.");
+                "Authentication is required."
+            );
         }
 
         if (!_passwordHasher.Verify(currentPassword!, user.PasswordHash))
@@ -82,26 +81,27 @@ public sealed class UserAccountService : IUserAccountService
             throw new ApiException(
                 StatusCodes.Status400BadRequest,
                 ErrorCodes.CurrentPasswordIncorrect,
-                IncorrectCurrentPasswordMessage);
+                IncorrectCurrentPasswordMessage
+            );
         }
 
         if (_passwordHasher.Verify(newPassword!, user.PasswordHash))
         {
-            throw new ApiValidationException(
-                [new ApiFieldError(
-                    "newPassword",
-                    ["New password must be different from current password."])]);
+            throw new ApiValidationException([
+                new ApiFieldError("newPassword", ["New password must be different from current password."]),
+            ]);
         }
 
         var now = DateTime.UtcNow;
         user.PasswordHash = _passwordHasher.Hash(newPassword!);
         user.UpdatedAt = now;
 
-        await dbContext.RefreshTokens
-            .Where(token => token.UserId == userId && token.RevokedAt == null)
+        await dbContext
+            .RefreshTokens.Where(token => token.UserId == userId && token.RevokedAt == null)
             .ExecuteUpdateAsync(
                 updates => updates.SetProperty(token => token.RevokedAt, now),
-                cancellationToken);
+                cancellationToken
+            );
 
         await dbContext.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);

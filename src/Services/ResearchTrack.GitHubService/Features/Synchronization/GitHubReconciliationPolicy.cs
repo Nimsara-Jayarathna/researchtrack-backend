@@ -11,7 +11,8 @@ internal static class GitHubReconciliationPolicy
         string? localDefaultBranch,
         string? localHeadSha,
         string remoteDefaultBranch,
-        string remoteHeadSha) =>
+        string remoteHeadSha
+    ) =>
         !string.Equals(localDefaultBranch, remoteDefaultBranch, StringComparison.Ordinal)
         || !string.Equals(localHeadSha, remoteHeadSha, StringComparison.OrdinalIgnoreCase);
 }

@@ -4,14 +4,16 @@ namespace ResearchTrack.SubmissionService.Features;
 
 internal static class SubmissionFileRules
 {
-    private static readonly IReadOnlyDictionary<string, string> MimeByExtension =
-        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["pdf"] = "application/pdf",
-            ["docx"] = "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            ["pptx"] = "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-            ["zip"] = "application/zip"
-        };
+    private static readonly IReadOnlyDictionary<string, string> MimeByExtension = new Dictionary<
+        string,
+        string
+    >(StringComparer.OrdinalIgnoreCase)
+    {
+        ["pdf"] = "application/pdf",
+        ["docx"] = "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ["pptx"] = "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        ["zip"] = "application/zip",
+    };
 
     public static IReadOnlyList<string> ParseAllowedTypes(string raw) =>
         raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
@@ -22,7 +24,14 @@ internal static class SubmissionFileRules
             .ToArray();
 
     public static string SerializeAllowedTypes(IEnumerable<string> values) =>
-        string.Join(',', values.Select(NormalizeExtension).Where(x => x.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(x => x, StringComparer.OrdinalIgnoreCase));
+        string.Join(
+            ',',
+            values
+                .Select(NormalizeExtension)
+                .Where(x => x.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
+        );
 
     public static string NormalizeExtension(string value) => value.Trim().TrimStart('.').ToLowerInvariant();
 
@@ -42,7 +51,8 @@ internal static class SubmissionFileRules
     public static bool ContentTypeMatchesExtension(string extension, string contentType)
     {
         var normalized = contentType.Trim().ToLowerInvariant();
-        if (NormalizeExtension(extension) == "zip" && normalized == "application/x-zip-compressed") return true;
+        if (NormalizeExtension(extension) == "zip" && normalized == "application/x-zip-compressed")
+            return true;
         return string.Equals(CanonicalContentType(extension), normalized, StringComparison.OrdinalIgnoreCase);
     }
 

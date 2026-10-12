@@ -16,8 +16,10 @@ public sealed class GitHubWebhookSignatureVerifier : IGitHubWebhookSignatureVeri
 
     public bool IsValid(ReadOnlySpan<byte> payload, string? signatureHeader)
     {
-        if (string.IsNullOrWhiteSpace(signatureHeader)
-            || !signatureHeader.StartsWith(Prefix, StringComparison.OrdinalIgnoreCase))
+        if (
+            string.IsNullOrWhiteSpace(signatureHeader)
+            || !signatureHeader.StartsWith(Prefix, StringComparison.OrdinalIgnoreCase)
+        )
         {
             return false;
         }
@@ -45,8 +47,10 @@ public sealed class GitHubWebhookSignatureVerifier : IGitHubWebhookSignatureVeri
 
         using var hmac = new HMACSHA256(_secret);
         Span<byte> expected = stackalloc byte[32];
-        if (!hmac.TryComputeHash(payload, expected, out var expectedWritten)
-            || expectedWritten != expected.Length)
+        if (
+            !hmac.TryComputeHash(payload, expected, out var expectedWritten)
+            || expectedWritten != expected.Length
+        )
         {
             return false;
         }
