@@ -23,7 +23,7 @@ ResearchTrack code quality — production C# only; .NET 10; no Python
 A failing check exits nonzero and never rewrites source. Fix changes only eligible
 production .cs files; EF migrations, generated files and tests are protected.
 Machine-readable reports: artifacts/code-quality/<run-id>/status.tsv,
-manifest.json, formatting logs and Roslyn SARIF. SonarQube/Actions come later.
+manifest.json, formatting logs and Roslyn SARIF. SonarQube has separate Actions.
 HELP
 }
 if [[ "$MODE" == help || "$MODE" == --help || "$MODE" == -h ]]; then help_text; exit 0; fi
@@ -114,7 +114,7 @@ write_report() {
     printf 'Date UTC: `%s`  \nSDK: `%s`  \nRun: `%s`  \n' "$timestamp" "$sdk" "$RUN"
     printf 'Branch: `%s`  \nCommit: `%s`  \n' "$branch" "$commit"
     printf 'Eligible production C# files: **%d**. Compiler projects: **%d**.\n\n' "${#CS_FILES[@]}" "${#PROJECTS[@]}"
-    printf 'CSharpier pinned: **1.3.0**. Roslyn profile: opt-in; no SonarQube integration.\n\n'
+    printf 'CSharpier pinned: **1.3.0**. Roslyn profile: opt-in; SonarQube uses a separate workflow.\n\n'
     printf '| Step | Result | Exit | Log |\n|---|---|---:|---|\n'
     tail -n +2 "$LEDGER" | while IFS=$'\t' read -r step state rc log; do
       printf '| %s | %s | %s | `%s` |\n' "$step" "$state" "$rc" "$log"
@@ -181,9 +181,12 @@ style_pass() {
     project_dir="$(dirname "$project")"
     exclusions=()
     for file in "${EXCLUSIONS[@]}" "${GENERATED[@]}"; do
-      [[ "$file" == "$project_dir/"* ]] && exclusions+=("$file")
+      # dotnet format resolves include/exclude against the repository's cwd;
+      # absolute paths led to generated migration files being checked in CI.
+      [[ "$file" == "$project_dir/"* ]] && exclusions+=("./${file#"$ROOT/"}")
     done
     local flags=(--no-restore --severity info --diagnostics IDE0005 IDE0065)
+    flags+=(--include "./${project_dir#"$ROOT/"}")
     if [[ "$verb" == verify ]]; then flags+=(--verify-no-changes); fi
     if (( ${#exclusions[@]} )); then flags+=(--exclude "${exclusions[@]}"); fi
     mkdir -p "$REPORT/formatting/$name"

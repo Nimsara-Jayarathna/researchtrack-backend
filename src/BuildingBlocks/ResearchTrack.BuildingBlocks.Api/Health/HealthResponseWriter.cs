@@ -25,6 +25,9 @@ public static class HealthResponseWriter
             }),
         };
 
-        return context.Response.WriteAsync(JsonSerializer.Serialize(payload, SerializerOptions));
+        return context.Response.WriteAsync(
+            JsonSerializer.Serialize(payload, SerializerOptions),
+            context.RequestAborted
+        );
     }
 }
