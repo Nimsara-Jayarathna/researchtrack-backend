@@ -1,5 +1,4 @@
 using System.Net;
-using System.Net.Http.Json;
 using ResearchTrack.BuildingBlocks.Api.Constants;
 using ResearchTrack.BuildingBlocks.Api.Contracts;
 using ResearchTrack.BuildingBlocks.Api.Exceptions;

@@ -27,6 +27,25 @@ if [[ "${1:-}" == csharpier ]]; then
   fi
   exit 0
 fi
+if [[ "${1:-}" == format && "${2:-}" == style ]]; then
+  have_include=0
+  have_exclude=0
+  in_scope=0
+  for arg in "$@"; do
+    if [[ "$arg" == --include ]]; then have_include=1; in_scope=1; continue; fi
+    if [[ "$arg" == --exclude ]]; then have_exclude=1; in_scope=1; continue; fi
+    [[ "$arg" != --* ]] || { in_scope=0; continue; }
+    if [[ "$in_scope" == 1 ]]; then
+      case "$arg" in
+        /home/*|/mnt/*|[A-Za-z]:/*)
+          echo "ERROR: absolute dotnet format scope: $arg" >&2; exit 29;;
+      esac
+    fi
+  done
+  [[ "$have_include" == 1 ]] || {
+    echo 'ERROR: style pass missing explicit include scope' >&2; exit 30;
+  }
+fi
 if [[ "${1:-}" == restore || "${1:-}" == format || "${1:-}" == build ]]; then
   [[ "${MOCK_FAIL_BUILD:-0}" == 1 && "${1:-}" == build ]] && exit 25
   exit 0
@@ -54,6 +73,11 @@ fi
 if grep -E 'csharpier (check|format).*Migrations/|csharpier (check|format).*\.csproj' "$MOCK_DOTNET_CALLS"; then
   echo 'FAIL: formatter saw a protected source file' >&2; exit 1
 fi
+# Git Bash needs repository-relative exclusions; absolute paths were ignored
+# by dotnet format style and caused EF migration diagnostics in CI.
+grep -E '^format style .*--exclude \./src/.*/Migrations' "$MOCK_DOTNET_CALLS" > /dev/null || {
+  echo 'FAIL: generated migrations missing from style exclusions' >&2; exit 1;
+}
 # Verify only production C# file paths are supplied to CSharpier, not directory scans.
 grep -q '^csharpier check .*\.cs' "$MOCK_DOTNET_CALLS" || {
   echo 'FAIL: no explicit file-path formatting checks were executed' >&2; exit 1;

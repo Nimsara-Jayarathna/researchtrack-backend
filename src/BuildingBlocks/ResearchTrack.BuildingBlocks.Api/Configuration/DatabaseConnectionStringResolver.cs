@@ -1,5 +1,4 @@
 using System.Data.Common;
-using Microsoft.Extensions.Configuration;
 
 namespace ResearchTrack.BuildingBlocks.Api.Configuration;
 

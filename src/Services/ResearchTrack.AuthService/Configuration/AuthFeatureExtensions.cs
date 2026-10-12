@@ -13,7 +13,8 @@ public static class AuthFeatureExtensions
 {
     public static IServiceCollection AddAuthFeatures(
         this IServiceCollection services,
-        IConfiguration configuration
+        IConfiguration configuration,
+        IHostEnvironment environment
     )
     {
         var registrationOptions = RegistrationOptions.FromConfiguration(configuration);
@@ -21,7 +22,7 @@ public static class AuthFeatureExtensions
         var passwordHashingOptions = PasswordHashingOptions.FromConfiguration(configuration);
         var emailOptions = EmailOptions.FromConfiguration(configuration);
         var jwtOptions = JwtOptions.FromConfiguration(configuration);
-        var cookieOptions = AuthCookieOptions.FromConfiguration(configuration);
+        var cookieOptions = AuthCookieOptions.FromConfiguration(configuration, environment);
         var passwordResetOptions = PasswordResetOptions.FromConfiguration(configuration);
 
         if (passwordPolicyOptions.MaximumLength < passwordPolicyOptions.MinimumLength)

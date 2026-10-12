@@ -123,6 +123,6 @@ app.Use(
 );
 app.MapReverseProxy();
 app.MapMetrics().RequireHost("*:9100"); // only answers on 9100, not the public 8080
-app.Run();
+await app.RunAsync();
 
 public partial class Program;

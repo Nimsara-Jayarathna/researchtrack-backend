@@ -1,5 +1,3 @@
-using ResearchTrack.SubmissionService.Domain;
-
 namespace ResearchTrack.SubmissionService.Features;
 
 internal static class SubmissionFileRules

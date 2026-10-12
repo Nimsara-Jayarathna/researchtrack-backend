@@ -1,12 +1,12 @@
 # ResearchTrack — C# Code Quality (SE3112)
 
-**Scope:** only production C# files under `src/`; **does not modify** tests, test/mutation/performance tooling or existing GitHub Actions workflows. SonarQube and CI quality gates are separate later milestones.
+**Scope:** only production C# files under `src/`; **does not modify** tests, test/mutation/performance tooling or existing GitHub Actions workflows. SonarQube Cloud and CI quality gates run in separate workflows; see [SONARQUBE_CLOUD.md](SONARQUBE_CLOUD.md) and [QUALITY_FINDINGS_FIXES.md](QUALITY_FINDINGS_FIXES.md).
 
 ## Design
 
 - **CSharpier 1.3.0** is the sole formatter for production C# (110-character print width, four spaces, LF endings). The pinned version lives in `scripts/code-quality/.config/dotnet-tools.json`, **not** the existing `.config/dotnet-tools.json` used by EF, ReportGenerator and Stryker.
 - **`src/.editorconfig`** contains only production-source IDE rules; inherits the existing root `.editorconfig`. IDE0055 is disabled *within `src`* to prevent CSharpier/dotnet-format whitespace conflicts. Both IDE0007/IDE0008 are disabled to avoid a pointless 1000+ declaration rewrite; existing `var` preferences are not changed.
-- **`dotnet format style`** is used only for safe, explicitly selected IDE0005 (unused usings) and IDE0065 (using placement). It is *not* used for whitespace formatting.
+- **`dotnet format style`** is used only for safe, explicitly selected IDE0005 (unused usings) and IDE0065 (using placement), with repo-relative include/exclude scopes to protect EF migrations. It is *not* used for whitespace formatting.
 - **Roslyn** performs production-project builds and, via opt-in `src/Directory.Build.targets`, emits native SARIF in `analyze`. CA150x, resource and logging findings are **review-only**, not auto-fixed. Existing warnings are recorded without treating all historical warnings as gate failures.
 - Commands operate on eight discovered production `.csproj` files. No unit test, mutation, coverage or load test command is invoked.
 

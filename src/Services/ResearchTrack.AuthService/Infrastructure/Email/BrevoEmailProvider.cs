@@ -1,4 +1,3 @@
-using System.Net.Http.Json;
 using ResearchTrack.AuthService.Configuration;
 using ResearchTrack.BuildingBlocks.Api.Constants;
 using ResearchTrack.BuildingBlocks.Api.Exceptions;

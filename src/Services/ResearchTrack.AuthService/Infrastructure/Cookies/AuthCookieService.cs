@@ -45,6 +45,7 @@ public sealed class AuthCookieService : IAuthCookieService
         new()
         {
             HttpOnly = true,
+            // Startup validation guarantees Secure=true outside Development/Testing.
             Secure = _cookieOptions.Secure,
             SameSite = SameSiteMode.Strict,
             IsEssential = true,
