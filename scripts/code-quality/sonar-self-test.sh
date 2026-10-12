@@ -19,6 +19,12 @@ for csproj in \
     mkdir -p "$ROOT/$(dirname "$csproj")"
     touch "$ROOT/$csproj"
 done
+# Mirror just the real test project manifests for project/collector validation.
+for name in AuthService Gateway GitHubService JiraService MeetingService ProjectService SubmissionService; do
+  project="ResearchTrack.${name}.Tests"
+  mkdir -p "$ROOT/tests/$project"
+  cp "$SOURCE/tests/$project/$project.csproj" "$ROOT/tests/$project/$project.csproj"
+done
 cat > "$TEMP/bin/dotnet" <<'FAKE_DOTNET'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -45,6 +51,25 @@ if [[ "$1" == restore || "$1" == build ]]; then
   [[ "$1" != build || "${MOCK_FAIL_BUILD:-0}" != 1 ]] || exit 9
   exit 0
 fi
+if [[ "$1" == test ]]; then
+  printf '%s\n' "$1 $2" >> "$MOCK_DOTNET_CALLS"
+  [[ "${MOCK_FAIL_TEST:-0}" != 1 ]] || exit 12
+  dest=''; have_opencover=0; have_filter=0
+  args=("$@")
+  for ((i=0;i<${#args[@]};i++)); do
+    [[ "${args[i]}" != --results-directory ]] || dest="${args[i+1]}"
+    [[ "${args[i]}" != '--collect:XPlat Code Coverage;Format=opencover' ]] || have_opencover=1
+    [[ "${args[i]}" != 'Category!=DatabaseIntegration' ]] || have_filter=1
+  done
+  [[ "$have_opencover" == 1 && "$have_filter" == 1 && -n "$dest" ]] || {
+    echo 'ERROR: invalid coverage test collector arguments' >&2; exit 33;
+  }
+  if [[ "${MOCK_MISSING_COVERAGE:-0}" != 1 ]]; then
+    mkdir -p "$dest/diagnostics-guid"
+    printf '<CoverageSession />\n' > "$dest/diagnostics-guid/coverage.opencover.xml"
+  fi
+  exit 0
+fi
 exit 21
 FAKE_DOTNET
 cat > "$TEMP/scanner" <<'FAKE_SCANNER'
@@ -58,6 +83,7 @@ printf '%s\n' "$1" >> "$MOCK_SCANNER_CALLS"
 if [[ "$1" == begin ]]; then
   for a in "$@"; do
     [[ "$a" != /d:sonar.qualitygate.wait=true ]] || echo 'gate=true' >> "$MOCK_SCANNER_CALLS"
+    [[ "$a" != /d:sonar.cs.opencover.reportsPaths=* ]] || echo "$a" >> "$MOCK_SCANNER_CALLS"
     if [[ "$a" == /d:sonar.scanner.metadataFilePath=* ]]; then
       dest="${a#*=}"
       printf '%s' "$dest" > "$MOCK_METADATA_POINTER"
@@ -97,7 +123,13 @@ bash "$ROOT/scripts/code-quality/sonar-cloud.sh" setup > "$TEMP/setup.log" 2>&1
 grep -q 'PASS: SonarScanner for .NET 11.3.0 is installed.' "$TEMP/setup.log"
 bash "$ROOT/scripts/code-quality/sonar-cloud.sh" scan mock-success > "$TEMP/scan.log" 2>&1
 [[ "$(grep -c '^build ' "$TEMP/dotnet.log")" == 8 ]]
-[[ "$(grep -c '^restore ' "$TEMP/dotnet.log")" == 8 ]]
+[[ "$(grep -c '^restore ' "$TEMP/dotnet.log")" == 15 ]]
+[[ "$(grep -c '^test ' "$TEMP/dotnet.log")" == 7 ]]
+[[ "$(wc -l < "$ROOT/artifacts/code-quality/sonar/mock-success/coverage-files.txt")" == 7 ]]
+[[ "$(find "$ROOT/artifacts/code-quality/sonar/mock-success/coverage" -name 'coverage.opencover.xml' | wc -l)" == 7 ]]
+grep -Fq 'sonar.cs.opencover.reportsPaths=' "$TEMP/scanner.log" || {
+  echo 'FAIL: coverage property missing from begin phase' >&2; exit 1;
+}
 [[ "$(grep -c '^begin$' "$TEMP/scanner.log")" == 1 ]]
 [[ "$(grep -c '^end$' "$TEMP/scanner.log")" == 1 ]]
 if grep -q 'test-token-do-not-log' "$TEMP/scan.log"; then echo 'FAIL: token printed' >&2; exit 1; fi
@@ -120,5 +152,20 @@ fi
 [[ ! -f "$ROOT/artifacts/code-quality/sonar/mock-build-error/report-task.txt" ]] || {
   echo 'FAIL: failed build created scan metadata' >&2; exit 1;
 }
-echo 'PASS: scoped eight-project scanner, token hygiene, quality-gate option, CE polling, metrics evidence and failure propagation.'
+export MOCK_FAIL_BUILD=0 MOCK_FAIL_TEST=1
+if bash "$ROOT/scripts/code-quality/sonar-cloud.sh" scan mock-test-error > "$TEMP/test-error.log" 2>&1; then
+  echo 'FAIL: unit test failure was accepted' >&2; exit 1
+fi
+[[ ! -f "$ROOT/artifacts/code-quality/sonar/mock-test-error/report-task.txt" ]] || {
+  echo 'FAIL: failed tests still uploaded scan' >&2; exit 1;
+}
+export MOCK_FAIL_TEST=0 MOCK_MISSING_COVERAGE=1
+if bash "$ROOT/scripts/code-quality/sonar-cloud.sh" scan mock-missing-coverage > "$TEMP/missing-coverage.log" 2>&1; then
+  echo 'FAIL: missing coverage was accepted' >&2; exit 1
+fi
+grep -q 'Expected one non-empty OpenCover report' "$TEMP/missing-coverage.log"
+[[ ! -f "$ROOT/artifacts/code-quality/sonar/mock-missing-coverage/report-task.txt" ]] || {
+  echo 'FAIL: scan uploaded without coverage' >&2; exit 1;
+}
+echo 'PASS: 8 production builds, 7 existing suites, true OpenCover report paths, token hygiene, gate option, CE metrics and failure propagation.' 
 echo 'NOTE: This uses mock dotnet/curl; run the real GitHub Actions workflow for genuine results.'

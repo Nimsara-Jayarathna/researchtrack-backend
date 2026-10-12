@@ -12,8 +12,11 @@ exports measured metrics and quality-gate evidence to GitHub Actions.
   CSharpier/Roslyn `check ci` command runnable in GitHub Actions. The uploaded
   feature ZIP had the scripts but did **not** contain this workflow file.
 - The scanner compiles eight explicit production `.csproj` files: one shared
-  BuildingBlocks, Gateway, and the six services. Tests, test projects, mutation,
-  k6, coverage and infrastructure are **not invoked or altered**.
+  BuildingBlocks, Gateway, and the six services. **In the same scanner session**
+  it runs the seven *existing* unit-test projects with Coverlet to produce real
+  OpenCover evidence. Test project files and other students' testing workflows
+  are untouched. Mutation, performance, integration-database suites, deployment,
+  and infrastructure tooling are not executed.
 - Only the main branch is analyzed by this workflow; this is compatible with
   a SonarQube Cloud Free main-branch baseline and avoids rewriting it from a
   feature branch. `workflow_dispatch` must be run with branch **main**.
@@ -21,9 +24,11 @@ exports measured metrics and quality-gate evidence to GitHub Actions.
   other non-.NET files being discovered by the .NET scanner. EF migrations and
   compiler-generated files are excluded from Sonar metrics, not removed from
   compilation.
-- Coverage **is not imported** by this individual contribution. Do not
-  represent missing coverage as 0%, and note that a default gate may enforce
-  new-code coverage even when no report has been imported.
+- SonarQube imports the real `coverage.opencover.xml` reports produced by
+  `coverlet.collector`; the scanner's C# OpenCover property points to those
+  reports. The existing tests use `Category!=DatabaseIntegration`. Reporting
+  coverage is **not** a guarantee of an 80% pass: previously untested changed
+  code must be covered by genuine tests to satisfy the default gate.
 
 ## 2. Required one-time SonarQube Cloud settings
 
@@ -78,8 +83,10 @@ manifests or the normal .NET build configuration.
 3. Open GitHub → **Actions → Backend SonarQube Cloud Analysis**.
 4. Choose **Run workflow → main** or wait for the next main push.
 5. Expect Checkout → .NET 10 → Java 17 → Validate credentials → Install scanner
-   → Restore/build the eight projects between scanner begin/end → Fetch results
-   → Upload evidence.
+   → Restore eight production and seven existing test projects → Scanner begin
+   → Build eight production projects → Run seven existing unit test suites with
+   Coverlet OpenCover collection → Scanner end (import reports) → Fetch results
+   → Upload analysis and OpenCover evidence.
 6. Review the GitHub run summary and download the
    `backend-sonarqube-analysis` artifact. Open SonarQube Cloud Summary/Issues.
 
@@ -87,13 +94,16 @@ The first run is intentionally **nonblocking for Sonar's quality gate** when
 `SONAR_ENFORCE_GATE` is unset/false. It still fails on missing secrets,
 installation issues, compiler errors, upload errors and incomplete API reporting.
 The summary shows the **actual** gate status as reported by SonarQube, even
-when gate enforcement is disabled.
+when gate enforcement is disabled. The scan now also fails if the existing unit
+suite fails or any of the seven coverage reports is absent; it never pretends
+that collector failures are measured 0% coverage.
 
 When a baseline is established and the SonarQube gate has usable conditions,
 set **production environment variable** `SONAR_ENFORCE_GATE=true`. From then on, SonarScanner
 waits up to 600 seconds and fails the GitHub workflow if the SonarQube quality
-gate fails. Note: an initial red status can be expected because the existing
-repository contains unresolved findings and no coverage import.
+gate fails. Since genuine coverage is now imported, inspect the `new_coverage`
+condition after the next run; a red 80% condition reflects actual uncovered
+new code if the report was successfully imported.
 
 ### Reports and what they prove
 
@@ -103,9 +113,15 @@ On CI the ignored folder `artifacts/code-quality/sonar/ci/` contains:
 - `ce-task.json`: the compute-engine task result for this exact uploaded scan.
 - `quality-gate.json`: SonarQube gate status queried by **analysis ID**, not
   a potentially stale project status.
-- `measures.json`: actual project measurement API response.
-- `sonarqube-summary.md`: formatted lines of code, cyclomatic/cognitive
-  complexity, duplicated lines percentage, code smells, and technical debt.
+- `measures.json`: actual project measurement API response, including
+  overall/new coverage where SonarQube reports those metrics.
+- `sonarqube-summary.md`: quality gate's individual condition values plus
+  lines of code, complexity, duplications, code smells and technical debt.
+- `coverage-files.txt`: seven repo-relative paths to collected OpenCover files.
+- `coverage-collection-summary.md`: evidence of collection; not a substitute
+  for actual calculated SonarQube coverage.
+- `coverage/<unit-project>/<guid>/coverage.opencover.xml`: seven raw coverage
+  reports, one from each existing unit-test suite.
 
 Some metrics can be absent. The report says **not reported**, not zero.
 Security and reliability findings are best reviewed directly in the project
@@ -160,7 +176,10 @@ Do not run concurrent local scans and GitHub scans into the same project.
 | Project/organization not found | Correct values, token permissions, and `SONAR_REGION`. |
 | `Automatic Analysis` conflict | Disable automatic analysis in SonarQube Cloud before CI scanning. |
 | Compilation fails in scanner build | Open `Restore and analyze all 8 production projects` logs. All builds use `TreatWarningsAsErrors=false` **only in the scanner context**, without changing normal CI. |
-| Quality gate fails | Read the gate's conditions; if initial baseline only, keep `SONAR_ENFORCE_GATE=false`. |
+| Quality gate fails at 80% new coverage | Open `quality-gate.json` and check `new_coverage`. The old analysis `ae49e808-6b21-4b84-847d-00bac82b336d` had 0% and **no imported reports**. The updated workflow imports seven real reports, but may still miss lines that existing tests do not exercise. Add focused tests via the unit-testing contributor; do not fabricate coverage, disable rules, or alter the gate threshold. |
+| Scanner fails before upload | Check the first failing `dotnet test` suite or `ERROR: Expected one non-empty OpenCover report`. This is intentional fail-closed behavior. |
+| Coverage XML is present but Sonar coverage not reported | Inspect scanner end logs for OpenCover import messages and path matching. The glob is `artifacts/code-quality/sonar/ci/coverage/**/coverage.opencover.xml`. |
+| Quality gate red despite small-change exception | `quality-gate.json` contains `ignoredConditions`; this flag was `false` on the preceding analysis. The exception depends on new-line counts, not solely new lines requiring coverage. |
 | Gate says `Not computed` | Check new-code definition and that a second processed analysis is present. |
 | Can't read metrics | The scan may still be processing; inspect CE task and token Browse permission. |
 | Dashboard seems to show Python issues | Confirm CI scanner's `scanAll=false` and latest analysis type/time. |
@@ -172,7 +191,8 @@ bash ./scripts/code-quality/sonar-cloud.sh self-test
 ```
 
 This uses fake `dotnet`, `curl` and SonarScanner executables and proves only
-control flow, exclusions, red-gate selection, and report parsing. It cannot
+control flow, seven mocked coverage suites, missing-report/test failure
+handling, OpenCover path wiring, red-gate selection, and report parsing. It cannot
 prove real scanner compatibility or successful cloud uploads. Genuine evidence
 must come from your GitHub Actions run.
 
