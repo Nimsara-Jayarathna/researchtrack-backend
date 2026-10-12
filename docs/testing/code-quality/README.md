@@ -82,3 +82,12 @@ To test the fail/fix/pass behavior, make a temporary, deliberately badly spaced 
 ## Known execution limitation of the supplied ZIP
 
 The code-quality toolchain and the complete original backend are packaged together. In the packaging environment, **the .NET SDK and NuGet network access are unavailable**, so this ZIP cannot honestly claim to contain a formatter-produced whole-backend rewrite. The first genuine `fix` on your workstation performs that formatting, using the pinned official CSharpier version. Keep the original files and the `first-format` diff as before/after evidence. Do not replace this with regex or hand-rolled formatting.
+
+## SonarQube Cloud CI-based .NET analysis (separate workflow)
+
+The dedicated cloud analysis is implemented in
+[SONARQUBE_CLOUD.md](SONARQUBE_CLOUD.md) and
+`.github/workflows/backend-sonarqube.yml`. Use
+`bash ./scripts/code-quality.sh sonar [run-id]` for a manual main-branch scan
+once the token/project/organization environment variables are set. The native
+`fix`, `check`, and `analyze` commands remain independent and unchanged.
