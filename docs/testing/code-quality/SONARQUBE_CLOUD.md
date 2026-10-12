@@ -155,6 +155,7 @@ Do not run concurrent local scans and GitHub scans into the same project.
 
 | Symptom | What to check |
 |---|---|
+| Scanner tool installed, but `Please specify the command 'begin' or 'end'` during setup | The old script incorrectly called `dotnet-sonarscanner --version`, which exits 1. The corrected script checks `dotnet tool list --tool-path ...`; no token or region change needed. |
 | `SONAR_TOKEN is missing` | Check **Settings → Environments → production → Environment secrets**, then confirm the job has `environment: production`. |
 | Project/organization not found | Correct values, token permissions, and `SONAR_REGION`. |
 | `Automatic Analysis` conflict | Disable automatic analysis in SonarQube Cloud before CI scanning. |

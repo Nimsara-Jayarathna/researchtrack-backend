@@ -77,7 +77,19 @@ install_scanner() {
     dotnet tool install --tool-path "$TOOL_DIR" dotnet-sonarscanner --version "$VERSION"
     [[ ! -f "${SCANNER}.exe" ]] || SCANNER="${SCANNER}.exe"
   fi
-  "$SCANNER" --version
+  # SonarScanner for .NET 11.x is a begin/end tool. Unlike typical CLIs,
+  # `dotnet-sonarscanner --version` exits 1, even after a successful install.
+  # Verify its package/version with the .NET tool registry instead.
+  local installed_tools
+  installed_tools="$(dotnet tool list --tool-path "$TOOL_DIR")"
+  if ! printf '%s\n' "$installed_tools" | awk -v expected="$VERSION" \
+    'tolower($1) == "dotnet-sonarscanner" && $2 == expected { found=1 } END { exit !found }'; then
+    echo "ERROR: Expected dotnet-sonarscanner $VERSION in $TOOL_DIR." >&2
+    printf '%s\n' "$installed_tools" >&2
+    return 1
+  fi
+  [[ -x "$SCANNER" ]] || { echo "ERROR: SonarScanner executable not found: $SCANNER" >&2; return 1; }
+  echo "PASS: SonarScanner for .NET $VERSION is installed."
 }
 if [[ "$MODE" == setup ]]; then install_scanner; exit 0; fi
 

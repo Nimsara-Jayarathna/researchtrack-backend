@@ -23,6 +23,12 @@ cat > "$TEMP/bin/dotnet" <<'FAKE_DOTNET'
 #!/usr/bin/env bash
 set -euo pipefail
 if [[ "$1" == --version ]]; then echo 10.0.401; exit 0; fi
+if [[ "$1" == tool && "$2" == list ]]; then
+  printf 'Package Id            Version       Commands\n'
+  printf '%s\n' '---------------------------------------------'
+  printf 'dotnet-sonarscanner    %s        dotnet-sonarscanner\n' "${MOCK_TOOL_VERSION:-11.3.0}"
+  exit 0
+fi
 if [[ "$1" == tool && "$2" == install ]]; then
   shift 2
   while (($#)); do
@@ -44,7 +50,10 @@ FAKE_DOTNET
 cat > "$TEMP/scanner" <<'FAKE_SCANNER'
 #!/usr/bin/env bash
 set -euo pipefail
-if [[ "$1" == --version ]]; then echo 'SonarScanner for .NET 11.3.0'; exit 0; fi
+if [[ "$1" == --version ]]; then
+  echo 'Please specify begin or end' >&2
+  exit 1
+fi
 printf '%s\n' "$1" >> "$MOCK_SCANNER_CALLS"
 if [[ "$1" == begin ]]; then
   for a in "$@"; do
@@ -84,6 +93,8 @@ export MOCK_METADATA_POINTER="$TEMP/metadata-pointer.txt"
 export SONAR_TOKEN='test-token-do-not-log' SONAR_PROJECT_KEY='sample-project' SONAR_ORGANIZATION='sample-org'
 export SONAR_ENFORCE_GATE=false
 bash "$ROOT/scripts/code-quality/sonar-cloud.sh" doctor > "$TEMP/doctor.log"
+bash "$ROOT/scripts/code-quality/sonar-cloud.sh" setup > "$TEMP/setup.log" 2>&1
+grep -q 'PASS: SonarScanner for .NET 11.3.0 is installed.' "$TEMP/setup.log"
 bash "$ROOT/scripts/code-quality/sonar-cloud.sh" scan mock-success > "$TEMP/scan.log" 2>&1
 [[ "$(grep -c '^build ' "$TEMP/dotnet.log")" == 8 ]]
 [[ "$(grep -c '^restore ' "$TEMP/dotnet.log")" == 8 ]]
@@ -93,6 +104,11 @@ if grep -q 'test-token-do-not-log' "$TEMP/scan.log"; then echo 'FAIL: token prin
 bash "$ROOT/scripts/code-quality/sonar-metrics.sh" mock-success > "$TEMP/metrics.log"
 grep -q '| Lines of code | 1234 |' "$TEMP/metrics.log"
 grep -q 'Quality gate: \*\*ERROR\*\*' "$TEMP/metrics.log"
+# Refuse an incompatible tool rather than continuing with the wrong version.
+if MOCK_TOOL_VERSION=10.9.0 bash "$ROOT/scripts/code-quality/sonar-cloud.sh" setup > "$TEMP/wrong-tool.log" 2>&1; then
+  echo 'FAIL: setup accepted incorrect SonarScanner version' >&2; exit 1
+fi
+grep -q 'Expected dotnet-sonarscanner 11.3.0' "$TEMP/wrong-tool.log"
 export SONAR_ENFORCE_GATE=true
 bash "$ROOT/scripts/code-quality/sonar-cloud.sh" scan mock-enforce > "$TEMP/enforce.log" 2>&1
 grep -q '^gate=true$' "$TEMP/scanner.log"
