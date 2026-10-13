@@ -65,6 +65,19 @@ cat > "$work/bin/ssh-keyscan" <<'SH'
 printf 'example.test ssh-ed25519 SYNTHETIC\n'
 SH
 chmod +x "$work/bin/ssh" "$work/bin/scp" "$work/bin/k6" "$work/bin/ssh-keyscan"
+# The mocked SSH host is disposable, and may be macOS. Assert the Linux VPS
+# command contract without depending on locally installed flock/coreutils.
+cat > "$work/bin/flock" <<'SH'
+#!/usr/bin/env bash
+[[ "$*" == '-w 20 9' ]] || exit 2
+SH
+cat > "$work/bin/timeout" <<'SH'
+#!/usr/bin/env bash
+[[ "$1" == '--signal=TERM' && "$2" == '--kill-after=10s' && "$3" == 900 ]] || exit 2
+shift 3
+exec "$@"
+SH
+chmod +x "$work/bin/flock" "$work/bin/timeout"
 export PATH="$work/bin:$PATH"
 export SSH_HOST=example.test SSH_PORT=2222 SSH_USER=k6runner SSH_PRIVATE_KEY='synthetic-ssh-key'
 export K6_RATE_LIMIT_BYPASS_ENABLED=true

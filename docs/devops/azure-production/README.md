@@ -1,5 +1,9 @@
 # Azure Production Documentation Index
 
+Current evidence and final acceptance gaps: [Sprint 1–4 audit](../FINAL_DEVOPS_SPRINTS_1_TO_4_AUDIT.md)
+(2026-10-11). Production application releases require same-SHA CI, including isolated
+Kafka recovery and historical MySQL upgrades, before builds; see the updated runbook.
+
 This directory is designed so an implementation agent does **not** need to reread one enormous plan for every task.
 
 ## First read
@@ -98,14 +102,31 @@ Use for:
 - external integrations (GitHub App, Jira, DNS),
 - the first-deployment checklist.
 
+### `KAFKA_OPERATIONS.md` and `KAFKA_TASK_REPORT.md`
+
+Use for Kafka-only checks, topic operations, approved independent restart verification,
+private TLS/network validation, and Sprint 4 acceptance evidence.
+
 ### `IMPLEMENTATION_STATUS.md`
 
 Update after every meaningful implementation session.
 
 This prevents future agents from re-investigating already completed work.
 
+Kafka event/topic integration: [KAFKA_TOPICS_EVENT_FLOWS.md](KAFKA_TOPICS_EVENT_FLOWS.md)
+and [KAFKA_TOPICS_TASK_REPORT.md](KAFKA_TOPICS_TASK_REPORT.md) document the local
+implementation, approved application contracts and pending live verification.
+See [KAFKA_CONTRACT_PROPOSAL.md](KAFKA_CONTRACT_PROPOSAL.md) for the owner approval and
+[KAFKA_INTEGRATION_TESTING.md](KAFKA_INTEGRATION_TESTING.md) for isolated tests,
+Actions-based production evidence and application restart checks.
+
 ## Critical repository rule
 
 Never inspect real `.env` files.
 
 Use only `.env.example` contracts.
+
+
+## Kafka observability
+
+Locally implemented exporter, bounded GitHub/Jira worker metrics, cached outbox depths, 18-panel Kafka dashboard and ten Kafka alerts extend the existing platform. See [Kafka observability](KAFKA_OBSERVABILITY.md) for architecture, exact queries, isolated tests, monitoring-only delivery, verification and rollback. Production verification is pending; no deployment or production failure simulation was performed. See the [local task audit](KAFKA_OBSERVABILITY_TASK_REPORT.md) for executed results and the seven-item Definition of Done.

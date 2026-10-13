@@ -31,6 +31,7 @@ permissions:
 
 jobs:
   session:
+    if: ${{ github.repository == 'Nimsara-Jayarathna/researchtrack-backend' && (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') }}
     name: Capture → Ready → Hold → Restore
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -44,6 +45,19 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Authorize exact production operation source before credentials
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_REF: ${{ github.ref }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
+          SOURCE_EVENT: ${{ github.event_name }}
+        run: python3 deploy/azure/scripts/release-policy.py --operation
 
       - name: Validate request and OIDC configuration
         shell: bash
@@ -73,9 +87,11 @@ jobs:
               exit 1
             }
           done
-          echo "HOLD_SECONDS=$HOLD_SECONDS" >> "$GITHUB_ENV"
-          echo "STATE_FILE=$RUNNER_TEMP/researchtrack-runtime-before-session.json" >> "$GITHUB_ENV"
-          echo "ACTIVE_FILE=$RUNNER_TEMP/researchtrack-runtime-session.active" >> "$GITHUB_ENV"
+          {
+            echo "HOLD_SECONDS=$HOLD_SECONDS"
+            echo "STATE_FILE=$RUNNER_TEMP/researchtrack-runtime-before-session.json"
+            echo "ACTIVE_FILE=$RUNNER_TEMP/researchtrack-runtime-session.active"
+          } >> "$GITHUB_ENV"
 
       - name: Azure login (OIDC)
         uses: azure/login@v2

@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsTestProject>false</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../ResearchTrack.Testing/ResearchTrack.Testing.csproj" />
+    <ProjectReference Include="../../../src/Services/ResearchTrack.JiraService/ResearchTrack.JiraService.csproj" Aliases="JiraApp" />
+    <ProjectReference Include="../../../src/Gateway/ResearchTrack.Gateway/ResearchTrack.Gateway.csproj" Aliases="GatewayApp" />
+  </ItemGroup>
+</Project>

@@ -7,7 +7,7 @@ Production = `main` → Azure. There are two workflows:
 
 Both run in the GitHub Environment **`production`** and authenticate to Azure with OIDC. Architecture: [`../azure-production/`](../azure-production/README.md). Full inventory: [GITHUB_ENVIRONMENTS.md](GITHUB_ENVIRONMENTS.md).
 
-Create it under **Settings → Environments → New environment → `production`**. Restricting deployment branches to `main` and adding required reviewers are recommended but not enforced by the code. The OIDC trust is bound to the environment name, not the branch.
+Use the existing **Settings → Environments → `production`**. An owner should restrict deployment branches to `main` and preserve existing secrets and protection rules. These remote settings are not changed by local workflow edits. The OIDC trust is bound to the environment name, not the branch. Follow the [runbook cutover procedure](../azure-production/RUNBOOK.md#repository-wide-cutover) to account for old workflow copies on other branches.
 
 ## Authentication model: user-assigned managed identity + OIDC
 

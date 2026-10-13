@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using ResearchTrack.BuildingBlocks.Kafka;
 using ResearchTrack.GitHubService.Domain;
 
 namespace ResearchTrack.GitHubService.Persistence;
@@ -25,5 +26,6 @@ public sealed class GitHubDbContext : DbContext
     {
         base.OnModelCreating(modelBuilder);
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(GitHubDbContext).Assembly);
+        KafkaPersistence.Configure(modelBuilder);
     }
 }

@@ -6,7 +6,17 @@
 
 ## Production
 
-`main` deploys Azure Production.
+`main` is the production deployment branch.
+Production deployment jobs accept only that exact main-branch ref, including
+manual and reusable workflow calls. Production entrypoints reuse Backend CI on pushes
+to this branch; standalone CI also checks PRs targeting `develop` and the integration branch. The repository
+default branch setting is unchanged. Manual production operations also require `main`. See `RUNBOOK.md` for the
+cutover procedure and required same-SHA CI/source eligibility gate. Production pushes
+reuse Backend CI before image builds; manual production requests run the same checks.
+The isolated Kafka/recovery/MySQL-upgrade job is required. PR CI remains unprivileged.
+All release checkouts use `github.sha`; source eligibility is checked after CI and again
+before production access. See the [current audit](../FINAL_DEVOPS_SPRINTS_1_TO_4_AUDIT.md)
+for executed local tests and pending live acceptance.
 
 ## Images
 
@@ -187,3 +197,22 @@ max=1
 ```
 
 Do not scale until statelessness/background jobs are reviewed.
+
+## Current release evidence and infrastructure gate — 2026-10-11
+
+The application exact-SHA gate is published and demonstrated at `a26cfd2` in
+[production run 38147705025](https://github.com/Nimsara-Jayarathna/researchtrack-backend/actions/runs/38147705025);
+[PR CI 38149500022](https://github.com/Nimsara-Jayarathna/researchtrack-backend/actions/runs/38149500022)
+passed for the same commit. Public readiness was skipped; k6 executed and passed.
+
+Infrastructure CD now locally reuses `backend-release-validation.yml` without inherited
+secrets or OIDC, then validates Bicep. Its production job needs both successful jobs and
+rechecks current branch SHA before secret materialization/OIDC. Both manual modes retain
+the same required CI; monitoring-only reads existing outputs and reconciles monitoring
+without Bicep replacement, broker/database recreation or runtime secret replacement.
+What-If deletion refusal, explicit `allow_destructive`, shared concurrency, protected
+Environment reference and OIDC remain. No circular dependency or privileged PR artifact
+handoff is introduced. Publication/first infrastructure-gated run remains owner work.
+
+See [owner settings](../configuration/GITHUB_ENVIRONMENTS.md#owner-protection-checklist--verified-2026-10-11)
+and [hardening results](../FINAL_DEVOPS_HARDENING.md). Changes are local only.

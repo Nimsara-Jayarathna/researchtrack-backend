@@ -49,6 +49,7 @@ chmod +x "$work/bin/docker"
 cat > "$work/bin/timeout" <<'TIMEOUT'
 #!/usr/bin/env bash
 # Port checks are the only timeout use in this probe; make them deterministic.
+if [[ -n "${MOCK_PORT_FAIL_PATTERN:-}" && "$*" == *"$MOCK_PORT_FAIL_PATTERN"* ]]; then exit 1; fi
 exit "${MOCK_PORT_FAILURE:-0}"
 TIMEOUT
 chmod +x "$work/bin/timeout"
@@ -91,6 +92,14 @@ run_ok "core VM dependencies ready" infra
 export MOCK_UNHEALTHY_SERVICE=mysql
 run_fail "unhealthy MySQL blocks acquisition" infra
 unset MOCK_UNHEALTHY_SERVICE
+
+export MOCK_UNHEALTHY_SERVICE=kafka
+run_fail "unhealthy Kafka blocks acquisition" infra
+unset MOCK_UNHEALTHY_SERVICE
+
+export MOCK_PORT_FAIL_PATTERN=/9092
+run_fail "Kafka private listener timeout blocks acquisition" infra
+unset MOCK_PORT_FAIL_PATTERN
 
 run_ok "all application readiness endpoints ready" apps
 export MOCK_CURL_FAIL_PATTERN=rt-jira-prod

@@ -31,6 +31,7 @@ jobs:
   # Production runs on Azure Container Apps + an infrastructure VM. Test keeps
   # using the VPS/Compose path in backend-deploy-reusable.yml.
   deploy:
+    if: ${{ github.ref == 'refs/heads/main' }}
     name: Build and Deploy Azure Production
     uses: ./.github/workflows/backend-deploy-azure-production.yml
     with:
@@ -42,6 +43,27 @@ jobs:
       id-token: write
     secrets: inherit
 
+  release_summary:
+    name: Report verified release result and durations
+    needs: [deploy, performance_smoke]
+    if: ${{ always() && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          sparse-checkout: deploy/azure/scripts
+      - name: Record this exact run's results
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPLOY_RESULT: ${{ needs.deploy.result }}
+          SMOKE_RESULT: ${{ needs.performance_smoke.result }}
+        run: python3 deploy/azure/scripts/release-summary.py
+
   performance_smoke:
     name: Automatic post-deployment k6 Smoke
     needs: deploy
@@ -50,6 +72,7 @@ jobs:
     with:
       profile: smoke
       execution_mode: automatic-post-deploy
+      deployment_result: ${{ needs.deploy.result }}
       confirmation: ''
       # Automatic Smoke intentionally uses normal Gateway rate limiting. Heavy
       # manual capacity profiles can still opt into the scoped VPS exemption.
@@ -59,4 +82,3 @@ jobs:
       contents: read
       id-token: write
     secrets: inherit
-

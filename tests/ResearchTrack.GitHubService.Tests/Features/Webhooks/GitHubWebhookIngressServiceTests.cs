@@ -52,6 +52,28 @@ public sealed class GitHubWebhookIngressServiceTests
         Assert.Null(store.Envelope);
     }
 
+    [Theory]
+    [InlineData("[]")]
+    [InlineData("\"payload\"")]
+    [InlineData("42")]
+    [InlineData("true")]
+    [InlineData("null")]
+    [InlineData("{\"installation\":{\"id\":\"42\"}}")]
+    [InlineData("{\"repository\":{\"id\":false}}")]
+    [InlineData("{")]
+    public async Task AcceptAsync_RejectsMalformedPayloadBeforePersistence(string json)
+    {
+        var payload = Encoding.UTF8.GetBytes(json);
+        var store = new StubStore();
+
+        var error = await Assert.ThrowsAsync<ResearchTrack.BuildingBlocks.Api.Exceptions.ApiException>(() =>
+            CreateService(store).AcceptAsync(new MemoryStream(payload), payload.Length, Sign(payload),
+                "delivery-1", "push", CancellationToken.None));
+
+        Assert.Equal(400, error.StatusCode);
+        Assert.Null(store.Envelope);
+    }
+
     private static GitHubWebhookIngressService CreateService(StubStore store)
     {
         var options = new GitHubWebhookOptions(

@@ -111,6 +111,14 @@ STUB
 cat > "$work/kbin/kafka-get-offsets.sh" <<'STUB'
 #!/usr/bin/env bash
 [[ "$*" == *"--command-config"* ]] || { echo "TLS client config missing" >&2; exit 1; }
+config=""
+while (($#)); do
+  if [[ "$1" == --command-config ]]; then config="$2"; break; fi
+  shift
+done
+grep -Fxq 'security.protocol=SSL' "$config" || exit 9
+grep -Fxq 'ssl.endpoint.identification.algorithm=https' "$config" || exit 9
+if [[ "$KAFKA_MODE" == tls-error ]]; then echo 'SSLHandshakeException: certificate verify failed' >&2; exit 1; fi
 echo "INFO noisy log" >&2; echo "researchtrack.deployment-smoke:0:17"
 STUB
 cat > "$work/kbin/kafka-console-producer.sh" <<'STUB'
@@ -152,6 +160,11 @@ TCP_OK="10.20.10.4:3306" KAFKA_MODE=ok EXPECT_APPS=false run_container c4a
 TCP_OK="10.20.10.4:3306 10.20.10.4:9092" KAFKA_MODE=wrong EXPECT_APPS=false run_container c4b
 [[ $rc == 1 && "$out" == *"FAIL  kafka-tls -> 10.20.10.4:9092"* && "$out" == *"consumer stdout:"* && "$out" == *"some-other-record"* ]] \
   && pass "4b kafka tls mismatch shows step, expected token and consumer output" || { fail "4b"; echo "$out"; }
+
+# 4c. A TLS trust error must fail with useful diagnostics.
+TCP_OK="10.20.10.4:3306 10.20.10.4:9092" KAFKA_MODE=tls-error EXPECT_APPS=false run_container c4c
+[[ $rc == 1 && "$out" == *"SSLHandshakeException"* && "$out" == *"FAIL  kafka-tls"* ]] \
+  && pass "4c certificate trust failure cannot pass" || { fail "4c"; echo "$out"; }
 
 # 5. EXPECT_APPS=false -> no application probes.
 TCP_OK="10.20.10.4:3306 10.20.10.4:9092" KAFKA_MODE=ok EXPECT_APPS=false run_container c5

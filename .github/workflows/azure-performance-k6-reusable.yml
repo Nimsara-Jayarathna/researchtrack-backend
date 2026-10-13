@@ -12,6 +12,11 @@ on:
         required: false
         type: string
         default: manual
+      deployment_result:
+        description: Successful validated deployment result, required for automatic Smoke.
+        required: false
+        type: string
+        default: ''
       confirmation:
         description: Manual safety confirmation. Ignored for automatic post-deploy Smoke.
         required: false
@@ -34,6 +39,7 @@ permissions:
 
 jobs:
   performance:
+    if: ${{ github.repository == 'Nimsara-Jayarathna/researchtrack-backend' && ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') || (github.event_name == 'push' && github.ref == 'refs/heads/main')) }}
     name: Acquire runtime → VPS k6 → Restore
     runs-on: ubuntu-latest
     timeout-minutes: 70
@@ -50,6 +56,26 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Authorize exact production operation source before credentials
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_REF: ${{ github.ref }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
+          SOURCE_EVENT: ${{ github.event_name }}
+          CI_RESULT: ${{ inputs.deployment_result }}
+        run: |
+          set -euo pipefail
+          case "$K6_EXECUTION_MODE" in
+            manual) python3 deploy/azure/scripts/release-policy.py --operation ;;
+            automatic-post-deploy) python3 deploy/azure/scripts/release-policy.py ;;
+            *) echo 'Untrusted performance execution mode.' >&2; exit 1 ;;
+          esac
 
       - name: Validate request and production configuration
         shell: bash
@@ -135,10 +161,12 @@ jobs:
               if isinstance(item, bool) or not isinstance(item, (int, float)) or not math.isfinite(item) or item <= 0:
                   raise SystemExit(f'Endpoint threshold {key!r} must be a positive number')
           PY
-          echo "STATE_FILE=$RUNNER_TEMP/researchtrack-k6-runtime-state.json" >> "$GITHUB_ENV"
-          echo "ACTIVE_FILE=$RUNNER_TEMP/researchtrack-k6-runtime.active" >> "$GITHUB_ENV"
-          echo "K6_GATEWAY_STATE_FILE=$RUNNER_TEMP/researchtrack-k6-gateway-state.json" >> "$GITHUB_ENV"
-          echo "K6_GATEWAY_ACTIVE_FILE=$RUNNER_TEMP/researchtrack-k6-gateway.active" >> "$GITHUB_ENV"
+          {
+            echo "STATE_FILE=$RUNNER_TEMP/researchtrack-k6-runtime-state.json"
+            echo "ACTIVE_FILE=$RUNNER_TEMP/researchtrack-k6-runtime.active"
+            echo "K6_GATEWAY_STATE_FILE=$RUNNER_TEMP/researchtrack-k6-gateway-state.json"
+            echo "K6_GATEWAY_ACTIVE_FILE=$RUNNER_TEMP/researchtrack-k6-gateway.active"
+          } >> "$GITHUB_ENV"
 
       - name: Validate performance scripts
         shell: bash
@@ -312,16 +340,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          echo '## ResearchTrack Production — k6 Performance' >> "$GITHUB_STEP_SUMMARY"
-          echo >> "$GITHUB_STEP_SUMMARY"
-          echo "Profile: **${K6_PROFILE}** | Mode: **${K6_EXECUTION_MODE}** | Gateway exemption: **${K6_RATE_LIMIT_BYPASS_ENABLED}**" >> "$GITHUB_STEP_SUMMARY"
-          echo 'The gateway revision (when modified) and Azure power state are restored independently.' >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo '## ResearchTrack Production — k6 Performance'
+            echo
+            echo "Profile: **${K6_PROFILE}** | Mode: **${K6_EXECUTION_MODE}** | Gateway exemption: **${K6_RATE_LIMIT_BYPASS_ENABLED}**"
+            echo 'The gateway revision (when modified) and Azure power state are restored independently.'
+          } >> "$GITHUB_STEP_SUMMARY"
           report="reports/performance/${K6_PROFILE}-report.md"
           if [[ -f "$report" ]]; then
-            cat "$report" >> "$GITHUB_STEP_SUMMARY"
-            echo >> "$GITHUB_STEP_SUMMARY"
-            echo '### Detailed report artifact' >> "$GITHUB_STEP_SUMMARY"
-            echo 'The uploaded k6 artifact also contains a self-contained HTML report, endpoint CSV, raw log and detailed JSON summary.' >> "$GITHUB_STEP_SUMMARY"
+            {
+              cat "$report"
+              echo
+              echo '### Detailed report artifact'
+              echo 'The uploaded k6 artifact also contains a self-contained HTML report, endpoint CSV, raw log and detailed JSON summary.'
+            } >> "$GITHUB_STEP_SUMMARY"
           else
             echo 'No k6 metrics report was produced; see the workflow failure logs.' >> "$GITHUB_STEP_SUMMARY"
           fi

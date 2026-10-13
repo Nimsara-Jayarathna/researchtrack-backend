@@ -19,65 +19,91 @@ namespace ResearchTrack.GitHubService.Persistence.Migrations
                 .HasAnnotation("ProductVersion", "10.0.9")
                 .HasAnnotation("Relational:MaxIdentifierLength", 64);
 
-            modelBuilder.Entity("ResearchTrack.GitHubService.Domain.GitHubAccessSource", b =>
+            modelBuilder.Entity("ResearchTrack.BuildingBlocks.Kafka.KafkaInboxReceipt", b =>
                 {
-                    b.Property<Guid>("Id")
+                    b.Property<Guid>("EventId")
+                        .ValueGeneratedOnAdd()
                         .HasColumnType("char(36)");
 
-                    b.Property<string>("AccessType")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("varchar(32)");
-
-                    b.Property<string>("ConnectionStatus")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("varchar(32)");
-
-                    b.Property<bool>("Active")
-                        .HasColumnType("tinyint(1)");
-
-                    b.Property<string>("ActiveInstallationKey")
-                        .HasMaxLength(128)
-                        .HasColumnType("varchar(128)");
-
-                    b.Property<DateTime>("CreatedAt")
+                    b.Property<DateTime>("HandedOffAtUtc")
                         .HasColumnType("datetime(6)");
 
-                    b.Property<Guid>("CreatedByUserId")
-                        .HasColumnType("char(36)");
-
-                    b.Property<long?>("InstallationId")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("OwnerLogin")
-                        .IsRequired()
-                        .HasMaxLength(255)
-                        .HasColumnType("varchar(255)");
-
-                    b.Property<string>("OwnerType")
+                    b.Property<string>("Outcome")
                         .IsRequired()
                         .HasMaxLength(32)
                         .HasColumnType("varchar(32)");
 
-                    b.Property<Guid>("ProjectId")
-                        .HasColumnType("char(36)");
+                    b.Property<string>("PayloadHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)");
 
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("datetime(6)");
+                    b.HasKey("EventId");
 
-                    b.HasKey("Id");
-
-                    b.HasIndex("ActiveInstallationKey")
-                        .IsUnique()
-                        .HasDatabaseName("ux_github_access_sources_active_installation");
-
-                    b.HasIndex("ProjectId")
-                        .HasDatabaseName("ix_github_access_sources_project_id");
-
-                    b.ToTable("github_access_sources", (string)null);
+                    b.ToTable("kafka_inbox_receipts", (string)null);
                 });
 
+            modelBuilder.Entity("ResearchTrack.BuildingBlocks.Kafka.KafkaOutboxMessage", b =>
+                {
+                    b.Property<long>("Sequence")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<Guid>("EventId")
+                        .HasColumnType("char(36)");
+
+                    b.Property<string>("LastErrorCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<DateTime?>("LeaseExpiresAtUtc")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<Guid?>("LeaseId")
+                        .HasColumnType("char(36)");
+
+                    b.Property<string>("MessageKey")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("varchar(160)");
+
+                    b.Property<DateTime>("NextAttemptAtUtc")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("PayloadJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("PublishedAtUtc")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("varchar(16)");
+
+                    b.Property<string>("Topic")
+                        .IsRequired()
+                        .HasMaxLength(249)
+                        .HasColumnType("varchar(249)");
+
+                    b.HasKey("Sequence");
+
+                    b.HasIndex("EventId")
+                        .IsUnique();
+
+                    b.HasIndex("MessageKey", "Sequence");
+
+                    b.HasIndex("Status", "NextAttemptAtUtc");
+
+                    b.ToTable("kafka_outbox_messages", (string)null);
+                });
 
             modelBuilder.Entity("ResearchTrack.GitHubService.Domain.GitHubAccessRequest", b =>
                 {
@@ -118,11 +144,6 @@ namespace ResearchTrack.GitHubService.Persistence.Migrations
                         .HasMaxLength(255)
                         .HasColumnType("varchar(255)");
 
-                    b.Property<string>("TargetOwnerLogin")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("varchar(100)");
-
                     b.Property<Guid>("RequestedByUserId")
                         .HasColumnType("char(36)");
 
@@ -144,6 +165,11 @@ namespace ResearchTrack.GitHubService.Persistence.Migrations
                         .IsRequired()
                         .HasMaxLength(32)
                         .HasColumnType("varchar(32)");
+
+                    b.Property<string>("TargetOwnerLogin")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
 
                     b.Property<string>("TokenHash")
                         .IsRequired()
@@ -176,6 +202,236 @@ namespace ResearchTrack.GitHubService.Persistence.Migrations
                         .HasDatabaseName("ix_github_access_requests_project_status");
 
                     b.ToTable("github_access_requests", (string)null);
+                });
+
+            modelBuilder.Entity("ResearchTrack.GitHubService.Domain.GitHubAccessSource", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("char(36)");
+
+                    b.Property<string>("AccessType")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)");
+
+                    b.Property<bool>("Active")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<string>("ActiveInstallationKey")
+                        .HasMaxLength(128)
+                        .HasColumnType("varchar(128)");
+
+                    b.Property<string>("ConnectionStatus")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<Guid>("CreatedByUserId")
+                        .HasColumnType("char(36)");
+
+                    b.Property<long?>("InstallationId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("OwnerLogin")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<string>("OwnerType")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("char(36)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ActiveInstallationKey")
+                        .IsUnique()
+                        .HasDatabaseName("ux_github_access_sources_active_installation");
+
+                    b.HasIndex("ProjectId")
+                        .HasDatabaseName("ix_github_access_sources_project_id");
+
+                    b.ToTable("github_access_sources", (string)null);
+                });
+
+            modelBuilder.Entity("ResearchTrack.GitHubService.Domain.GitHubBranch", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("char(36)");
+
+                    b.Property<string>("HeadSha")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<bool>("IsProtected")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<DateTime>("LastSeenAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<Guid>("RepositoryLinkId")
+                        .HasColumnType("char(36)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RepositoryLinkId", "Name")
+                        .IsUnique();
+
+                    b.ToTable("github_branches", (string)null);
+                });
+
+            modelBuilder.Entity("ResearchTrack.GitHubService.Domain.GitHubCommit", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("char(36)");
+
+                    b.Property<int?>("Additions")
+                        .HasColumnType("int");
+
+                    b.Property<string>("AuthorEmail")
+                        .HasMaxLength(320)
+                        .HasColumnType("varchar(320)");
+
+                    b.Property<long?>("AuthorGitHubId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("AuthorLogin")
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<string>("AuthorName")
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<DateTime?>("AuthoredAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int?>("ChangedFiles")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("CommittedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<long?>("CommitterGitHubId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("CommitterLogin")
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<int?>("Deletions")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("FirstSeenAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("HtmlUrl")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("varchar(2048)");
+
+                    b.Property<DateTime>("LastSeenAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Message")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("ParentsCount")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("RepositoryLinkId")
+                        .HasColumnType("char(36)");
+
+                    b.Property<string>("Sha")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RepositoryLinkId", "CommittedAt");
+
+                    b.HasIndex("RepositoryLinkId", "Sha")
+                        .IsUnique();
+
+                    b.ToTable("github_commits", (string)null);
+                });
+
+            modelBuilder.Entity("ResearchTrack.GitHubService.Domain.GitHubContributor", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("char(36)");
+
+                    b.Property<string>("AvatarUrl")
+                        .HasMaxLength(2048)
+                        .HasColumnType("varchar(2048)");
+
+                    b.Property<DateTime?>("FirstCommitAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int>("GitHubContributionCount")
+                        .HasColumnType("int");
+
+                    b.Property<long>("GitHubUserId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime?>("LastCommitAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<DateTime>("LastSyncedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Login")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<long>("ObservedAdditions")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("ObservedChangedFiles")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("ObservedCommitCount")
+                        .HasColumnType("int");
+
+                    b.Property<long>("ObservedDeletions")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("ProfileUrl")
+                        .HasMaxLength(2048)
+                        .HasColumnType("varchar(2048)");
+
+                    b.Property<Guid>("RepositoryLinkId")
+                        .HasColumnType("char(36)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RepositoryLinkId", "GitHubUserId")
+                        .IsUnique();
+
+                    b.HasIndex("RepositoryLinkId", "Login");
+
+                    b.ToTable("github_contributors", (string)null);
                 });
 
             modelBuilder.Entity("ResearchTrack.GitHubService.Domain.GitHubInstallationFlowState", b =>
@@ -240,6 +496,167 @@ namespace ResearchTrack.GitHubService.Persistence.Migrations
                     b.ToTable("github_installation_flow_states", (string)null);
                 });
 
+            modelBuilder.Entity("ResearchTrack.GitHubService.Domain.GitHubPullRequest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("char(36)");
+
+                    b.Property<int?>("Additions")
+                        .HasColumnType("int");
+
+                    b.Property<long?>("AuthorGitHubId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("AuthorLogin")
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<string>("Body")
+                        .HasColumnType("longtext");
+
+                    b.Property<int?>("ChangedFiles")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("ClosedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int?>("CommentsCount")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("CommitsCount")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int?>("Deletions")
+                        .HasColumnType("int");
+
+                    b.Property<long>("GitHubPullRequestId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("HtmlUrl")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("varchar(2048)");
+
+                    b.Property<bool>("IsDraft")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<bool>("IsMerged")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<DateTime>("LastSyncedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("MergeCommitSha")
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<DateTime?>("MergedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<long?>("MergedByGitHubId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("MergedByLogin")
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<int>("Number")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("RepositoryLinkId")
+                        .HasColumnType("char(36)");
+
+                    b.Property<int?>("ReviewCommentsCount")
+                        .HasColumnType("int");
+
+                    b.Property<string>("SourceBranch")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<string>("SourceSha")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)");
+
+                    b.Property<string>("TargetBranch")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<string>("TargetSha")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("varchar(512)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RepositoryLinkId", "GitHubPullRequestId")
+                        .IsUnique();
+
+                    b.HasIndex("RepositoryLinkId", "Number")
+                        .IsUnique();
+
+                    b.HasIndex("RepositoryLinkId", "UpdatedAt");
+
+                    b.ToTable("github_pull_requests", (string)null);
+                });
+
+            modelBuilder.Entity("ResearchTrack.GitHubService.Domain.GitHubPullRequestReview", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("char(36)");
+
+                    b.Property<long>("GitHubReviewId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("LastSyncedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<Guid>("PullRequestId")
+                        .HasColumnType("char(36)");
+
+                    b.Property<long?>("ReviewerGitHubId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("ReviewerLogin")
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<DateTime?>("SubmittedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PullRequestId", "GitHubReviewId")
+                        .IsUnique();
+
+                    b.ToTable("github_pull_request_reviews", (string)null);
+                });
+
             modelBuilder.Entity("ResearchTrack.GitHubService.Domain.GitHubRepository", b =>
                 {
                     b.Property<Guid>("Id")
@@ -297,6 +714,64 @@ namespace ResearchTrack.GitHubService.Persistence.Migrations
                         .HasDatabaseName("ux_github_repositories_source_github_id");
 
                     b.ToTable("github_repositories", (string)null);
+                });
+
+            modelBuilder.Entity("ResearchTrack.GitHubService.Domain.GitHubSyncRun", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("char(36)");
+
+                    b.Property<int>("BranchesFetched")
+                        .HasColumnType("int");
+
+                    b.Property<int>("CommitsFetched")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int>("ContributorsFetched")
+                        .HasColumnType("int");
+
+                    b.Property<string>("ErrorCode")
+                        .HasMaxLength(128)
+                        .HasColumnType("varchar(128)");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasMaxLength(2048)
+                        .HasColumnType("varchar(2048)");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("char(36)");
+
+                    b.Property<int>("PullRequestsFetched")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("RepositoryLinkId")
+                        .HasColumnType("char(36)");
+
+                    b.Property<int>("ReviewsFetched")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("StartedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)");
+
+                    b.Property<string>("Trigger")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RepositoryLinkId", "StartedAt");
+
+                    b.ToTable("github_sync_runs", (string)null);
                 });
 
             modelBuilder.Entity("ResearchTrack.GitHubService.Domain.GitHubWebhookDelivery", b =>
@@ -417,12 +892,12 @@ namespace ResearchTrack.GitHubService.Persistence.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("varchar(64)");
 
-                    b.Property<DateTime?>("LastSyncStartedAt")
-                        .HasColumnType("datetime(6)");
-
                     b.Property<string>("LastSyncError")
                         .HasMaxLength(2048)
                         .HasColumnType("varchar(2048)");
+
+                    b.Property<DateTime?>("LastSyncStartedAt")
+                        .HasColumnType("datetime(6)");
 
                     b.Property<DateTime?>("LastSyncedAt")
                         .HasColumnType("datetime(6)");

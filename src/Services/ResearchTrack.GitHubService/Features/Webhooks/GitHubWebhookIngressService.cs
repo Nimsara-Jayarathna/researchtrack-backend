@@ -41,16 +41,19 @@ public sealed class GitHubWebhookIngressService : IGitHubWebhookIngressService
     {
         deliveryId = NormalizeHeader(deliveryId);
         eventType = NormalizeHeader(eventType)?.ToLowerInvariant();
+
         if (deliveryId is null || deliveryId.Length > 128)
         {
             GitHubWebhookMetrics.Rejected.WithLabels("missing_delivery").Inc();
             throw BadRequest("GitHub webhook delivery id is required.");
         }
+
         if (eventType is null || eventType.Length > 64 || !eventType.All(IsEventCharacter))
         {
             GitHubWebhookMetrics.Rejected.WithLabels("invalid_event").Inc();
             throw BadRequest("GitHub webhook event type is invalid.");
         }
+
         if (contentLength is > 0 && contentLength > _options.MaxPayloadBytes)
         {
             GitHubWebhookMetrics.Rejected.WithLabels("payload_too_large").Inc();
@@ -62,6 +65,7 @@ public sealed class GitHubWebhookIngressService : IGitHubWebhookIngressService
         }
 
         var payload = await ReadBoundedAsync(body, _options.MaxPayloadBytes, cancellationToken);
+
         if (!_signatureVerifier.IsValid(payload, signature))
         {
             GitHubWebhookMetrics.Rejected.WithLabels("invalid_signature").Inc();
@@ -76,11 +80,19 @@ public sealed class GitHubWebhookIngressService : IGitHubWebhookIngressService
         string? action;
         long? installationId;
         long? repositoryId;
+
         try
         {
             payloadJson = Encoding.UTF8.GetString(payload);
+
             using var document = JsonDocument.Parse(payload);
             var root = document.RootElement;
+
+            if (root.ValueKind != JsonValueKind.Object)
+            {
+                throw new JsonException("GitHub webhook payload must be a JSON object.");
+            }
+
             action = ReadString(root, "action");
             installationId = ReadNestedInt64(root, "installation", "id");
             repositoryId = ReadNestedInt64(root, "repository", "id");
@@ -91,12 +103,13 @@ public sealed class GitHubWebhookIngressService : IGitHubWebhookIngressService
             throw new ApiException(
                 StatusCodes.Status400BadRequest,
                 ErrorCodes.BadRequest,
-                "GitHub webhook payload is not valid JSON.",
+                "GitHub webhook payload must be a valid JSON object with numeric identifiers.",
                 innerException: exception
             );
         }
 
         var hash = Convert.ToHexString(SHA256.HashData(payload)).ToLowerInvariant();
+
         var envelope = new GitHubWebhookEnvelope(
             deliveryId,
             eventType,
@@ -106,6 +119,7 @@ public sealed class GitHubWebhookIngressService : IGitHubWebhookIngressService
             payloadJson,
             hash
         );
+
         var result = await _store.AcceptAsync(
             envelope,
             _timeProvider.GetUtcNow().UtcDateTime,
@@ -113,7 +127,9 @@ public sealed class GitHubWebhookIngressService : IGitHubWebhookIngressService
         );
 
         GitHubWebhookMetrics.Received.WithLabels(eventType).Inc();
+
         _signal.Pulse();
+
         return result;
     }
 
@@ -124,29 +140,37 @@ public sealed class GitHubWebhookIngressService : IGitHubWebhookIngressService
     )
     {
         using var buffer = new MemoryStream(Math.Min(maxBytes, 64 * 1024));
+
         var chunk = new byte[16 * 1024];
+
         while (true)
         {
             var read = await body.ReadAsync(chunk.AsMemory(0, chunk.Length), cancellationToken);
+
             if (read == 0)
                 break;
+
             if (buffer.Length + read > maxBytes)
             {
                 GitHubWebhookMetrics.Rejected.WithLabels("payload_too_large").Inc();
+
                 throw new ApiException(
                     StatusCodes.Status413PayloadTooLarge,
                     ErrorCodes.BadRequest,
                     "GitHub webhook payload exceeds the configured size limit."
                 );
             }
+
             await buffer.WriteAsync(chunk.AsMemory(0, read), cancellationToken);
         }
+
         return buffer.ToArray();
     }
 
     private static string? NormalizeHeader(string? value)
     {
         var normalized = value?.Trim();
+
         return string.IsNullOrWhiteSpace(normalized) ? null : normalized;
     }
 
@@ -164,11 +188,21 @@ public sealed class GitHubWebhookIngressService : IGitHubWebhookIngressService
             !root.TryGetProperty(parent, out var parentValue)
             || parentValue.ValueKind != JsonValueKind.Object
             || !parentValue.TryGetProperty(child, out var childValue)
-            || !childValue.TryGetInt64(out var result)
         )
         {
             return null;
         }
+
+        if (childValue.ValueKind != JsonValueKind.Number)
+        {
+            throw new JsonException("GitHub webhook identifier must be numeric.");
+        }
+
+        if (!childValue.TryGetInt64(out var result))
+        {
+            throw new JsonException("GitHub webhook identifier must be a valid 64-bit integer.");
+        }
+
         return result;
     }
 

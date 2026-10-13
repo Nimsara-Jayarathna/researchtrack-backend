@@ -192,3 +192,8 @@ sum by (operation,outcome) (increase(jira_atlassian_api_requests_total[10m]))
 ```
 
 Deployment health verification now requires the `researchtrack-jira-integration` Prometheus rule group, the complete GitHub/Jira alert set, and Grafana dashboard UID `jira-integration-operations` in addition to the existing dashboards.
+
+
+## Sprint 4 Kafka observability
+
+Locally implemented exporter, bounded GitHub/Jira worker metrics, cached outbox depths, 18-panel Kafka dashboard and ten Kafka alerts extend the existing platform. See [Sprint 4 Kafka observability](../../docs/devops/azure-production/KAFKA_OBSERVABILITY.md) for architecture, exact queries, isolated tests, monitoring-only delivery, verification and rollback. Production verification is pending; no deployment or production failure simulation was performed. See the [local task audit](../../docs/devops/azure-production/KAFKA_OBSERVABILITY_TASK_REPORT.md) for executed results and the seven-item Definition of Done.

@@ -1,8 +1,9 @@
 name: Backend CI
 
 on:
+  workflow_call:
   pull_request:
-    branches: ["develop", "main"]
+    branches: ["develop", "main", "integration/main-kafka-production-20261011"]
 
 permissions:
   contents: read
@@ -15,12 +16,15 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
 
       - name: Validate deployment scripts and dashboard JSON
         shell: bash
         run: |
           set -euo pipefail
-          bash -n \
+          for script in \
             deploy/scripts/deploy-stack.sh \
             deploy/scripts/verify-health.sh \
             deploy/validate-env-files.sh \
@@ -28,8 +32,10 @@ jobs:
             deploy/mysql/reconcile-databases.sh \
             deploy/azure/scripts/*.sh \
             deploy/azure/vm/scripts/*.sh \
-            deploy/azure/validation/*.sh
-          python -m py_compile deploy/azure/scripts/render-containerapp.py deploy/build/service-impact.py
+            deploy/azure/validation/*.sh; do
+            bash -n "$script"
+          done
+          python -m py_compile deploy/azure/scripts/render-containerapp.py deploy/azure/scripts/kafka_config.py deploy/build/service-impact.py
           python -m json.tool deploy/monitoring/grafana/provisioning/dashboards/json/researchtrack-overview.json >/dev/null
           python -m json.tool deploy/monitoring/grafana/provisioning/dashboards/json/github-sync.json >/dev/null
 
@@ -80,6 +86,24 @@ jobs:
       - name: Test Kafka TLS smoke-test logic (stubbed Kafka)
         run: ./deploy/azure/validation/test-kafka-smoke.sh
 
+      - name: Test Kafka operational safety (offline)
+        run: ./deploy/azure/validation/test-kafka-operations.sh
+
+      - name: Test Kafka topic registry, reconciliation and service configuration (offline)
+        run: python3 deploy/azure/validation/test_kafka_topics_config.py
+
+      - name: Test Kafka monitoring configuration, dashboards and Prometheus scenarios
+        run: ./scripts/test-kafka-observability.sh
+
+      - name: Test production release trust and exact-commit policy (offline)
+        run: python3 deploy/azure/validation/test_release_policy.py
+
+      - name: Test infrastructure release gate and optional public readiness (offline)
+        run: python3 deploy/azure/validation/test_workflow_release_gates.py
+
+      - name: Test monitoring-only VM reconciliation (mocked Docker)
+        run: python3 deploy/azure/validation/test_monitoring_reconciliation.py
+
       - name: Test VM private-IP safety check (stubbed ip)
         run: ./deploy/azure/validation/test-private-ip-check.sh
 
@@ -93,13 +117,17 @@ jobs:
         run: ./deploy/azure/validation/test-deploy-image-selection.sh
 
       - name: Validate shared JWT wiring (Test, local, Azure Production)
-        run: ./deploy/validate-shared-auth-wiring.sh
+        run: |
+          python3 deploy/azure/validation/test_shared_auth_wiring.py
+          ./deploy/validate-shared-auth-wiring.sh
 
       - name: Test Container Apps environment composition (synthetic values)
-        run: ./deploy/azure/validation/test-service-env-composition.sh
+        run: |
+          python3 deploy/azure/validation/test_prepare_gateway_env.py
+          ./deploy/azure/validation/test-service-env-composition.sh
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0; Node 24
         with:
           global-json-file: global.json
           cache: true
@@ -140,3 +168,9 @@ jobs:
             artifacts/test-results/unit/
           if-no-files-found: warn
           retention-days: 14
+
+  kafka-integration:
+    name: Required isolated Kafka recovery and migration upgrades
+    uses: ./.github/workflows/kafka-integration-tests.yml
+    permissions:
+      contents: read

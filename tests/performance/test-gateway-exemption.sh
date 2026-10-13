@@ -143,6 +143,55 @@ fi
 [[ ! -f "$K6_GATEWAY_ACTIVE_FILE" ]] || { echo 'Gateway remained owned after failed k6.' >&2;exit 1; }
 "$script" verify "$snapshot3"
 
+# Cooperative cancellation of the k6 child must retain cancellation status and
+# restore Gateway configuration before the outer runtime-session cleanup.
+for signal in INT TERM; do
+  export GITHUB_RUN_ID=9876547
+  snapshot_cancel="$work/gateway-cancel-$signal.json"
+  "$script" capture "$snapshot_cancel"
+  cat > "$work/session/run-vps.sh" <<'SH'
+#!/usr/bin/env bash
+kill -"$SYNTHETIC_SIGNAL" "$PPID"
+SH
+  export K6_GATEWAY_STATE_FILE="$snapshot_cancel" SYNTHETIC_SIGNAL="$signal"
+  if bash "$work/session/run-gateway-session.sh" > "$work/cancel-$signal.log" 2>&1; then
+    echo 'Cancelled k6 was incorrectly accepted.' >&2; exit 1
+  else rc=$?; fi
+  [[ "$rc" == 130 ]] || { cat "$work/cancel-$signal.log" >&2; exit 1; }
+  [[ ! -f "$K6_GATEWAY_ACTIVE_FILE" ]] || exit 1
+  "$script" verify "$snapshot_cancel"
+done
+
+# Successful k6 cannot mask a failed Gateway restoration. Preserve ownership
+# and the snapshot so the existing workflow safeguard/operator can retry.
+export GITHUB_RUN_ID=9876548
+snapshot_restore_fail="$work/gateway-restore-failed.json"
+"$script" capture "$snapshot_restore_fail"
+export K6_GATEWAY_STATE_FILE="$snapshot_restore_fail"
+cat > "$work/session/run-vps.sh" <<'SH'
+#!/usr/bin/env bash
+touch "$FAIL_GATEWAY_RESTORE"
+exit 0
+SH
+cp "$work/session/gateway-exemption.sh" "$work/session/gateway-real.sh"
+cat > "$work/session/gateway-exemption.sh" <<'SH'
+#!/usr/bin/env bash
+if [[ "$1" == restore && -f "$FAIL_GATEWAY_RESTORE" ]]; then exit 7; fi
+exec "$(dirname "$0")/gateway-real.sh" "$@"
+SH
+chmod +x "$work/session/gateway-exemption.sh" "$work/session/gateway-real.sh"
+printf '#!/bin/sh\nexit 0\n' > "$work/bin/sleep"
+chmod +x "$work/bin/sleep"
+export FAIL_GATEWAY_RESTORE="$work/fail-restore"
+if bash "$work/session/run-gateway-session.sh" > "$work/restore-failed.log" 2>&1; then
+  echo 'Successful k6 masked failed Gateway restoration.' >&2; exit 1
+fi
+[[ -s "$snapshot_restore_fail" && -f "$K6_GATEWAY_ACTIVE_FILE" ]] || exit 1
+[[ "$(grep -c 'Restoring Gateway session' "$work/restore-failed.log")" == 3 ]] || exit 1
+grep -q 'CRITICAL: Gateway config not restored' "$work/restore-failed.log" || exit 1
+"$script" restore "$snapshot_restore_fail"
+"$script" verify "$snapshot_restore_fail"
+
 # Single mode is required; no unreviewed traffic topology mutation.
 python3 - <<'PY'
 import json,os,pathlib
@@ -153,4 +202,4 @@ export GITHUB_RUN_ID=9876545
 if "$script" capture "$work/rejected.json" >/dev/null 2>&1;then
   echo 'Unsupported multi-revision gateway was accepted.' >&2;exit 1
 fi
-printf 'Mocked Gateway capture/enable/restore/verify/failure recovery tests passed.\n'
+printf 'Mocked Gateway capture/enable/restore/verify/failure/cancellation recovery tests passed.\n'

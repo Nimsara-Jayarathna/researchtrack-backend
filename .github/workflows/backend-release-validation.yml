@@ -1,0 +1,34 @@
+name: Backend Production Release Validation
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: Validate the release commit
+    uses: ./.github/workflows/backend-ci.yml
+    permissions:
+      contents: read
+
+  eligibility:
+    name: Verify trusted source after required CI
+    needs: ci
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          sparse-checkout: deploy/azure/scripts
+      - name: Require successful CI and the current approved source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_RESULT: ${{ needs.ci.result }}
+          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_REF: ${{ github.ref }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
+          SOURCE_EVENT: ${{ github.event_name }}
+        run: python3 deploy/azure/scripts/release-policy.py

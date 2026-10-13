@@ -1,0 +1,158 @@
+#!/usr/bin/env bash
+# Isolated TLS Kafka + MySQL. No real env files, Azure calls or production topics.
+set -euo pipefail
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+for command in docker dotnet openssl python3; do
+  command -v "$command" >/dev/null || { echo "NOT EXECUTED: missing $command" >&2; exit 2; }
+done
+docker info >/dev/null 2>&1 || { echo 'NOT EXECUTED: Docker daemon unavailable; isolated Kafka/MySQL tests require Docker.' >&2; exit 2; }
+[[ -z "${DOCKER_HOST:-}" || "$DOCKER_HOST" == unix://* ]] || { echo 'Refusing a remote Docker host.' >&2; exit 2; }
+[[ "$(docker context inspect --format '{{.Endpoints.docker.Host}}')" == unix://* ]] || { echo 'A local Docker socket is required.' >&2; exit 2; }
+docker compose version >/dev/null
+python3 - <<'PY'
+import socket
+for port in (19092, 13307, 19090):
+    with socket.socket() as probe:
+        try: probe.bind(('127.0.0.1', port))
+        except OSError: raise SystemExit(f'Refusing occupied fixture port {port}; do not stop unrelated containers.')
+PY
+export RT_KAFKA_TEST_WORK
+RT_KAFKA_TEST_WORK="$(mktemp -d "${TMPDIR:-/tmp}/researchtrack-kafka-fixture.XXXXXX")"
+RT_KAFKA_TEST_WORK="$(cd "$RT_KAFKA_TEST_WORK" && pwd -P)"
+export RT_KAFKA_TEST_UID RT_KAFKA_TEST_GID RT_KAFKA_TEST_PASSWORD RT_KAFKA_TEST_CLUSTER_ID
+RT_KAFKA_TEST_UID="$(id -u)"
+RT_KAFKA_TEST_GID="$(id -g)"
+RT_KAFKA_TEST_PASSWORD="$(openssl rand -hex 24)"
+RT_KAFKA_TEST_CLUSTER_ID="$(python3 -c 'import base64,uuid;print(base64.urlsafe_b64encode(uuid.uuid4().bytes).decode().rstrip("="))')"
+project="rt-kafka-fixture-$(openssl rand -hex 6)"
+evidence="$root/artifacts/kafka-integration/$project"
+export RT_KAFKA_TEST_EVIDENCE_DIRECTORY="$evidence"
+mkdir -p "$evidence/metrics"
+compose=(docker compose --env-file /dev/null --project-name "$project" -f "$root/tests/Kafka/compose.yml")
+cleanup() {
+  # Preserve all fixture messages/data/volumes for evidence. Stop only this run's
+  # containers; no down -v, topic deletion, offset reset or directory removal.
+  "${compose[@]}" stop >/dev/null 2>&1 || true
+  for file in "$RT_KAFKA_TEST_WORK/metrics/"*.prom "$RT_KAFKA_TEST_WORK/metrics/"*.evidence "$RT_KAFKA_TEST_WORK/metrics/"*.json; do
+    [[ ! -f "$file" ]] || cp "$file" "$evidence/metrics/"
+  done
+  printf 'project=%s\ndata=%s\n' "$project" "$RT_KAFKA_TEST_WORK" > "$evidence/fixture-location.txt"
+  echo "RETAINED: isolated project=$project data=$RT_KAFKA_TEST_WORK"
+}
+trap cleanup EXIT
+mkdir -p "$RT_KAFKA_TEST_WORK/metrics" "$RT_KAFKA_TEST_WORK/monitoring/rules" "$RT_KAFKA_TEST_WORK/tls" "$RT_KAFKA_TEST_WORK/private" "$RT_KAFKA_TEST_WORK/kafka-data" "$RT_KAFKA_TEST_WORK/mysql-init"
+cp "$root/tests/Kafka/prometheus.yml" "$RT_KAFKA_TEST_WORK/monitoring/prometheus.yml"
+# Only fixture stabilization/evaluation durations are shortened; expressions and thresholds are unchanged.
+sed -E 's/for: [0-9]+[ms]/for: 10s/g; s/interval: 30s/interval: 5s/g' "$root/deploy/monitoring/rules/researchtrack-alerts.yml"   > "$RT_KAFKA_TEST_WORK/monitoring/rules/researchtrack-alerts.yml"
+chmod -R a+rX "$RT_KAFKA_TEST_WORK/metrics" "$RT_KAFKA_TEST_WORK/monitoring"
+umask 077
+openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj '/CN=ResearchTrack isolated Kafka CA' \
+  -addext 'basicConstraints=critical,CA:TRUE' -keyout "$RT_KAFKA_TEST_WORK/private/ca.key" \
+  -out "$RT_KAFKA_TEST_WORK/tls/ca.crt" >/dev/null 2>&1
+openssl req -new -newkey rsa:2048 -nodes -subj '/CN=localhost' \
+  -keyout "$RT_KAFKA_TEST_WORK/private/broker.key" -out "$RT_KAFKA_TEST_WORK/private/broker.csr" >/dev/null 2>&1
+printf '%s\n' 'subjectAltName=DNS:localhost,IP:127.0.0.1' 'extendedKeyUsage=serverAuth' \
+  > "$RT_KAFKA_TEST_WORK/tls/broker.ext"
+openssl x509 -req -days 2 -in "$RT_KAFKA_TEST_WORK/private/broker.csr" \
+  -CA "$RT_KAFKA_TEST_WORK/tls/ca.crt" -CAkey "$RT_KAFKA_TEST_WORK/private/ca.key" -CAcreateserial \
+  -extfile "$RT_KAFKA_TEST_WORK/tls/broker.ext" -out "$RT_KAFKA_TEST_WORK/tls/broker.crt" >/dev/null 2>&1
+openssl pkcs12 -export -name kafka -inkey "$RT_KAFKA_TEST_WORK/private/broker.key" \
+  -in "$RT_KAFKA_TEST_WORK/tls/broker.crt" -certfile "$RT_KAFKA_TEST_WORK/tls/ca.crt" \
+  -passout env:RT_KAFKA_TEST_PASSWORD -out "$RT_KAFKA_TEST_WORK/tls/broker.p12"
+cat > "$RT_KAFKA_TEST_WORK/tls/server.properties" <<EOF
+process.roles=broker,controller
+node.id=1
+controller.quorum.voters=1@localhost:9093
+listeners=EXTERNAL://:9092,INTERNAL://:29092,CONTROLLER://:9093
+advertised.listeners=EXTERNAL://localhost:19092,INTERNAL://kafka:29092
+listener.security.protocol.map=EXTERNAL:SSL,INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+controller.listener.names=CONTROLLER
+inter.broker.listener.name=INTERNAL
+ssl.keystore.type=PKCS12
+ssl.keystore.location=/fixture/broker.p12
+ssl.keystore.password=$RT_KAFKA_TEST_PASSWORD
+ssl.key.password=$RT_KAFKA_TEST_PASSWORD
+ssl.truststore.type=PEM
+ssl.truststore.location=/fixture/ca.crt
+ssl.client.auth=none
+log.dirs=/fixture-data
+offsets.topic.replication.factor=1
+transaction.state.log.replication.factor=1
+transaction.state.log.min.isr=1
+auto.create.topics.enable=false
+group.initial.rebalance.delay.ms=0
+EOF
+cat > "$RT_KAFKA_TEST_WORK/mysql-init/01-fixture.sql" <<EOF
+CREATE DATABASE researchtrack_kafka_github;
+CREATE DATABASE researchtrack_kafka_jira;
+CREATE DATABASE researchtrack_kafka_github_upgrade;
+CREATE DATABASE researchtrack_kafka_jira_upgrade;
+CREATE USER 'fixture'@'%' IDENTIFIED BY '$RT_KAFKA_TEST_PASSWORD';
+GRANT ALL ON researchtrack_kafka_github.* TO 'fixture'@'%';
+GRANT ALL ON researchtrack_kafka_jira.* TO 'fixture'@'%';
+GRANT ALL ON researchtrack_kafka_github_upgrade.* TO 'fixture'@'%';
+GRANT ALL ON researchtrack_kafka_jira_upgrade.* TO 'fixture'@'%';
+EOF
+# The MySQL entrypoint runs as its own UID; the isolated init SQL contains only disposable credentials.
+chmod 644 "$RT_KAFKA_TEST_WORK/mysql-init/01-fixture.sql"
+chmod 755 "$RT_KAFKA_TEST_WORK/mysql-init"
+"${compose[@]}" up -d
+export RT_KAFKA_TEST_PROJECT="$project"
+export RT_KAFKA_TEST_BROKER_ID
+RT_KAFKA_TEST_BROKER_ID="$("${compose[@]}" ps -q kafka)"
+export RT_KAFKA_TEST_CONTROL="$RT_KAFKA_TEST_WORK/broker-control.sh"
+cp "$root/tests/Kafka/broker-control.sh" "$RT_KAFKA_TEST_CONTROL"
+chmod 700 "$RT_KAFKA_TEST_CONTROL"
+deadline=$((SECONDS + 180))
+for service in kafka mysql; do
+  while true; do
+    container="$("${compose[@]}" ps -q "$service")"
+    state="$(docker inspect --format '{{.State.Health.Status}}' "$container" 2>/dev/null || true)"
+    [[ "$state" == healthy ]] && break
+    if ((SECONDS >= deadline)); then echo "FAIL: isolated $service fixture did not become healthy." >&2; exit 1; fi
+    sleep 2
+  done
+done
+"${compose[@]}" exec -T kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:29092   --create --if-not-exists --topic researchtrack.deployment-smoke --partitions 1 --replication-factor 1
+for domain in github jira; do
+  "${compose[@]}" exec -T kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:29092 \
+    --create --if-not-exists --topic "researchtrack.$domain.events.v1" --partitions 1 \
+    --replication-factor 1 --config retention.ms=259200000
+done
+export RT_KAFKA_TEST_PROMETHEUS=http://127.0.0.1:19090
+export RT_KAFKA_TEST_METRICS_DIRECTORY="$RT_KAFKA_TEST_WORK/metrics"
+export RT_KAFKA_TEST_ENABLE=1 RT_KAFKA_TEST_ENDPOINT=localhost:19092 RT_KAFKA_TEST_CA="$RT_KAFKA_TEST_WORK/tls/ca.crt"
+export RT_KAFKA_TEST_COMPOSE_FILE="$root/tests/Kafka/compose.yml"
+export RT_KAFKA_TEST_GITHUB_CONNECTION="Server=127.0.0.1;Port=13307;Database=researchtrack_kafka_github;User=fixture;Password=$RT_KAFKA_TEST_PASSWORD;SslMode=Required"
+export RT_KAFKA_TEST_JIRA_CONNECTION="Server=127.0.0.1;Port=13307;Database=researchtrack_kafka_jira;User=fixture;Password=$RT_KAFKA_TEST_PASSWORD;SslMode=Required"
+cd "$root"
+dotnet restore ResearchTrack.sln --verbosity minimal
+dotnet build ResearchTrack.sln -c Release --no-restore --verbosity minimal
+for service in GitHub Jira; do
+  dotnet test "tests/ResearchTrack.${service}Service.Tests" -c Release --no-build \
+    --filter 'Category=KafkaIntegration' --logger "trx;LogFileName=kafka-$service.trx" \
+    --results-directory "$evidence"
+done
+python3 - "$evidence" <<'PYTRX'
+import sys
+from pathlib import Path
+from xml.etree import ElementTree as ET
+ns={'t':'http://microsoft.com/schemas/VisualStudio/TeamTest/2010'}
+for service, count in [('GitHub',3),('Jira',2)]:
+    counters=ET.parse(Path(sys.argv[1],f'kafka-{service}.trx')).find('.//t:Counters',ns)
+    assert counters is not None and int(counters.get('total')) == count
+    assert int(counters.get('passed')) == count and int(counters.get('executed')) == count, 'Skipped or failed isolated test'
+print('PASS: all five isolated tests executed; no skips.')
+PYTRX
+# Application tests already exercised outages through the guarded control bridge.
+# This final smoke covers recovered exporter health and existing topic state.
+python3 "$root/tests/Kafka/verify_observability.py" healthy
+for service in github jira; do
+  "${compose[@]}" exec -T kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:29092 \
+    --describe --topic "researchtrack.$service.events.v1" > "$evidence/topic-$service.txt"
+  "${compose[@]}" exec -T kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:29092 \
+    --describe --group "researchtrack-$service-webhook-v1" > "$evidence/group-$service.txt"
+done
+mkdir -p "$root/artifacts/kafka-integration/metrics"
+cp "$RT_KAFKA_TEST_WORK/metrics/"*.prom "$root/artifacts/kafka-integration/metrics/"
+echo 'PASS: isolated TLS Kafka application and observability checks. This is not Azure production evidence.'

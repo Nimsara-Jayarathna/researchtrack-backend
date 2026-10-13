@@ -1,10 +1,85 @@
 # Azure Production Implementation Status
 
+## Current audit — 2026-10-11
+
+HEAD was confirmed clean at `a26cfd2b2b2093a8be45ef4a80c493af3d29958e` before this
+hardening task. Fetched main is `141181575e7b7fdda75e31356bfe9a980deadb7c`;
+integration is 16 commits ahead, zero behind. The owner-published application gate is
+**IMPLEMENTED AND DEMONSTRATED** in [production run 38147705025](https://github.com/Nimsara-Jayarathna/researchtrack-backend/actions/runs/38147705025).
+[PR CI 38149500022](https://github.com/Nimsara-Jayarathna/researchtrack-backend/actions/runs/38149500022)
+passed at the same SHA. Required CI/Kafka/source validation, seven builds/deployments,
+six migration log confirmations, infrastructure verification, runtime restoration and
+automatic k6 smoke succeeded. The optional public endpoint step was SKIPPED.
+
+New local changes add the same trusted-source/CI gate to infrastructure CD, preserve
+Bicep/What-If/monitoring-only behavior, reject failed ARM reconciliation despite an
+existing healthy revision, require HTTP 200 for optional public readiness, and strengthen
+failure/restoration reporting and offline regressions. These new changes have not been
+published or run in Actions. No production resource/settings/secret change was made.
+
+Production branch/reviewer protection remains absent in current read-only evidence.
+Live provider events → business/offsets/metrics/dashboard evidence remains pending;
+isolated tests do not replace it. See [the hardening report](../FINAL_DEVOPS_HARDENING.md)
+and [the final Sprint 1–4 audit](../FINAL_DEVOPS_SPRINTS_1_TO_4_AUDIT.md).
+
+Entries below are historical snapshots. Earlier Docker/tool limitations, unit counts,
+branch decisions and unexecuted local upgrades refer to those sessions.
+
 Update this file after each meaningful implementation session.
 
 This is intentionally short so the next agent does not re-audit everything.
 
-Last updated: 2026-09-24. **Code complete, not yet executed against Azure.**
+Last updated: 2026-10-10. **Approved GitHub/Jira Kafka integration implemented locally;
+real-broker and production verification remain pending.**
+
+## Sprint 4 Kafka application integration (2026-10-10)
+
+- Owner approved same-service durable webhook-reference contracts. Both application topics
+  are approved in the registry; defaults remain disabled and public production CA is missing.
+- Added Confluent.Kafka 2.16.0 producers/consumers, atomic inbox/outbox persistence, durable
+  receipt/handoff, bounded retries/leases, strict schemas, manual post-handoff offsets and
+  readiness. Existing authentication, workers and polling recovery remain available.
+- Added additive two-table migrations; corrected stale snapshots without modifying old
+  migrations or adding existing-table changes. Model drift and generated SQL checks pass.
+- Release build: zero warnings/errors. Seven .NET projects: 360 pass, 3 conditional Docker
+  tests skip; Kafka registry/config, operations, smoke, network, env and composition pass.
+- Disposable verified-TLS Kafka/MySQL fixture and manual isolated Actions workflow added.
+  Real fixture NOT EXECUTED: Docker daemon unavailable. Azure application flows/restarts,
+  live topic settings, runtime CA delivery and actual broker offsets remain unverified.
+- Agent did not stage/commit/push/merge/rebase/dispatch or change Azure/secrets/topics/services.
+  HEAD advanced externally from ab2996c to e37b154 during work; preserve that commit.
+  Remaining changes are unstaged; frontend untouched. Pushing this branch can deploy.
+- Current evidence and seven-item DoD: [KAFKA_TOPICS_TASK_REPORT.md](KAFKA_TOPICS_TASK_REPORT.md).
+  Approval: [KAFKA_CONTRACT_PROPOSAL.md](KAFKA_CONTRACT_PROPOSAL.md).
+  Tests and authorized manual procedure: [KAFKA_INTEGRATION_TESTING.md](KAFKA_INTEGRATION_TESTING.md).
+
+## Sprint 4 topic/event configuration (2026-10-09, local review only)
+
+- Added central topic registry, validated dry-run/check/explicit-apply reconciliation,
+  bundle validation, optional GitHub/Jira runtime binding and actual public CA delivery.
+- Added enabled/disabled env checks and renderer protection through existing configuration
+  and secret composition. Other service configuration, listeners, NSG and frontend unchanged.
+- At that historical point GitHub/Jira had no Kafka clients or supplied contracts.
+  The 2026-10-10 section above supersedes that implementation state.
+- ResearchTrack indexes/HEADs unchanged; no push, PR, workflow trigger, Azure mutation,
+  topic write or restart. Existing image-impact tests used temporary fixture commits;
+  see the report's Git-safety exception.
+- Evidence and outstanding requirements: [KAFKA_TOPICS_TASK_REPORT.md](KAFKA_TOPICS_TASK_REPORT.md).
+
+## Sprint 4 Kafka verification (2026-10-09)
+
+- Owner reports Kafka already deployed. Historical Azure results below are retained;
+  the older “never executed” notes describe the initial implementation session.
+- Added Kafka-only read-only/smoke checks, opt-in independent restart verification,
+  non-destructive topic operations and missing/mismatched identity/TLS guards.
+- Reused the VM smoke implementation; preserved Kafka version, listeners, storage,
+  authentication mode, NSG, OIDC, deployment approvals and workflow concurrency.
+- New operations regression suite runs in backend CI. No Azure command, production
+  deployment, broker restart, data deletion or infrastructure recreation was executed.
+- Current live Kafka deployment, effective NSG, ACA messaging and restart persistence
+  require approved Azure evidence. See `KAFKA_OPERATIONS.md` and `KAFKA_TASK_REPORT.md`.
+
+## Historical implementation notes (2026-09-24)
 
 ## Current phase
 
@@ -153,3 +228,8 @@ Configuration and operator documentation: `docs/devops/configuration/` (added 20
 6. **Prometheus and Grafana also bind to `127.0.0.1`** on the host for on-VM validation (allowed by MASTER_PLAN §14). The NSG denies 9090/3000 regardless.
 7. **An extra short-lived Container Apps Job, `rt-netcheck-prod`** (apache/kafka image), proves Container Apps → Kafka/MySQL. It is not an application app.
 8. **The Gateway forwarded-header fix changes runtime behaviour on Test too**: per-client rate limiting behind NPM. No Test deployment files or config contracts changed.
+
+
+## Kafka observability implementation
+
+Locally implemented exporter, bounded GitHub/Jira worker metrics, cached outbox depths, 18-panel Kafka dashboard and ten Kafka alerts extend the existing platform. See [Kafka observability implementation](KAFKA_OBSERVABILITY.md) for architecture, exact queries, isolated tests, monitoring-only delivery, verification and rollback. Production verification is pending; no deployment or production failure simulation was performed. See the [local task audit](KAFKA_OBSERVABILITY_TASK_REPORT.md) for executed results and the seven-item Definition of Done.

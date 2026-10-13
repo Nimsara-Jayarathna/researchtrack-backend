@@ -52,7 +52,35 @@ db_services=" auth project github jira meeting submission "
 mkdir -p "$WORK_DIR"
 chmod 700 "$WORK_DIR"
 # Rendered specs contain secret values; never leave them behind.
-trap 'rm -rf "$WORK_DIR"' EXIT
+declare -A migration_status=() migration_seconds=() rollout_seconds=() health_seconds=()
+deployment_timing_summary() {
+  local result=$? service
+  if [[ -n "${migration_service:-}" && "${migration_status[$migration_service]:-}" == FAIL ]]; then
+    migration_seconds[$migration_service]=$((SECONDS - migration_started))
+  fi
+  {
+    echo
+    echo "| Service | Migration | Migration seconds | Rollout seconds | Revision health seconds |"
+    echo "|---|---|---:|---:|---:|"
+    for service in "${services[@]}"; do
+      echo "| $service | ${migration_status[$service]:-NOT EXECUTED} | ${migration_seconds[$service]:--} | ${rollout_seconds[$service]:--} | ${health_seconds[$service]:--} |"
+    done
+    echo
+    if ((result != 0)); then
+      echo "Application deployment: FAIL (exit $result); see the failed phase and rollback rows above."
+    elif [[ "$PLAN_ONLY" == true ]]; then
+      echo "Application deployment: PLAN ONLY; no migrations or rollouts executed."
+    elif ((${#planned[@]} == 0)); then
+      echo "Application deployment: UNCHANGED; no new version, migrations or rollouts."
+    else
+      echo "Application deployment: PASS; ${#planned[@]} changed applications."
+    fi
+  } >> "$summary"
+  rm -rf "$WORK_DIR"
+  return "$result"
+}
+planned=()
+trap deployment_timing_summary EXIT
 
 env_id="$(az containerapp env show -g "$RESOURCE_GROUP" -n "$ACA_ENVIRONMENT" --query id -o tsv)"
 location="$(az containerapp env show -g "$RESOURCE_GROUP" -n "$ACA_ENVIRONMENT" --query location -o tsv)"
@@ -130,7 +158,6 @@ render() {
 # Plan
 # ---------------------------------------------------------------------------
 declare -A target_image=() previous_revision=() source_commit=() deploy_reason=()
-planned=()
 
 {
   echo "### Azure Container Apps deployment"
@@ -241,7 +268,14 @@ run_migration() {
 echo "== Database checks and migrations"
 for service in "${planned[@]}"; do
   [[ "$db_services" == *" $service "* ]] || continue
+  migration_status[$service]=FAIL
+  migration_service=$service
+  migration_started=$SECONDS
+  # Keep the command outside an if/|| conditional so its internal errexit
+  # behavior and the migration-before-rollout safety gate remain unchanged.
   run_migration "$service"
+  migration_seconds[$service]=$((SECONDS - migration_started))
+  migration_status[$service]=PASS
 done
 
 # ---------------------------------------------------------------------------
@@ -260,37 +294,59 @@ set_revision_active() {
     echo "   $revision already ${verb}d" >&2
     return 0
   fi
-  az containerapp revision "$verb" -g "$RESOURCE_GROUP" -n "$app" --revision "$revision" -o none && return 0
-  # Lost a race with the platform: accept it if the state is now as requested.
+  az containerapp revision "$verb" -g "$RESOURCE_GROUP" -n "$app" --revision "$revision" -o none || true
+  # Verify the resulting state even after CLI success. A lost race is also
+  # acceptable only if the revision is actually in the requested state.
   [[ "$(revision_active "$app" "$revision")" == "$want" ]]
 }
 
 rollback() {
   local service="$1" app="$2" failed="$3" previous="${previous_revision[$1]}"
+  local recovered=true action="**failed, rolled back**"
   echo "   rolling back $app" >&2
-  if [[ -n "$failed" && "$failed" != "$previous" ]]; then
-    set_revision_active "$app" "$failed" false || echo "   WARNING: could not deactivate failed revision $failed" >&2
+  if [[ -z "$failed" ]]; then
+    recovered=false
+    echo "   WARNING: failed revision identity is unknown; recovery requires manual verification." >&2
+  elif [[ "$failed" != "$previous" ]]; then
+    if ! set_revision_active "$app" "$failed" false; then
+      recovered=false
+      echo "   WARNING: could not verify failed revision $failed is inactive" >&2
+    fi
   fi
   if [[ -n "$previous" ]]; then
     if set_revision_active "$app" "$previous" true; then
       echo "   $app kept on previous healthy revision $previous" >&2
     else
+      recovered=false
       echo "   WARNING: previous revision $previous of $app is not active; check the app manually." >&2
     fi
+    if ! $recovered; then
+      action="**failed; rollback incomplete**"
+    elif [[ "$failed" == "$previous" ]]; then
+      action="**failed; previous revision retained**"
+    fi
+  else
+    action="**failed; no previous healthy revision**"
+    echo "   WARNING: $app has no captured previous healthy revision; no rollback target exists." >&2
   fi
-  summary_row "$service" "**failed, rolled back**" "${deploy_reason[$service]}" "${failed:-none}"
+  # Revision activation is not proof of traffic, schema compatibility or full
+  # application health. Preserve deployment failure regardless of recovery.
+  summary_row "$service" "$action" "${deploy_reason[$service]}" "${failed:-none}"
 }
 
 wait_for_revision() {
   local service="$1" app="$2" image="$3" app_json="" revision="" revision_json=""
   local provisioning="" health="" running="" ready="" running_image=""
   for _ in $(seq 1 60); do
-    app_json="$(az containerapp show -g "$RESOURCE_GROUP" -n "$app" -o json)"
-    revision="$(jq -r '.properties.latestRevisionName // ""' <<<"$app_json")"
-    ready="$(jq -r '.properties.latestReadyRevisionName // ""' <<<"$app_json")"
+    # Called from an if/command substitution: Bash disables implicit errexit
+    # inside this function. Fail explicitly on CLI or malformed response errors.
+    app_json="$(az containerapp show -g "$RESOURCE_GROUP" -n "$app" -o json)" || return 1
+    revision="$(jq -er '.properties.latestRevisionName // ""' <<<"$app_json")" || return 1
+    ready="$(jq -r '.properties.latestReadyRevisionName // ""' <<<"$app_json")" || return 1
     [[ -n "$revision" ]] || { sleep 10; continue; }
 
-    revision_json="$(az containerapp revision show -g "$RESOURCE_GROUP" -n "$app" --revision "$revision" -o json)"
+    revision_json="$(az containerapp revision show -g "$RESOURCE_GROUP" -n "$app" --revision "$revision" -o json)" || { echo "$revision"; return 1; }
+    jq -e '.properties | type == "object"' <<<"$revision_json" >/dev/null || { echo "$revision"; return 1; }
     provisioning="$(jq -r '.properties.provisioningState // ""' <<<"$revision_json")"
     health="$(jq -r '.properties.healthState // ""' <<<"$revision_json")"
     running="$(jq -r '.properties.runningState // ""' <<<"$revision_json")"
@@ -324,6 +380,8 @@ for service in "${planned[@]}"; do
 
   # Create and update are the same declarative Bicep deployment. A failed
   # deployment still goes through revision checks and rollback below.
+  rollout_started=$SECONDS
+  rollout_failed=false
   if ! az deployment group create \
       -g "$RESOURCE_GROUP" \
       -n "$app-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-0}" \
@@ -331,13 +389,18 @@ for service in "${planned[@]}"; do
       -p @"$spec" \
       -o none; then
     echo "Bicep deployment of $app reported a failure." >&2
+    rollout_failed=true
   fi
+  rollout_seconds[$service]=$((SECONDS - rollout_started))
   rm -f "$spec"
 
-  if new_revision="$(wait_for_revision "$service" "$app" "${target_image[$service]}")"; then
+  health_started=$SECONDS
+  if new_revision="$(wait_for_revision "$service" "$app" "${target_image[$service]}")" && [[ "$rollout_failed" == false ]]; then
+    health_seconds[$service]=$((SECONDS - health_started))
     echo "   $app ready on $new_revision"
     summary_row "$service" deployed "${deploy_reason[$service]}" "$new_revision"
   else
+    health_seconds[$service]=$((SECONDS - health_started))
     az containerapp logs show -g "$RESOURCE_GROUP" -n "$app" --revision "$new_revision" --tail 100 2>/dev/null || true
     rollback "$service" "$app" "$new_revision"
     exit 1

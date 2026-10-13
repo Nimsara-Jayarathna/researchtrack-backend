@@ -33,10 +33,37 @@ args="$*"
 case "$args" in
   "containerapp env show"*"--query id"*) echo "$STUB_ENV_ID" ;;
   "containerapp env show"*"--query location"*) echo "$STUB_LOCATION" ;;
+  "account show --query id"*) echo synthetic-subscription ;;
+  "rest --method put"*)
+    echo 'Synthetic migration provisioning failure' >&2
+    touch "$STUB_DIR/migration-attempted"
+    exit 1 ;;
+  "deployment group create"*) touch "$STUB_DIR/rollout-attempted"; exit "${STUB_ROLLOUT_EXIT:-99}" ;;
+  "containerapp revision show"*)
+    if [[ "$args" == *"--query properties.active"* ]]; then
+      previous=""; revision=""
+      for arg in "$@"; do [[ "$previous" != --revision ]] || revision="$arg"; previous="$arg"; done
+      if [[ -f "$STUB_DIR/active-$revision" ]]; then cat "$STUB_DIR/active-$revision"; else echo true; fi
+      exit 0
+    fi
+    [[ "${STUB_REVISION_READ_FAIL:-false}" != true ]] || { echo 'Synthetic revision read failure' >&2; exit 1; }
+    while [[ $# -gt 0 && "$1" != "-n" ]]; do shift; done
+    jq --arg health "${STUB_HEALTH:-Healthy}" --arg provisioning "${STUB_PROVISIONING:-Provisioned}" \
+      --arg mismatch "${STUB_IMAGE_MISMATCH:-false}" \
+      '{properties:{provisioningState:$provisioning, healthState:$health,runningState:"Running", template:.properties.template}} |
+       if $mismatch == "true" then .properties.template.containers[0].image="example.invalid/wrong@sha256:0000" else . end' "$STUB_DIR/apps/$2.json" ;;
+  "containerapp revision activate"*|"containerapp revision deactivate"*)
+    previous=""; revision=""
+    for arg in "$@"; do [[ "$previous" != --revision ]] || revision="$arg"; previous="$arg"; done
+    [[ "$3" != activate ]] || echo true > "$STUB_DIR/active-$revision"
+    [[ "$3" != deactivate ]] || echo false > "$STUB_DIR/active-$revision" ;;
+  "containerapp logs show"*) exit 0 ;;
   "containerapp show"*)
     while [[ $# -gt 0 && "$1" != "-n" ]]; do shift; done
     [[ -f "$STUB_DIR/apps/$2.json" ]] || { echo "ResourceNotFound" >&2; exit 3; }
-    cat "$STUB_DIR/apps/$2.json"
+    if [[ "${STUB_NEW_REVISION:-false}" == true && -f "$STUB_DIR/rollout-attempted" ]]; then
+      jq '.properties.latestRevisionName="rt-gateway-prod--new"' "$STUB_DIR/apps/$2.json"
+    else cat "$STUB_DIR/apps/$2.json"; fi
     ;;
   *) echo "unexpected az call: $args" >&2; exit 99 ;;
 esac
@@ -54,6 +81,11 @@ case "$format" in
 esac
 STUB
 chmod +x "$work/bin/az" "$work/bin/docker"
+cat > "$work/bin/sleep" <<'STUB'
+#!/bin/sh
+echo "$*" >> "$STUB_DIR/sleeps"
+STUB
+chmod +x "$work/bin/sleep"
 
 tag_for() { echo "src-$(printf '%s' "$1" | shasum | cut -c1-40)"; }
 digest_for() { echo "sha256:$(printf 'new-%s' "$1" | shasum -a 256 | cut -c1-64)"; }
@@ -119,7 +151,7 @@ run_deployer() {
 fail() { echo "FAIL: $*" >&2; echo "--- output:" >&2; cat "$work/out" >&2; exit 1; }
 pass() { echo "ok - $*"; }
 
-reset_state() { rm -f "$work/apps/"* "$work/images/"*; }
+reset_state() { rm -f "$work/apps/"* "$work/images/"* "$work/rollout-attempted" "$work/"active-* "$work/sleeps"; }
 
 # 1. The incident: apps run old digests, only gateway was rebuilt in this run.
 #    Every service must still move to the image for its current source.
@@ -147,11 +179,17 @@ for service in "${services[@]}"; do
 done
 run_deployer env IMAGE_TAGS="$(image_tags)" || fail "unchanged plan exited non-zero"
 grep -q 'Nothing to deploy' "$work/out" || fail "expected nothing to deploy"
+grep -q 'PLAN ONLY; no migrations or rollouts executed' "$work/summary.md" || fail "plan claimed a deployment"
+[[ "$(grep -c '| NOT EXECUTED | - | - | - |' "$work/summary.md")" == 7 ]] || fail "plan timing fabricated executed migrations"
 for service in "${services[@]}"; do
   grep -q "^| $service | unchanged | running image already matches current source | feedfacefeed |" "$work/summary.md" \
     || fail "summary row for unchanged $service missing"
 done
 pass "current apps are unchanged and every service appears in the summary"
+
+run_deployer env IMAGE_TAGS="$(image_tags)" PLAN_ONLY=false || fail "unchanged execution exited non-zero"
+grep -q 'UNCHANGED; no new version, migrations or rollouts' "$work/summary.md" || fail "no-op claimed a new version"
+pass "no-op execution reports no new version and no fabricated durations"
 
 # 3. force_redeploy rolls out unchanged apps with an explicit reason.
 run_deployer env IMAGE_TAGS="$(image_tags)" FORCE_REDEPLOY=true || fail "force plan exited non-zero"
@@ -207,6 +245,62 @@ grep -q 'PLAN_ONLY=true: stopping' "$work/out" && fail "planning continued after
 cp "$work/shared-auth.env.bak" "$work/env/shared-auth.env"
 pass "missing shared-auth key fails during planning, before any Azure change"
 
+# A real execution path with a stubbed migration PUT failure must abort before
+# any application rollout, retain a FAIL status and record the attempted duration.
+reset_state
+publish single
+if run_deployer env IMAGE_TAGS="$(image_tags)" PLAN_ONLY=false; then fail "failed migration was accepted"; fi
+[[ -f "$work/migration-attempted" ]] || fail "migration failure was not exercised"
+[[ ! -f "$work/rollout-attempted" ]] || fail "rollout proceeded after migration failure"
+grep -Eq '^\| auth \| FAIL \| [0-9]+ \| - \| - \|' "$work/summary.md" || fail "failed migration status/duration missing"
+grep -q 'Application deployment: FAIL' "$work/summary.md" || fail "failed migration claimed deployment success"
+pass "migration failure stops rollout and is reported with an actual duration"
+
+# Only Gateway needs configuration delivery: its previous revision is already
+# healthy on the target image. A failed ARM reconciliation still MUST fail.
+reset_state
+publish single
+for service in "${services[@]}"; do
+  image="$prefix/researchtrack-$service@$(digest_for "$service")"
+  set_app "$service" "$image" "$(spec_hash "$service" "$image")"
+done
+set_app gateway "$prefix/researchtrack-gateway@$(digest_for gateway)" stale-config
+if run_deployer env IMAGE_TAGS="$(image_tags)" PLAN_ONLY=false; then fail "failed ARM reconciliation was hidden by healthy old revision"; fi
+grep -q 'Bicep deployment of rt-gateway-prod reported a failure' "$work/out" || fail "ARM failure not exercised"
+grep -q 'Application deployment: FAIL' "$work/summary.md" || fail "ARM failure reported success"
+grep -q 'kept on previous healthy revision rt-gateway-prod--old' "$work/out" || fail "previous healthy revision not retained"
+pass "failed ARM reconciliation cannot be hidden by a healthy matching revision"
+
+if run_deployer env IMAGE_TAGS="$(image_tags)" PLAN_ONLY=false STUB_ROLLOUT_EXIT=0 STUB_REVISION_READ_FAIL=true; then fail "revision API failure accepted"; fi
+grep -q 'Synthetic revision read failure' "$work/out" || fail "revision query failure not exercised"
+grep -q 'Application deployment: FAIL' "$work/summary.md" || fail "revision query failure reported success"
+pass "revision CLI error fails explicitly inside conditional health polling"
+
+run_deployer env IMAGE_TAGS="$(image_tags)" PLAN_ONLY=false STUB_ROLLOUT_EXIT=0 || fail "successful ARM/healthy revision rejected"
+grep -q 'Application deployment: PASS; 1 changed applications' "$work/summary.md" || fail "successful rollout not reported"
+pass "successful ARM and healthy matching revision still report deployment success"
+
+for mode in failed unhealthy wrong-image; do
+  rm -f "$work/rollout-attempted" "$work/"active-* "$work/sleeps"
+  case "$mode" in
+    failed) extra=(STUB_NEW_REVISION=true STUB_PROVISIONING=Failed) ;;
+    unhealthy) extra=(STUB_NEW_REVISION=true STUB_HEALTH=Unhealthy) ;;
+    wrong-image) extra=(STUB_IMAGE_MISMATCH=true) ;;
+  esac
+  if run_deployer env IMAGE_TAGS="$(image_tags)" PLAN_ONLY=false STUB_ROLLOUT_EXIT=0 "${extra[@]}"; then fail "$mode revision accepted"; fi
+  grep -q 'Application deployment: FAIL' "$work/summary.md" || fail "$mode revision reported success"
+  grep -q 'kept on previous healthy revision rt-gateway-prod--old' "$work/out" || fail "$mode lost previous revision"
+  if [[ "$mode" == unhealthy ]]; then
+    [[ "$(wc -l < "$work/sleeps" | tr -d ' ')" == 60 ]] || fail "revision wait was not bounded to 60 polls"
+    grep -q 'Timed out waiting for rt-gateway-prod revision' "$work/out" || fail "timeout phase absent"
+  fi
+  if [[ "$mode" != wrong-image ]]; then
+    [[ "$(cat "$work/active-rt-gateway-prod--new")" == false ]] || fail "$mode revision not deactivated"
+  fi
+  [[ ! -d "$work/specs" ]] || fail "secret-bearing rendered specs retained after $mode"
+  pass "$mode revision fails, retains previous revision and removes rendered specs"
+done
+
 # 10. Rollback is idempotent: an already-active previous revision is success.
 rollback_fns="$(sed -n '/^revision_active() {/,/^}/p; /^set_revision_active() {/,/^}/p; /^rollback() {/,/^}/p' "$deployer")"
 cat > "$work/bin/az" <<'STUB'
@@ -219,9 +313,12 @@ state_file="$STUB_DIR/revisions/$revision"
 case "$2 $3" in
   "revision show") cat "$state_file" ;;
   "revision activate")
+    [[ "${STUB_ACTIVATE_FAIL:-false}" != true ]] || exit 7
     [[ "$(cat "$state_file")" == true ]] && { echo "ERROR: (RevisionAlreadyInRequestedState) Revision $revision is already active!" >&2; exit 1; }
+    [[ "${STUB_NO_STATE_CHANGE:-false}" != true ]] || exit 0
     echo true > "$state_file" ;;
   "revision deactivate")
+    [[ "${STUB_DEACTIVATE_FAIL:-false}" != true ]] || exit 7
     [[ "$(cat "$state_file")" == false ]] && { echo "ERROR: (RevisionAlreadyInRequestedState) Revision $revision is already inactive!" >&2; exit 1; }
     echo false > "$state_file" ;;
   *) echo "unexpected az call: $*" >&2; exit 99 ;;
@@ -235,9 +332,12 @@ run_rollback() {
     set -Eeuo pipefail
     summary=/dev/null
     declare -A previous_revision=([jira]=rt-jira-prod--prev) target_image=([jira]=img) deploy_reason=([jira]=r) source_commit=([jira]=c)
-    summary_row() { :; }
+    if [[ "${STUB_NO_PREVIOUS:-false}" == true ]]; then previous_revision[jira]=""; fi
+    summary_row() { echo "summary action: $2"; }
     '"$rollback_fns"'
-    rollback jira rt-jira-prod rt-jira-prod--new' > "$work/out" 2>&1
+    failed=rt-jira-prod--new
+    if [[ "${STUB_UNKNOWN_FAILED:-false}" == true ]]; then failed=""; fi
+    rollback jira rt-jira-prod "$failed"' > "$work/out" 2>&1
 }
 echo true > "$work/revisions/rt-jira-prod--prev"; echo true > "$work/revisions/rt-jira-prod--new"
 run_rollback || fail "rollback with previous already active failed"
@@ -253,5 +353,25 @@ run_rollback || fail "rollback with inactive previous failed"
 [[ "$(cat "$work/revisions/rt-jira-prod--prev")" == true ]] || fail "previous revision not re-activated"
 grep -q 'revision deactivate' "$work/az.log" && fail "deactivate called for an already-inactive revision"
 pass "rollback re-activates an inactive previous revision"
+
+for mode in activation-failure deactivation-failure no-state-change; do
+  echo false > "$work/revisions/rt-jira-prod--prev"; echo true > "$work/revisions/rt-jira-prod--new"
+  case "$mode" in
+    activation-failure) export STUB_ACTIVATE_FAIL=true ;;
+    deactivation-failure) export STUB_DEACTIVATE_FAIL=true ;;
+    no-state-change) export STUB_NO_STATE_CHANGE=true ;;
+  esac
+  run_rollback || fail "rollback diagnostics aborted for $mode"
+  grep -q 'summary action: .*rollback incomplete' "$work/out" || fail "$mode falsely claimed completed rollback"
+  unset STUB_ACTIVATE_FAIL STUB_DEACTIVATE_FAIL STUB_NO_STATE_CHANGE
+  pass "$mode is reported as incomplete revision recovery"
+done
+
+STUB_NO_PREVIOUS=true run_rollback || fail "missing-target diagnostics aborted"
+grep -q 'summary action: .*no previous healthy revision' "$work/out" || fail "missing target claimed rollback success"
+pass "first deployment failure explicitly reports no previous revision"
+STUB_UNKNOWN_FAILED=true run_rollback || fail "unknown-revision diagnostics aborted"
+grep -q 'summary action: .*rollback incomplete' "$work/out" || fail "unknown failed revision claimed complete recovery"
+pass "unknown failed revision requires manual verification"
 
 echo "All deploy image-selection tests passed."

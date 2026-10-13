@@ -70,6 +70,9 @@ public sealed class ResearchTrackWebApplicationFactory<TProgram> : WebApplicatio
     {
         var values = new Dictionary<string, string?>
         {
+            // Hosts never inherit a developer's real broker configuration. Kafka
+            // integration tests drive their isolated workers explicitly.
+            ["Kafka:Enabled"] = "false",
             ["OpenApi:Enabled"] = "true",
 
             ["Frontend:AllowedOrigins:0"] = "http://localhost:5173",

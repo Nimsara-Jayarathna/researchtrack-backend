@@ -1,0 +1,83 @@
+# Disposable test stack only. Never used by production deployment.
+services:
+  kafka:
+    image: apache/kafka:3.9.1
+    labels:
+      researchtrack.fixture: isolated-kafka
+    user: "${RT_KAFKA_TEST_UID:?}:${RT_KAFKA_TEST_GID:?}"
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - >-
+        /opt/kafka/bin/kafka-storage.sh format --ignore-formatted
+        -t "$${RT_KAFKA_TEST_CLUSTER_ID}" -c /fixture/server.properties
+        && exec /opt/kafka/bin/kafka-server-start.sh /fixture/server.properties
+    environment:
+      RT_KAFKA_TEST_CLUSTER_ID: "${RT_KAFKA_TEST_CLUSTER_ID:?}"
+      KAFKA_HEAP_OPTS: -Xms256m -Xmx512m
+      LOG_DIR: /tmp/kafka-logs
+    ports: ["127.0.0.1:19092:9092"]
+    volumes:
+      - "${RT_KAFKA_TEST_WORK:?}/tls:/fixture:ro"
+      - "${RT_KAFKA_TEST_WORK:?}/kafka-data:/fixture-data"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:29092 >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+    mem_limit: 1g
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:v1.10.0@sha256:346a53c2489a3530790d01f7b96632496d0d58926662f4c35bb65f569db2ab42
+    command:
+      - --kafka.server=kafka:29092
+      - --kafka.version=3.9.1
+      - --topic.filter=^researchtrack\.(deployment-smoke|github\.events\.v1|jira\.events\.v1)$
+      - --group.filter=^researchtrack-(github|jira)-webhook-v1$
+      - --refresh.metadata=5s
+      - --no-kafka.allow-auto-topic-creation
+    restart: on-failure
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 96m
+    # Avoid throttling fixture scrapes into intermittent timeouts on Docker Desktop.
+    cpus: 0.5
+  metric-snapshots:
+    # Test-only HTTP delivery of actual application registry snapshots.
+    image: python:3.13-alpine
+    command: [python, /serve-metrics.py]
+    user: '65534:65534'
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    volumes:
+      - '${RT_KAFKA_TEST_WORK:?}/metrics:/metrics:ro'
+      - './serve_metrics.py:/serve-metrics.py:ro'
+    mem_limit: 32m
+  prometheus:
+    image: prom/prometheus:v3.15.0
+    command: ['--config.file=/etc/prometheus/prometheus.yml', '--storage.tsdb.path=/prometheus', '--storage.tsdb.retention.time=1h']
+    ports: ['127.0.0.1:19090:9090']
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    volumes:
+      - '${RT_KAFKA_TEST_WORK:?}/monitoring:/etc/prometheus:ro'
+    tmpfs: ['/prometheus:uid=65534,gid=65534']
+    mem_limit: 256m
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: "${RT_KAFKA_TEST_PASSWORD:?}"
+    command: ["--max-connections=50", "--innodb-buffer-pool-size=134217728"]
+    ports: ["127.0.0.1:13307:3306"]
+    volumes:
+      - "${RT_KAFKA_TEST_WORK:?}/mysql-init:/docker-entrypoint-initdb.d:ro"
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h127.0.0.1 -uroot -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    mem_limit: 1g
+volumes:
+  mysql-data:

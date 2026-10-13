@@ -52,7 +52,7 @@ kafka_tls_probe() {
   export KAFKA_HEAP_OPTS="${KAFKA_HEAP_OPTS:--Xmx256m}"
 
   printf '%s\n' "$KAFKA_CA_PEM" >"$tmp/ca.crt"
-  printf 'security.protocol=SSL\nssl.truststore.type=PEM\nssl.truststore.location=%s\n' "$tmp/ca.crt" >"$tmp/client.properties"
+  printf 'security.protocol=SSL\nssl.truststore.type=PEM\nssl.endpoint.identification.algorithm=https\nssl.truststore.location=%s\n' "$tmp/ca.crt" >"$tmp/client.properties"
   : >"$tmp/kafka.err"
 
   "$kafka_bin/kafka-get-offsets.sh" --bootstrap-server "$target" --command-config "$tmp/client.properties" \

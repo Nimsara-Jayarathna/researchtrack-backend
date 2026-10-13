@@ -60,7 +60,7 @@ dotnet tool run reportgenerator -- \
   "${COMMON_FILTERS[@]}" \
   '-classfilters:+ResearchTrack.*.Features.*;+ResearchTrack.Gateway.*;-*.Controllers.*;-*.Contracts.*;-*.Persistence.*;-*.Infrastructure.*;-*.Extensions.*'
 
-python - "$RAW_REPORT_DIR/Cobertura.xml" "$BUSINESS_REPORT_DIR/Cobertura.xml" "$SUMMARY_FILE" "$METRICS_FILE" <<'PY'
+python3 - "$RAW_REPORT_DIR/Cobertura.xml" "$BUSINESS_REPORT_DIR/Cobertura.xml" "$SUMMARY_FILE" "$METRICS_FILE" <<'PY'
 from __future__ import annotations
 import sys
 import xml.etree.ElementTree as ET

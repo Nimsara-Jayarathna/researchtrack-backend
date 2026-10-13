@@ -6,14 +6,187 @@ Operator steps for the implementation in `deploy/azure/`. The architecture is in
 
 | Workflow | Trigger | Does |
 |---|---|---|
-| `azure-infrastructure.yml` | manual; `main` pushes touching infrastructure paths | Bicep build → OIDC → What-If gate → Bicep deploy (subscription scope) → `configure-vm.sh` → VM stack reconcile → VM/network validation → Container Apps network probe |
-| `backend-deploy-production.yml` → `backend-deploy-azure-production.yml` | `main` pushes; manual | build changed images (GHCR, SHA tags) → validate env → OIDC → infrastructure preflight → per changed service: `dbcheck`/`migrate` job → Bicep app deployment → readiness → rollback on failure → full verification |
+| `azure-infrastructure.yml` | manual; `main` pushes touching the existing infrastructure path filters | required CI/Kafka → trusted exact SHA → Bicep build → production Environment → recheck SHA → OIDC → What-If gate → Bicep deploy (subscription scope) → `configure-vm.sh` → VM stack reconcile → VM/network validation → Container Apps network probe |
+| `backend-deploy-production.yml` → `backend-deploy-azure-production.yml` | `main` pushes; manual | required static/.NET/coverage + isolated Kafka/upgrades CI → exact trusted SHA/current branch check → build changed images (GHCR, immutable source images) → recheck SHA → validate env → OIDC → capture/wake runtime → preflight → per changed service: `dbcheck`/`migrate` job → Bicep app deployment → readiness → rollback on failure → full verification → restore original runtime power states |
 
 Both workflows share the concurrency group `researchtrack-azure-production`, so they never overlap. Neither falls back to the VPS.
+
+## Production deployment branch (2026-10-13)
+
+Automatic Azure production source: **`main`**.
+This supersedes the temporary integration-branch deployment policy. Test remains
+on `develop`. Backend CI runs on main-branch pushes through the production
+workflow's reusable validation job, and independently on
+PRs targeting `develop`, `main` or the integration branch. Existing CI build, coverage,
+regression and observability checks are retained; isolated Kafka recovery and real
+historical MySQL upgrades are required jobs, not ordinary conditional-test skips.
+
+Both production entrypoints use this exact push branch. Manual deployment and reusable
+Azure build/deploy jobs also require
+`refs/heads/main`. The generic reusable
+workflow guards production while keeping Test calls available. Other branches and
+tags cannot pass these updated production deployment guards. Kafka integration,
+mutation, runtime and manual performance workflows can be run with `main`
+selected. Production runtime and performance jobs reject every other branch;
+their manual inputs are retained. Post-deployment k6 smoke
+still follows a successful production deployment when enabled.
+
+### Required same-commit release gate (2026-10-11)
+
+The former independent application CI/CD push behavior is corrected and demonstrated in run 38147705025 at a26cfd2. The production
+entrypoint calls `backend-release-validation.yml`, which runs the shared Backend CI
+and isolated Kafka suite before any image builds. Manual production requests run the
+same validation. CI has contents-read permission without production secrets/OIDC.
+Every release checkout is pinned to the immutable `github.sha`. PR/fork/tag/other-ref
+sources are rejected, and the read-only source check requires the approved branch’s
+current SHA after CI and again before production credential use. Failed, cancelled,
+missing or inconclusive required CI cannot deploy. There is no `workflow_run` or
+untrusted artifact handoff. GitHub loads same-repository reusable workflows from the
+[caller’s same commit](https://docs.github.com/en/actions/how-tos/reuse-automations/reuse-workflows).
+
+`release-summary` uses only read-only run/job metadata and reports CI, queue/build,
+infrastructure, public HTTP and k6 status/durations. The application table records
+immutable images, original image-source commits, changed/unchanged applications,
+executed migrations and separate migration/rollout/readiness timings. No-op releases
+explicitly report no new application version. Disabled public HTTP or k6 checks are
+SKIPPED/NOT EXECUTED rather than PASS. CI occupies the existing production concurrency
+lock before builds; this adds required recovery-test time while retaining parallel
+image builds and preventing overlapping deployment/runtime operations.
+
+A failed k6 smoke fails the workflow. Existing per-app rollout rollback remains
+automatic; a cross-service rollback after k6 failure requires the owner-reviewed
+revision plan below. Do not roll back additive Kafka migrations or clear outboxes.
+Set `K6_AUTO_SMOKE_ENABLED=true` and review `PRODUCTION_VERIFY_PUBLIC_ENDPOINT=true`
+for final public release acceptance; neither setting was changed here.
+
+The new local infrastructure gate uses the same reusable validation before Bicep and
+rechecks the source before credentials. The infrastructure path filters, secret delivery, environment/OIDC, concurrency,
+What-If refusal, migrations, image provenance, rollback, runtime restoration and TLS
+are unchanged. No commit, push, deployment or remote policy edit was performed.
+
+Current local evidence, exact tests and pending live acceptance are recorded in
+[the final Sprint 1–4 audit](../FINAL_DEVOPS_SPRINTS_1_TO_4_AUDIT.md). Earlier branch-policy
+validation counts describe the historical change only. No current-task commit, push,
+deployment, workflow dispatch or remote settings change was performed.
+
+Historical branch-policy-only verification earlier on 2026-10-11: twelve monitoring/
+branch tests, 74 shell syntax checks and diff checks passed. Raw actionlint had the same
+ten queue/style findings. That earlier workflow/documentation-only change did not rerun
+.NET/Kafka; the later final audit did. The earlier branch-normalization comparison applies
+to that snapshot, before the current CI dependency/source-gate changes.
+
+### Repository-wide cutover
+
+GitHub reads push workflow definitions from the pushed ref. Publish this reviewed
+policy to `main` for the new trigger to take effect. Other branches may still
+contain older deployment workflows; restrict the production Environment to `main`
+or update those copies. Publishing changes to `main` can start application
+deployment and, when the existing path filters match, infrastructure reconciliation.
+
+An owner should restrict the `production` Environment to exact **Branch
+`main`**, preserving existing secrets,
+reviewers, OIDC and protection settings. Use **Settings → Environments → production
+→ Deployment branches and tags → Selected branches and tags**. This restriction
+blocks other refs at environment-bound deployment jobs; their old workflow copies
+may still start or build images before that gate. Review queued/running deployments
+before cutover. Read-only inspection on 2026-10-11 returned
+`deployment_branch_policy: null` and `protection_rules: []` for production; no remote
+branch restriction or reviewer rule was reported. No environment policy or repository
+default branch was changed here.
+
+See [GitHub deployment environment policies](https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments).
+
+### Source freshness and release order
+
+Production releases the current `main` commit. Merge reviewed integration changes
+into `main` before deployment. Changing workflows alone does not import application
+fixes from another branch. Preserve all integrated migration, contract,
+monitoring and test changes when promoting code.
+
+Shared concurrency serializes application/infrastructure runs but does not establish
+infrastructure-first ordering. Verify infrastructure prerequisites before publishing
+or coordinate an owner-controlled release window. Preserve `queue: max` and
+`cancel-in-progress: false`; do not hold an application run awaiting approval while
+it occupies the concurrency group needed by infrastructure.
+
+### OIDC compatibility and live trust check
+
+Both deploying jobs still use `environment: production`, `id-token: write` and
+`azure/login@v2`. Environment-based subjects identify the environment rather than the
+selected branch, so the branch switch itself does not require a branch-specific credential.
+A prior read-only inspection on 2026-10-10 reported GitHub OIDC configuration with `use_default: true`,
+`use_immutable_subject: true` and this subject prefix:
+
+```text
+repo:Nimsara-Jayarathna@66525584/researchtrack-backend@1335622081
+```
+
+Combining that observed prefix with the unchanged `production` environment, the expected
+subject under the default template is inferred to be:
+
+```text
+repo:Nimsara-Jayarathna@66525584/researchtrack-backend@1335622081:environment:production
+```
+
+The existing bootstrap script instead describes the legacy name-only subject
+`repo:Nimsara-Jayarathna/researchtrack-backend:environment:production`. That source text is
+not proof of the live Azure credential. Azure CLI was unavailable here, so the current Azure
+issuer/subject/audience/RBAC could not be checked. An immutable-subject mismatch may block
+login regardless of branch. Confirm live trust before deployment; do not rerun bootstrap
+or create/change security credentials automatically. See [GitHub's OIDC reference](https://docs.github.com/en/actions/reference/security/oidc).
+
+An authorized Azure reader can inspect the existing credential without modifying it:
+
+```bash
+az identity federated-credential show \
+  --resource-group rg-researchtrack-bootstrap \
+  --identity-name id-researchtrack-github-prod \
+  --name github-production-environment \
+  --query '{issuer:issuer,subject:subject,audiences:audiences}' -o json
+```
+
+Expected issuer: `https://token.actions.githubusercontent.com`; audience:
+`api://AzureADTokenExchange`; subject must match this repository's actual emitted format
+and `production` environment. Also confirm the production identity/client ID and existing
+RBAC access. If trust differs, record the difference and obtain owner approval for a
+separate Azure security change. No Azure security change is authorized by this branch switch.
+
+### Manual deployment and logs
+
+After separate authorization, dispatch **Azure Infrastructure - Production** or
+**Backend Deploy - Production** on branch
+**`main`**. Keep destructive inputs false.
+Dispatch the entrypoint, never the reusable workflow. Other refs are blocked by the
+new guards; old workflow copies still require the environment restriction.
+
+Read-only log retrieval:
+
+```bash
+gh run list --repo Nimsara-Jayarathna/researchtrack-backend \
+  --workflow backend-deploy-production.yml \
+  --branch main --limit 10
+gh run view <run-id> --repo Nimsara-Jayarathna/researchtrack-backend --log-failed
+```
+
+Verify readiness, immutable image provenance, Kafka TLS, metrics, exporter,
+Prometheus/Grafana and durable webhook outcomes using `KAFKA_OBSERVABILITY.md`.
+Do not restart Kafka, weaken TLS or delete/recreate topics, databases or volumes
+as a branch-switch remedy. Keep additive migrations during image rollback.
+
+### Local policy verification
+
+Run `python3 deploy/azure/validation/test_monitoring_reconciliation.py` to validate
+selected push branches, manual/reusable guards, Test/develop and monitoring-only safety.
+The existing queue syntax and SC2129 style findings remain baseline Actionlint
+limitations; no workflow runtime or security body was altered.
 
 ## 1. One-time manual bootstrap
 
 > The complete secret/variable inventory (sources, consumers, defaults, legacy values) is in [`../configuration/`](../configuration/README.md). The step-by-step first deployment is in [`../configuration/FIRST_DEPLOYMENT_CHECKLIST.md`](../configuration/FIRST_DEPLOYMENT_CHECKLIST.md).
+
+For the already deployed environment, do not bootstrap again to switch branches. Before
+any new bootstrap, resolve the immutable-subject compatibility check above: this existing
+script encodes the legacy subject, and any Azure security correction requires separate approval.
 
 ```bash
 AZURE_LOCATION=southeastasia ./deploy/azure/scripts/bootstrap-oidc.sh
@@ -139,3 +312,84 @@ Nginx (`proxy_ssl_verify`) and Prometheus (`insecure_skip_verify`) verify the ce
 If the first infrastructure/application run fails with certificate-verification errors on VM → app HTTPS:
 1. Set `ACA_TLS_VERIFY=off`. Traffic stays encrypted and VNet-private, but the server certificate is not verified.
 2. Record the change in `IMPLEMENTATION_STATUS.md` as a deviation.
+
+## Kafka-only operations
+
+Use [KAFKA_OPERATIONS.md](KAFKA_OPERATIONS.md) for read-only `verify-kafka.sh --check`,
+explicit smoke writes, topic management and approved independent restart verification.
+Do not run the infrastructure workflow merely to check Kafka: it reconciles the whole
+stack. Its existing OIDC, production environment, concurrency and What-If gate are preserved.
+`KAFKA_RETENTION_HOURS` is an optional production variable (default 72), applied during
+the next approved infrastructure reconciliation. See [KAFKA_TASK_REPORT.md](KAFKA_TASK_REPORT.md)
+for offline results and outstanding live evidence.
+
+## Final hardening operator checklist — 2026-10-11
+
+Application gating is demonstrated in [38147705025](https://github.com/Nimsara-Jayarathna/researchtrack-backend/actions/runs/38147705025).
+New infrastructure gating, ARM-failure handling and summary regressions are local only.
+Follow [the exact GitHub UI checklist](../configuration/GITHUB_ENVIRONMENTS.md#owner-protection-checklist--verified-2026-10-11)
+before publishing: target only `main`, require the observed PR checks,
+restrict production Environment branches, and preserve reviewers/secrets/OIDC.
+The branch and Environment still lack protection in current read-only evidence.
+
+Public endpoint verification is optional and was SKIPPED in the confirmed deployment.
+Before enabling Environment variable `PRODUCTION_VERIFY_PUBLIC_ENDPOINT=true`, inspect
+`PRODUCTION_API_HOSTNAME` and confirm DNS, trusted TLS, edge routing and unauthenticated
+GET `/health/ready` returns HTTP 200 while runtime is already available. The local check
+requires exactly 200, has ten bounded attempts and uses normal certificate verification;
+it rejects redirects, uses no credentials, and performs no write. Existing Degraded/200
+readiness policy is retained; use Kafka/Prometheus evidence for messaging health.
+
+### Failed release decision path
+
+1. Preserve the run/attempt SHA, CI results, immutable image digests, migration/rollout
+   table, previous/new revision names, k6 report/thresholds and snapshot artifacts.
+2. If deployment, readiness, infrastructure verification, k6 or restoration failed or
+   was cancelled, treat the release as failed. A successful reporting job cannot override
+   those required jobs. A skipped optional k6 is final acceptance pending, never PASS.
+3. Check **Restore exact pre-deployment runtime state**, **Final restoration safeguard**
+   and **Final Gateway configuration restoration safeguard** first. Failure is fatal;
+   use the captured `azure-production-runtime-before-deploy-<run>-<attempt>` or
+   `azure-k6-runtime-state-<run>-<attempt>` and, when present,
+   `azure-k6-gateway-state-<run>-<attempt>` artifacts. Confirm current state/ownership and
+   absence of another active release before authorizing restoration. Do not overwrite
+   a newer operator change or infer original state from an incomplete snapshot.
+4. ARM/Bicep reconciliation errors remain deployment failures even if an existing
+   revision is healthy on the target image. Per-app rollback keeps/reactivates the
+   captured previous healthy revision; inspect rollback warnings for manual attention.
+5. Inspect failed readiness/private-network/monitoring checks and k6 failed thresholds
+   independently. An unrelated infrastructure error is not evidence of a Kafka defect.
+6. Before any cross-service revision rollback, review all six applied migration results,
+   mixed-service compatibility and Kafka consumers' compatibility with durable pending
+   work. Choose previous healthy Kafka-capable images/revisions by recorded digest.
+   Use the existing separately approved revision process; do not invent an automatic
+   cross-service/schema rollback after k6 failure. Do not run migration Down, offset
+   reset, topic recreation or outbox/receipt deletion.
+7. Repeat read-only health/scrape/business-result/offset verification and capture evidence
+   after approved recovery. A green workflow alone does not complete live event acceptance.
+
+### Monitoring version capture (read-only; owner access)
+
+On the already-running VM through an approved existing access context:
+
+```bash
+for service in prometheus grafana; do
+  id="$(/opt/researchtrack/scripts/compose.sh ps -q "$service")"
+  test -n "$id" || { echo "$service missing"; continue; }
+  image="$(docker inspect --format '{{.Image}}' "$id")"
+  docker inspect --format '{{.Name}} {{.Config.Image}} {{.Image}}' "$id"
+  docker image inspect --format '{{json .RepoDigests}}' "$image"
+  docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "$image"
+done
+```
+
+Capture IDs/RepoDigests/version labels, not `.Config.Env` or runtime files. Empty digest
+or version metadata requires further owner verification, never a guessed replacement.
+Declared references remain `prom/prometheus:latest`, `grafana/grafana:latest`; no live
+version/digest was obtained here. After evidence, backup/restore compatibility review and
+owner approval, pin exactly the deployed compatible version/digest in Compose through a
+reviewed change. Do not pull/recreate containers, change Grafana database format or
+Prometheus storage version during this read-only task.
+
+See [hardening test results](../FINAL_DEVOPS_HARDENING.md) and
+[Kafka acceptance procedure](KAFKA_OPERATIONS.md#final-production-acceptance--operator-controlled).

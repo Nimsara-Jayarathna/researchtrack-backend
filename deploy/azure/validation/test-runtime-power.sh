@@ -116,7 +116,7 @@ managed=(
 
 write_state() {
   local vm_state="$1"; shift
-  local specs=("$@") apps='[]' spec name app_state i=0
+  local specs=("$@") apps='[]' name app_state i=0
   for name in "${managed[@]}"; do
     app_state=Stopped
     if (( i < ${#specs[@]} )); then app_state="${specs[$i]}"; fi
@@ -300,6 +300,41 @@ test_partial_start_failure_restores_state() {
   assert_apps_from_snapshot "$snap"
 }
 
+test_cancelled_session_restores_and_keeps_nonzero_status() {
+  local signal rc
+  for signal in INT TERM; do
+    write_state PowerState/deallocated
+    snap="$work/cancel-$signal.json"
+    active="$work/cancel-$signal.active"
+    # The synthetic child expands its own signal and parent PID.
+    # shellcheck disable=SC2016
+    if SYNTHETIC_SIGNAL="$signal" RUNTIME_SESSION_ACTIVE_FILE="$active" \
+        "$session" "$snap" -- bash -c 'kill -"$SYNTHETIC_SIGNAL" "$PPID"' > "$work/cancel-$signal.log" 2>&1; then
+      echo "cancelled session unexpectedly succeeded" >&2; exit 1
+    else rc=$?; fi
+    [[ "$rc" == 130 ]] || { cat "$work/cancel-$signal.log" >&2; exit 1; }
+    [[ ! -e "$active" ]] || { echo "cancelled session ownership marker retained after successful restore" >&2; exit 1; }
+    "$power" verify "$snap" >/dev/null
+    assert_vm PowerState/deallocated
+    assert_apps_from_snapshot "$snap"
+  done
+}
+
+test_failed_restoration_is_fatal_and_retains_snapshot_and_ownership() {
+  write_state PowerState/deallocated
+  snap="$work/failed-restore.json"
+  active="$work/failed-restore.active"
+  if MOCK_FAIL_APP_ACTION=rt-jira-prod:stop RUNTIME_SESSION_ACTIVE_FILE="$active" \
+      "$session" "$snap" -- true > "$work/failed-restore.log" 2>&1; then
+    echo "successful work masked failed restoration" >&2; exit 1
+  fi
+  [[ -s "$snap" && -f "$active" ]] || { echo "restoration failure lost recovery evidence" >&2; exit 1; }
+  grep -q 'CRITICAL: Could not restore' "$work/failed-restore.log" || exit 1
+  # Repair only the synthetic mock state, proving recovery needs its snapshot.
+  "$power" restore "$snap" >/dev/null
+  "$power" verify "$snap" >/dev/null
+}
+
 run_test "all-off state round trip" test_all_off_round_trip
 run_test "mixed app state round trip" test_mixed_state_round_trip
 run_test "exact VM Stopped restoration" test_exact_stopped_vm_restore
@@ -311,5 +346,7 @@ run_test "reused snapshot refuses pre-start drift" test_reused_snapshot_refuses_
 run_test "deployment start defers old app health" test_deployment_start_defers_old_app_health
 run_test "full start still requires app health" test_full_start_requires_app_health
 run_test "partial start failure still restores" test_partial_start_failure_restores_state
+run_test "INT/TERM cancellation restores and remains nonzero" test_cancelled_session_restores_and_keeps_nonzero_status
+run_test "failed restoration is fatal and retains evidence" test_failed_restoration_is_fatal_and_retains_snapshot_and_ownership
 
 echo "All runtime power/session validations passed."

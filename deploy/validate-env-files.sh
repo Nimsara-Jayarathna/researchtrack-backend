@@ -96,6 +96,7 @@ contract_keys() {
 validate_contract_shape() {
   local runtime="$1" contract="$2" key
   while IFS= read -r key; do
+    [[ "$key" == Kafka__* ]] && continue # Optional, validated separately when enabled.
     if ! grep -qE "^${key}=" "$runtime"; then
       echo "$(basename "$runtime") is missing '$key' from canonical contract $contract." >&2
       exit 1
@@ -394,4 +395,6 @@ validate_contract_shape "$grafana_file" "$grafana_contract"
 
 require_value "$grafana_file" GF_SECURITY_ADMIN_PASSWORD >/dev/null
 
+python3 "$(dirname "${BASH_SOURCE[0]}")/azure/scripts/kafka_config.py" "$ENV_DIR" \
+  --environment "${DEPLOY_ENVIRONMENT:-test}"
 echo "Deployment environment files match config/env contracts and passed deployment validation."

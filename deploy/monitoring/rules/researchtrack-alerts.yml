@@ -179,3 +179,127 @@ groups:
         annotations:
           summary: "Repeated Atlassian API failures"
           description: "Jira integration has recorded repeated Atlassian API authorization, rate-limit, server, timeout, or transport failures."
+
+  - name: researchtrack-kafka
+    interval: 30s
+    rules:
+      # kafka_brokers is cached metadata. A live offset fetch is also required.
+      - record: researchtrack_kafka_broker_healthy
+        expr: |
+          (
+            (up{job="researchtrack-kafka"} == bool 1)
+            * on (job, instance, service, environment) (kafka_brokers{job="researchtrack-kafka"} >= bool 1)
+            * on (job, instance, service, environment)
+              max by (job, instance, service, environment) (
+                kafka_topic_partition_current_offset{job="researchtrack-kafka", topic="researchtrack.deployment-smoke", partition="0"} >= bool 0
+              )
+          )
+          or on (job, instance, service, environment) (0 * up{job="researchtrack-kafka"})
+
+      - alert: ResearchTrackKafkaExporterUnavailable
+        expr: up{job="researchtrack-kafka", kafka_monitoring!="optional"} == 0 or absent(up{job="researchtrack-kafka"})
+        for: 2m
+        labels: { severity: critical, category: kafka, component: exporter }
+        annotations:
+          summary: "Kafka exporter unavailable; broker status unknown"
+          description: "Check the private exporter target, container and logs. Broker connection failure can prevent exporter startup; do not infer broker health from a missing scrape."
+
+      - alert: ResearchTrackKafkaBrokerUnavailable
+        expr: researchtrack_kafka_broker_healthy == 0 and on (job, instance, service, environment) up{job="researchtrack-kafka"} == 1
+        for: 2m
+        labels: { severity: critical, category: kafka, component: broker }
+        annotations:
+          summary: "Kafka broker connectivity or required metadata unavailable"
+          description: "Exporter is scrapeable but broker count or a live deployment-smoke partition offset is missing/invalid. Inspect broker health, private listener and existing smoke-topic metadata; never recreate data to repair monitoring."
+
+      - alert: ResearchTrackKafkaPublishingFailures
+        expr: |
+          sum by (service, environment) (increase(researchtrack_kafka_publish_total{job="researchtrack-services", outcome=~"retryable_failure|permanent_failure"}[10m])) >= 3
+          and on (service, environment) max by (service, environment) (researchtrack_kafka_enabled{job="researchtrack-services"} == 1)
+        for: 2m
+        labels: { severity: warning, category: kafka, component: application }
+        annotations:
+          summary: "Repeated Kafka publication failures"
+          description: "At least three publication attempts failed within ten minutes. Inspect TLS/private connectivity and retained outbox work; replay requires review."
+
+      - alert: ResearchTrackKafkaEventProcessingFailures
+        expr: |
+          sum by (service, environment) (increase(researchtrack_kafka_consume_total{job="researchtrack-services", stage="process", outcome=~"failed|rejected"}[10m])) >= 3
+          and on (service, environment) max by (service, environment) (researchtrack_kafka_enabled{job="researchtrack-services"} == 1)
+        for: 2m
+        labels: { severity: warning, category: kafka, component: application }
+        annotations:
+          summary: "Repeated Kafka durable processing failures"
+          description: "At least three handoff/validation attempts failed within ten minutes. Inspect safe consumer error codes, schema and database state. Successful retries are separate from a held consumer."
+
+      - alert: ResearchTrackKafkaOffsetCommitFailures
+        expr: |
+          sum by (service, environment) (increase(researchtrack_kafka_consume_total{job="researchtrack-services", stage="commit", outcome="failed"}[10m])) >= 3
+          and on (service, environment) max by (service, environment) (researchtrack_kafka_enabled{job="researchtrack-services"} == 1)
+        for: 2m
+        labels: { severity: warning, category: kafka, component: application }
+        annotations:
+          summary: "Repeated Kafka offset-commit failures"
+          description: "Durable handoff succeeded but at least three offset commits failed within ten minutes. Inspect broker/group health and rejoin logs; replay is deduplicated, never skip offsets."
+
+      - alert: ResearchTrackKafkaConsumerHeld
+        expr: researchtrack_kafka_consumer_held{job="researchtrack-services"} == 1 and on (service, environment) researchtrack_kafka_enabled{job="researchtrack-services"} == 1
+        for: 1m
+        labels: { severity: critical, category: kafka, component: application }
+        annotations:
+          summary: "Kafka consumer held without offset progress"
+          description: "Review the uncommitted record, strict contract and safe error code, repair the cause and authorize an application restart. Do not reset offsets or delete retained work."
+
+      - alert: ResearchTrackKafkaConsumerLagHigh
+        expr: |
+          sum by (consumergroup, environment) (
+            kafka_consumergroup_lag{job="researchtrack-kafka", consumergroup=~"researchtrack-(github|jira)-webhook-v1", topic=~"researchtrack\\.(github|jira)\\.events\\.v1"}
+            and on (job, instance, environment, consumergroup, topic, partition)
+              kafka_consumergroup_current_offset{job="researchtrack-kafka"} >= 0
+          ) > 100
+          and on (consumergroup, environment)
+            label_replace(max by (service, environment) (researchtrack_kafka_enabled{job="researchtrack-services"} == 1),
+              "consumergroup", "researchtrack-$1-webhook-v1", "service", "(github|jira)")
+        for: 10m
+        labels: { severity: warning, category: kafka, component: consumer }
+        annotations:
+          summary: "Approved Kafka consumer group lag sustained"
+          description: "Measured lag exceeds 100 records for ten minutes in an enabled service with committed offsets. Inspect consumer/DB capacity and held state. Missing groups or unknown offsets are not zero lag."
+
+      - alert: ResearchTrackKafkaOutboxBacklog
+        expr: |
+          researchtrack_kafka_outbox_messages{job="researchtrack-services", status="pending"} >= 100
+          and on (service, environment) researchtrack_kafka_outbox_sample_success{job="researchtrack-services"} == 1
+          and on (service, environment) (time() - researchtrack_kafka_outbox_sample_timestamp_seconds{job="researchtrack-services"}) < 180
+          and on (service, environment) researchtrack_kafka_enabled{job="researchtrack-services"} == 1
+        for: 5m
+        labels: { severity: warning, category: kafka, component: outbox }
+        annotations:
+          summary: "Durable Kafka outbox backlog sustained"
+          description: "At least 100 pending/publishing messages persisted for five minutes in fresh database samples. Inspect producer connectivity and blocked message-key ordering; accepted work is retained."
+
+      - alert: ResearchTrackKafkaOutboxFailed
+        expr: |
+          researchtrack_kafka_outbox_messages{job="researchtrack-services", status="failed"} > 0
+          and on (service, environment) researchtrack_kafka_outbox_sample_success{job="researchtrack-services"} == 1
+          and on (service, environment) (time() - researchtrack_kafka_outbox_sample_timestamp_seconds{job="researchtrack-services"}) < 180
+          and on (service, environment) researchtrack_kafka_enabled{job="researchtrack-services"} == 1
+        for: 2m
+        labels: { severity: warning, category: kafka, component: outbox }
+        annotations:
+          summary: "Kafka outbox retains permanently failed work"
+          description: "One or more events exhausted publication attempts or failed permanently. Diagnose before approved replay; failed rows block later events with the same key."
+
+      - alert: ResearchTrackKafkaOutboxMetricsUnavailable
+        expr: |
+          (
+            researchtrack_kafka_outbox_sample_success{job="researchtrack-services"} == 0
+            or (time() - researchtrack_kafka_outbox_sample_timestamp_seconds{job="researchtrack-services"}) >= 180
+            or (researchtrack_kafka_enabled{job="researchtrack-services"} == 1 unless on (service, environment) researchtrack_kafka_outbox_sample_success{job="researchtrack-services"})
+          )
+          and on (service, environment) researchtrack_kafka_enabled{job="researchtrack-services"} == 1
+        for: 5m
+        labels: { severity: warning, category: kafka, component: outbox }
+        annotations:
+          summary: "Kafka outbox monitoring unavailable or stale"
+          description: "Bounded database sampling has failed or become stale. Backlog depth is unknown, not healthy zero. Check application sampler/database availability without querying the database on each scrape."

@@ -26,7 +26,16 @@ permissions:
   packages: read
 
 jobs:
+  validate:
+    if: ${{ github.ref == 'refs/heads/main' }}
+    name: Required CI and trusted source eligibility
+    uses: ./.github/workflows/backend-release-validation.yml
+    permissions:
+      contents: read
+
   build:
+    needs: validate
+    if: ${{ github.ref == 'refs/heads/main' }}
     name: Build Changed Images
     uses: ./.github/workflows/backend-build-images.yml
     with:
@@ -41,8 +50,9 @@ jobs:
       packages: write
 
   deploy:
+    if: ${{ github.ref == 'refs/heads/main' }}
     name: Deploy Azure Production
-    needs: build
+    needs: [build, validate]
     runs-on: ubuntu-latest
     environment: production
 
@@ -64,10 +74,23 @@ jobs:
       - name: Checkout deployment files
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
           sparse-checkout: |
             deploy
             config/env
           sparse-checkout-cone-mode: false
+
+      - name: Recheck exact validated source before production access
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_RESULT: ${{ needs.validate.result }}
+          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_REF: ${{ github.ref }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
+          SOURCE_EVENT: ${{ github.event_name }}
+        run: python3 deploy/azure/scripts/release-policy.py
 
       - name: Validate workflow configuration
         shell: bash
@@ -81,10 +104,12 @@ jobs:
             [[ -n "${!key:-}" ]] || { echo "$key is not configured for the production environment." >&2; exit 1; }
           done
           # runner.temp is not available in job-level env.
-          echo "ENV_DIR=$RUNNER_TEMP/researchtrack-env" >> "$GITHUB_ENV"
-          echo "WORK_DIR=$RUNNER_TEMP/researchtrack-specs" >> "$GITHUB_ENV"
-          echo "RUNTIME_STATE_FILE=$RUNNER_TEMP/researchtrack-runtime-before-deploy.json" >> "$GITHUB_ENV"
-          echo "RUNTIME_ACTIVE_FILE=$RUNNER_TEMP/researchtrack-runtime-deploy.active" >> "$GITHUB_ENV"
+          {
+            echo "ENV_DIR=$RUNNER_TEMP/researchtrack-env"
+            echo "WORK_DIR=$RUNNER_TEMP/researchtrack-specs"
+            echo "RUNTIME_STATE_FILE=$RUNNER_TEMP/researchtrack-runtime-before-deploy.json"
+            echo "RUNTIME_ACTIVE_FILE=$RUNNER_TEMP/researchtrack-runtime-deploy.active"
+          } >> "$GITHUB_ENV"
 
       - name: Materialize environment files
         shell: bash
@@ -234,10 +259,11 @@ jobs:
         run: |
           set -euo pipefail
           for _ in $(seq 1 10); do
-            curl -fsS --max-time 10 "https://$API_HOSTNAME/health/ready" >/dev/null && { echo "https://$API_HOSTNAME is serving."; exit 0; }
+            status="$(curl -fsS --max-time 10 --output /dev/null --write-out '%{http_code}' "https://$API_HOSTNAME/health/ready")" &&
+              [[ "$status" == 200 ]] && { echo "https://$API_HOSTNAME is serving."; exit 0; }
             sleep 6
           done
-          echo "https://$API_HOSTNAME/health/ready did not succeed." >&2
+          echo "https://$API_HOSTNAME/health/ready did not return HTTP 200." >&2
           exit 1
 
       # Always return Production to exactly the state captured before this
