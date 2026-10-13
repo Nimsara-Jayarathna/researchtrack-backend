@@ -1,14 +1,17 @@
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
-using Swashbuckle.AspNetCore.SwaggerUI;
 using ResearchTrack.BuildingBlocks.Api.Health;
 using ResearchTrack.BuildingBlocks.Api.Infrastructure;
 using ResearchTrack.BuildingBlocks.Api.Middleware;
+using Swashbuckle.AspNetCore.SwaggerUI;
 
 namespace ResearchTrack.BuildingBlocks.Api.Extensions;
 
 public static class ApplicationBuilderExtensions
 {
-    public static WebApplication UseResearchTrackApi(this WebApplication app, Action<SwaggerUIOptions>? configureSwaggerUi = null)
+    public static WebApplication UseResearchTrackApi(
+        this WebApplication app,
+        Action<SwaggerUIOptions>? configureSwaggerUi = null
+    )
     {
         app.UseMiddleware<CorrelationIdMiddleware>();
         // Keep request logging outside exception handling so the completion log

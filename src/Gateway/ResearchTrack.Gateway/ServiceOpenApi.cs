@@ -6,7 +6,8 @@ namespace ResearchTrack.Gateway;
 public static class ServiceOpenApi
 {
     public static readonly IReadOnlyList<string> Services = Array.AsReadOnly(
-        new[] { "auth", "project", "github", "jira", "meeting", "submission" });
+        new[] { "auth", "project", "github", "jira", "meeting", "submission" }
+    );
 
     public static void ConfigureRoutes(ConfigurationManager configuration, IHostEnvironment environment)
     {
