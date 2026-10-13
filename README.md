@@ -730,6 +730,38 @@ Swagger is controlled through each component's environment configuration:
 OpenApi__Enabled
 ```
 
+The gateway Swagger UI at `/swagger` lists Auth, Project, GitHub, Jira, Meeting,
+Submission, and the gateway's own document. The gateway document includes only
+its local controllers; an empty `paths` object there is expected. Select a service
+for its business endpoints.
+
+Production document URLs (after deploying this gateway change):
+
+```text
+https://api.researchtrack.blipzo.xyz/swagger/auth/v1/swagger.json
+https://api.researchtrack.blipzo.xyz/swagger/project/v1/swagger.json
+https://api.researchtrack.blipzo.xyz/swagger/github/v1/swagger.json
+https://api.researchtrack.blipzo.xyz/swagger/jira/v1/swagger.json
+https://api.researchtrack.blipzo.xyz/swagger/meeting/v1/swagger.json
+https://api.researchtrack.blipzo.xyz/swagger/submission/v1/swagger.json
+https://api.researchtrack.blipzo.xyz/swagger/v1/swagger.json
+```
+
+Set `OpenApi__Enabled=true` in the gateway **and each of the six services** to
+publish all documents in Production. Redeploy/restart the affected components
+when changing this setting. The gateway flag controls both its UI and service
+document routes. A disabled downstream service returns 404 for its document;
+a connection failure returns a proxy error. Documents are fetched on demand, so
+one unavailable service does not prevent the UI or other documents from loading.
+This is a selector of independent documents, not a merged specification.
+
+Only GET requests to each known service's exact v1 document path are forwarded,
+using the existing service cluster addresses and rewriting to
+`/swagger/v1/swagger.json`. No additional public service ingress or Nginx changes
+are required. Swagger documentation is anonymous when enabled, consistent with
+the existing service Swagger behavior; business endpoint authorization remains
+in the owning service. UI document URLs are relative so proxy path bases work.
+
 Typical local URLs:
 
 ```text
