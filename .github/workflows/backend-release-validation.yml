@@ -3,32 +3,71 @@ name: Backend Production Release Validation
 on:
   workflow_call:
 
+# No production environments, deployment secrets, packages write or OIDC.
 permissions:
   contents: read
+  actions: read
+  checks: read
+  pull-requests: read
 
 jobs:
+  evidence:
+    name: Probe immutable PR validation evidence
+    runs-on: ubuntu-latest
+    outputs:
+      reuse: ${{ steps.probe.outputs.reuse }}
+    steps:
+      - name: Checkout only release policy scripts
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          sparse-checkout: deploy/azure/scripts
+      - name: Verify CI evidence or select full validation
+        id: probe
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_REF: ${{ github.ref }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
+          SOURCE_EVENT: ${{ github.event_name }}
+        run: python3 deploy/azure/scripts/release-evidence.py probe-ci
+
   ci:
-    name: Validate the release commit
+    name: Validate the release commit when evidence is not reusable
+    needs: evidence
+    if: ${{ needs.evidence.outputs.reuse != 'true' }}
     uses: ./.github/workflows/backend-ci.yml
     permissions:
       contents: read
 
   eligibility:
     name: Verify trusted source after required CI
-    needs: ci
+    needs: [evidence, ci]
+    # Explicit result checks are essential when full CI is deliberately skipped.
+    if: ${{ always() && needs.evidence.result == 'success' && (needs.ci.result == 'success' || (needs.ci.result == 'skipped' && needs.evidence.outputs.reuse == 'true')) }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
           sparse-checkout: deploy/azure/scripts
-      - name: Require successful CI and the current approved source
+      - name: Require successful CI evidence and the exact approved main source
         env:
           GH_TOKEN: ${{ github.token }}
-          CI_RESULT: ${{ needs.ci.result }}
+          CI_RESULT: ${{ (needs.ci.result == 'success' || (needs.ci.result == 'skipped' && needs.evidence.outputs.reuse == 'true')) && 'success' || 'failure' }}
           SOURCE_SHA: ${{ github.sha }}
           SOURCE_REF: ${{ github.ref }}
           SOURCE_REPOSITORY: ${{ github.repository }}
           SOURCE_EVENT: ${{ github.event_name }}
         run: python3 deploy/azure/scripts/release-policy.py
+      - name: Record whether release CI was reused
+        env:
+          REUSED: ${{ needs.evidence.outputs.reuse }}
+        run: |
+          if [[ "$REUSED" == true ]]; then
+            echo 'CI evidence: identical-tree PR validation verified using GitHub read-only API.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'CI evidence: full unit, coverage and Kafka validation executed for this release.' >> "$GITHUB_STEP_SUMMARY"
+          fi

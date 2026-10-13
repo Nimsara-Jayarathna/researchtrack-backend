@@ -210,12 +210,22 @@ class ProductionOperationGate(unittest.TestCase):
         shared = job_blocks((WORKFLOWS / 'backend-release-validation.yml').read_text())
         ci = job_blocks((WORKFLOWS / 'backend-ci.yml').read_text())
         kafka = job_blocks((WORKFLOWS / 'kafka-integration-tests.yml').read_text())
-        for block in [shared['ci'], shared['eligibility'], ci['test'], ci['kafka-integration'], kafka['kafka-integration']]:
-            header = block.split('    steps:', 1)[0]
-            self.assertNotIn('    if:', header)
+        # CI is conditional only on verified content-identical PR evidence.
+        self.assertEqual(['evidence'], dependencies(shared['ci']))
+        self.assertIn("needs.evidence.outputs.reuse != 'true'", shared['ci'])
+        self.assertEqual(['evidence', 'ci'], dependencies(shared['eligibility']))
+        self.assertIn('always()', shared['eligibility'])
+        self.assertIn("needs.ci.result == 'success'", shared['eligibility'])
+        self.assertIn("needs.ci.result == 'skipped'", shared['eligibility'])
+        self.assertIn("needs.evidence.outputs.reuse == 'true'", shared['eligibility'])
+        self.assertIn('release-evidence.py probe-ci', shared['evidence'])
+        for block in [shared['evidence'], shared['ci'], shared['eligibility'],
+                      ci['test'], ci['kafka-integration'], kafka['kafka-integration']]:
             for forbidden in ['secrets:', 'environment:', 'id-token:', 'packages:', 'continue-on-error:']:
                 self.assertNotIn(forbidden, block)
-        self.assertEqual(['ci'], dependencies(shared['eligibility']))
+        for block in [ci['test'], ci['kafka-integration'], kafka['kafka-integration']]:
+            header = block.split('    steps:', 1)[0]
+            self.assertNotIn('    if:', header)
         self.assertIn('bash scripts/test-kafka-integration.sh', kafka['kafka-integration'])
         runner = (ROOT / 'scripts/test-kafka-integration.sh').read_text()
         self.assertIn("int(counters.get('passed')) == count and int(counters.get('executed')) == count", runner)

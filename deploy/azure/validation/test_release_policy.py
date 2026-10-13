@@ -66,13 +66,15 @@ class ReleasePolicy(unittest.TestCase):
     def test_release_build_is_after_required_ci_and_source_check(self):
         workflows = ROOT / '.github/workflows'
         azure = (workflows / 'backend-deploy-azure-production.yml').read_text()
-        self.assertIn('  build:\n    needs: validate\n', azure)
-        self.assertIn('    needs: [build, validate]\n', azure)
+        self.assertIn('  build:\n    needs: [validate, sonar_gate]\n', azure)
+        self.assertIn('    needs: [build, validate, sonar_gate]\n', azure)
         self.assertIn('uses: ./.github/workflows/backend-release-validation.yml', azure)
         self.assertLess(azure.index('Recheck exact validated source'), azure.index('Materialize environment files'))
         validation = (workflows / 'backend-release-validation.yml').read_text()
         self.assertIn('uses: ./.github/workflows/backend-ci.yml', validation)
-        self.assertIn('    needs: ci\n', validation)
+        self.assertIn('    needs: [evidence, ci]\n', validation)
+        self.assertIn("needs.evidence.outputs.reuse == 'true'", validation)
+        self.assertIn("needs.ci.result == 'success'", validation)
         self.assertNotIn('secrets: inherit', validation)
         self.assertNotIn('id-token:', validation)
         ci = (workflows / 'backend-ci.yml').read_text()
@@ -81,7 +83,7 @@ class ReleasePolicy(unittest.TestCase):
         self.assertIn('uses: ./.github/workflows/kafka-integration-tests.yml', ci)
         for filename in ['backend-ci.yml', 'backend-build-images.yml', 'backend-deploy-azure-production.yml', 'kafka-integration-tests.yml']:
             source = (workflows / filename).read_text()
-            self.assertEqual(source.count('uses: actions/checkout@v4'), source.count('ref: ${{ github.sha }}'), filename)
+            self.assertEqual(source.count('uses: actions/checkout@v4') + source.count('uses: actions/checkout@v5'), source.count('ref: ${{ github.sha }}'), filename)
 
     def test_vps_deployment_requires_successful_test_target_and_build(self):
         legacy = (ROOT / '.github/workflows/backend-deploy-reusable.yml').read_text()
