@@ -41,6 +41,61 @@ public sealed class KafkaRuntimeOptionsTests
         Assert.Throws<InvalidOperationException>(() => KafkaRuntimeOptions.Create(Config(values), true));
     }
 
+    [Theory]
+    [InlineData("researchtrack.github.events.v0")]
+    [InlineData("ResearchTrack.github.events.v1")]
+    [InlineData("researchtrack.github.events.V1")]
+    [InlineData("researchtrack.github.events.v1.extra")]
+    [InlineData("researchtrack.github.events.v-1")]
+    public void TopicValidationRejectsMalformedNamesBeforeCreatingCaFile(string topic)
+    {
+        var caPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "ca.crt");
+        var values = Settings(caPath);
+        values["Kafka:Topic"] = topic;
+
+        var error = Assert.Throws<InvalidOperationException>(() => KafkaRuntimeOptions.Create(Config(values), false));
+
+        Assert.Contains("Kafka:Topic", error.Message);
+        Assert.False(File.Exists(caPath));
+    }
+
+    [Theory]
+    [InlineData("CHANGE_ME")]
+    [InlineData("change_me")]
+    [InlineData("2<3")]
+    [InlineData("2>3")]
+    [InlineData("  ")]
+    public void ContractVersionValidationRejectsPlaceholdersAndUnsafeValues(string contractVersion)
+    {
+        var caPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "ca.crt");
+        var values = Settings(caPath);
+        values["Kafka:ContractVersion"] = contractVersion;
+
+        var error = Assert.Throws<InvalidOperationException>(() => KafkaRuntimeOptions.Create(Config(values), false));
+
+        Assert.Contains("Kafka:ContractVersion", error.Message);
+        Assert.False(File.Exists(caPath));
+    }
+
+    [Theory]
+    [InlineData("10..0.4:9092")]
+    [InlineData("10.0.0.4:0")]
+    [InlineData("10.0.0.4:65536")]
+    [InlineData("10.0.0.4:29092")]
+    [InlineData("10.0.0.4")]
+    [InlineData("10.0.0.4:9092,")]
+    public void BootstrapEndpointValidationRejectsUnsafeOrMalformedEndpoints(string bootstrapServers)
+    {
+        var caPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "ca.crt");
+        var values = Settings(caPath);
+        values["Kafka:BootstrapServers"] = bootstrapServers;
+
+        var error = Assert.Throws<InvalidOperationException>(() => KafkaRuntimeOptions.Create(Config(values), false));
+
+        Assert.Contains("Kafka:BootstrapServers", error.Message);
+        Assert.False(File.Exists(caPath));
+    }
+
     [Fact]
     public void EnvironmentBindingDeliversValidatedPublicCaBeforeClientUse()
     {

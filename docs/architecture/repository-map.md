@@ -10,27 +10,27 @@ Small shared technical library containing API envelopes, generic error codes, ex
 
 ## `src/Services/ResearchTrack.AuthService`
 
-Owns authentication/user capability. Sprint 1 feature developers add registration, institutional identity/role rules, login/session behavior, and related persistence here.
+Owns registration/email verification, configurable institutional identity/role rules, login/session lifecycle, password reset/change and related persistence.
 
 ## `src/Services/ResearchTrack.ProjectService`
 
-Owns Research Project and membership capability. Sprint 1 feature developers add project CRUD/management, membership, and project access rules here.
+Owns project creation/management, membership, accessible project reads, dashboards, and resource authorization.
 
 ## `src/Services/ResearchTrack.GitHubService`
 
-Owns GitHub connection, repository metadata, default-branch activity, contributors, pull requests, and synchronization beginning in Sprint 2.
+Owns GitHub connection, repository metadata, default-branch activity, contributors, pull requests, and synchronization.
 
 ## `src/Services/ResearchTrack.JiraService`
 
-Owns Jira OAuth/connection, issues, sprint/workload data, and synchronization beginning in Sprint 3.
+Owns Jira OAuth/connection, issues, sprint/workload data, and synchronization.
 
 ## `src/Services/ResearchTrack.MeetingService`
 
-Owns meeting channels, records, approval, and meeting history beginning in Sprint 4.
+Owns meeting channels, records, approval, and meeting history.
 
 ## `src/Services/ResearchTrack.SubmissionService`
 
-Owns submission requirements, document submission metadata, review/feedback, revision/version workflow, and later the storage integration introduced with that feature in Sprint 4.
+Owns submission requirements, document submission metadata, review/feedback, revision/version workflow, and S3-compatible object-storage integration.
 
 ## `tests/ResearchTrack.Testing`
 
@@ -38,7 +38,7 @@ Shared test-only infrastructure. It may contain `WebApplicationFactory` and safe
 
 ## `tools/ResearchTrack.DevSeeder`
 
-Development-only seeding host. It remains intentionally feature-empty until real domain rules exist; later seeders must reuse the application rules rather than duplicate them.
+Development-only seeding host. No service seeder is currently registered; invocation with a service exits with code 2. Future seeders must reuse application rules rather than duplicate them.
 
 ## `scripts`
 

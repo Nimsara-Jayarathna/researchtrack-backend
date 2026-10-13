@@ -7,6 +7,7 @@ Put other Markdown documents under `docs/`, grouped by subject. Use `submission/
 ## Api
 
 - [API conventions](api/conventions.md)
+- [Swagger and OpenAPI](api/openapi.md)
 
 ## Architecture
 
@@ -17,9 +18,13 @@ Put other Markdown documents under `docs/`, grouped by subject. Use `submission/
 
 ## Database
 
+- [Database provisioning and access](database/setup.md)
 - [EF Core migrations](database/migrations.md)
 
 ## Development
+
+- [Developer guides and previous README content map](development/README.md)
+- [Service configuration reference](development/service-configuration.md)
 
 - [Command reference](development/commands.md)
 - [Dependency baseline](development/dependencies.md)
@@ -56,6 +61,8 @@ Put other Markdown documents under `docs/`, grouped by subject. Use `submission/
 - [ResearchTrack Sprint 4 — Meeting Management](meeting/ResearchTrack_Sprint4_Meetings_Backend_Implementation_Plan.md)
 
 ## Stories
+
+- [Registration and email verification](stories/registration.md)
 
 - [Jira issue hierarchy implementation](stories/JIRA-HIERARCHY-IMPLEMENTATION.md)
 - [Jira webhook stability hardening](stories/JIRA-WEBHOOK-STABILITY-FIX.md)

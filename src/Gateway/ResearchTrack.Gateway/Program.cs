@@ -58,6 +58,7 @@ builder.Configuration.AddInMemoryCollection(
 
 builder.Services.AddResearchTrackApi("ResearchTrack API Gateway");
 builder.Services.AddTrustedProxyForwarding();
+ServiceOpenApi.ConfigureRoutes(builder.Configuration, builder.Environment);
 builder.Services.AddReverseProxy().LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"));
 
 var allowedOrigins =
@@ -108,7 +109,26 @@ var app = builder.Build();
 // Must run first so rate limiting, logging and YARP see the real client address.
 app.UseForwardedHeaders();
 app.UseHttpMetrics();
-app.UseResearchTrackApi();
+
+// Also guard at request time: disabling documentation must hide proxy routes
+// even if they were registered while OpenAPI was enabled at startup.
+app.Use(
+    async (context, next) =>
+    {
+        if (
+            context.Request.Path.StartsWithSegments("/swagger")
+            && !app.Environment.IsDevelopment()
+            && !app.Configuration.GetValue<bool>("OpenApi:Enabled")
+        )
+        {
+            context.Response.StatusCode = StatusCodes.Status404NotFound;
+            await ApiErrorResponseWriter.WriteStatusCodeAsync(context);
+            return;
+        }
+        await next(context);
+    }
+);
+app.UseResearchTrackApi(ServiceOpenApi.ConfigureUi);
 app.UseCors("frontend");
 app.UseRateLimiter();
 

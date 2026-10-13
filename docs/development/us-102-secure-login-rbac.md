@@ -14,6 +14,10 @@ US-102 adds secure authentication/session lifecycle and reusable role authorizat
 
 Registration remains under `/api/v1/auth/register/*`.
 
+For local setup, configure Auth and shared JWT, provision/migrate the Auth database,
+and run the core profile using [local setup](local-setup.md). The staged registration
+flow and current role-selection behavior are in [Registration](../stories/registration.md).
+
 ## Session design
 
 - Access token: signed HS256 JWT, short-lived, `HttpOnly` cookie `ss_access_token`, path `/api`.
@@ -40,9 +44,9 @@ An incorrect current password returns `400 CURRENT_PASSWORD_INCORRECT` rather th
 - `ResearchTrack.StudentOnly`
 - `ResearchTrack.SupervisorOnly`
 
-AuthService and ProjectService validate the same JWT issuer/audience/signing key. ProjectService integration tests prove `401` for missing/expired authentication, `403` for a Student on Supervisor-only policy, and success for a Supervisor.
+All six protected business services use the shared JWT issuer/audience/signing-key contract. ProjectService integration tests prove `401` for missing/expired authentication, `403` for a Student on Supervisor-only policy, and success for a Supervisor.
 
-Frontend role guards are convenience/UX only. Services remain the authority. Future Project endpoints must additionally apply resource-specific ownership/membership authorization where required.
+Frontend role guards are convenience/UX only. Services remain the authority. Project endpoints now enforce resource-specific access through the project service, including accessible-project reads and supervisor ownership/membership rules. A valid role alone does not grant access to every project; see [the implemented project flow](../stories/US-103-create-research-project-full-flow.md).
 
 ## Database audit
 

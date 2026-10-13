@@ -57,7 +57,11 @@ public sealed class KafkaClientFactory(KafkaRuntimeOptions options, ILogger<Kafk
     public IProducer<string, string> CreateProducer() =>
         new ProducerBuilder<string, string>(KafkaClientConfiguration.Producer(options))
             .SetLogHandler(
-                (_, entry) => logger.LogDebug("Kafka producer client log. Level={Level}", entry.Level)
+                (_, entry) =>
+                {
+                    if (logger.IsEnabled(LogLevel.Debug))
+                        logger.LogDebug("Kafka producer client log. Level={Level}", entry.Level);
+                }
             )
             .SetErrorHandler(
                 (_, error) => logger.LogWarning("Kafka producer client error. Code={Code}", error.Code)
@@ -67,7 +71,11 @@ public sealed class KafkaClientFactory(KafkaRuntimeOptions options, ILogger<Kafk
     public IConsumer<string, string> CreateConsumer() =>
         new ConsumerBuilder<string, string>(KafkaClientConfiguration.Consumer(options))
             .SetLogHandler(
-                (_, entry) => logger.LogDebug("Kafka consumer client log. Level={Level}", entry.Level)
+                (_, entry) =>
+                {
+                    if (logger.IsEnabled(LogLevel.Debug))
+                        logger.LogDebug("Kafka consumer client log. Level={Level}", entry.Level);
+                }
             )
             .SetErrorHandler(
                 (_, error) => logger.LogWarning("Kafka consumer client error. Code={Code}", error.Code)
