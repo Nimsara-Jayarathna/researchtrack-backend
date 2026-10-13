@@ -67,7 +67,7 @@ Use for:
 ### `04_PRODUCTION_CICD.md`
 
 Use for:
-- `integration/main-kafka-production-20261011` deployment,
+- `main` deployment,
 - GHCR,
 - changed-service detection,
 - secrets/env delivery,

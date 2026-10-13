@@ -39,7 +39,7 @@ permissions:
 
 jobs:
   performance:
-    if: ${{ github.repository == 'Nimsara-Jayarathna/researchtrack-backend' && ((github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/integration/main-kafka-production-20261011')) || (github.event_name == 'push' && github.ref == 'refs/heads/integration/main-kafka-production-20261011')) }}
+    if: ${{ github.repository == 'Nimsara-Jayarathna/researchtrack-backend' && ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') || (github.event_name == 'push' && github.ref == 'refs/heads/main')) }}
     name: Acquire runtime → VPS k6 → Restore
     runs-on: ubuntu-latest
     timeout-minutes: 70

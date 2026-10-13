@@ -27,7 +27,7 @@ permissions:
 
 jobs:
   validate:
-    if: ${{ github.ref == 'refs/heads/integration/main-kafka-production-20261011' }}
+    if: ${{ github.ref == 'refs/heads/main' }}
     name: Required CI and trusted source eligibility
     uses: ./.github/workflows/backend-release-validation.yml
     permissions:
@@ -35,7 +35,7 @@ jobs:
 
   build:
     needs: validate
-    if: ${{ github.ref == 'refs/heads/integration/main-kafka-production-20261011' }}
+    if: ${{ github.ref == 'refs/heads/main' }}
     name: Build Changed Images
     uses: ./.github/workflows/backend-build-images.yml
     with:
@@ -50,7 +50,7 @@ jobs:
       packages: write
 
   deploy:
-    if: ${{ github.ref == 'refs/heads/integration/main-kafka-production-20261011' }}
+    if: ${{ github.ref == 'refs/heads/main' }}
     name: Deploy Azure Production
     needs: [build, validate]
     runs-on: ubuntu-latest

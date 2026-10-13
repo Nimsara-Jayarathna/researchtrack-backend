@@ -9,12 +9,10 @@ refreshed local validation and live acceptance gaps are consolidated in the
 notes and conditional-test skip counts describe those sessions. No commit, push, merge,
 deployment, workflow dispatch or remote settings change occurred in this audit.
 
-> Historical integration review. The user subsequently selected
-> `integration/main-kafka-production-20261011` as the production deployment source.
-> Its push filters, manual/reusable guards and CI triggers now supersede the main-only
-> policy described below and the intervening feature-branch policy. See `RUNBOOK.md`
-> for the current cutover procedure; the main-based deployment plan below is historical.
-> Earlier test evidence and the integration inventory below describe the prior review.
+> Historical integration review. Production deployment now uses `main`; its push
+> filters, manual/reusable guards and exact-SHA release policy require `main`. See
+> `RUNBOOK.md` for the current cutover procedure. Earlier test evidence and the
+> integration inventory below describe the prior review.
 
 Prepared locally on 2026-10-11. Nothing was committed, pushed, deployed or changed in Azure or GitHub settings/secrets. Existing branches and production data are untouched.
 

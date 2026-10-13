@@ -48,7 +48,7 @@ class ReleasePolicy(unittest.TestCase):
                 policy.verify(dict(self.context, SOURCE_EVENT=event), self.remote)
 
     def test_other_branches_tags_and_forks_are_rejected(self):
-        for ref in ['refs/heads/main', 'refs/heads/develop', 'refs/tags/' + policy.BRANCH, 'refs/pull/1/merge']:
+        for ref in ['refs/heads/integration/main-kafka-production-20261011', 'refs/heads/develop', 'refs/tags/' + policy.BRANCH, 'refs/pull/1/merge']:
             with self.subTest(ref=ref), self.assertRaises(ValueError):
                 policy.verify(dict(self.context, SOURCE_REF=ref), self.remote)
         with self.assertRaises(ValueError):
@@ -59,7 +59,7 @@ class ReleasePolicy(unittest.TestCase):
             with self.subTest(sha=sha), self.assertRaises(ValueError):
                 policy.verify(dict(self.context, SOURCE_SHA=sha), self.remote)
         for remote in [{}, {'name': policy.BRANCH, 'commit': {'sha': 'b' * 40}},
-                       {'name': 'main', 'commit': {'sha': 'a' * 40}}]:
+                       {'name': 'integration/main-kafka-production-20261011', 'commit': {'sha': 'a' * 40}}]:
             with self.subTest(remote=remote), self.assertRaises(ValueError):
                 policy.verify(self.context, remote)
 
@@ -95,13 +95,13 @@ class ReleasePolicy(unittest.TestCase):
 
 class OperationAuthorization(unittest.TestCase):
     setUp = ReleasePolicy.setUp
-    def test_manual_operations_preserve_main_and_temporary_integration(self):
-        for branch in ['main', policy.BRANCH]:
-            with self.subTest(branch=branch):
-                context = dict(self.context, SOURCE_EVENT='workflow_dispatch',
-                               SOURCE_REF='refs/heads/' + branch, CI_RESULT='')
-                remote = dict(name=branch, commit=dict(sha='a' * 40))
-                self.assertEqual('a' * 40, policy.verify_operation(context, remote))
+    def test_manual_operations_allow_only_main(self):
+        context = dict(self.context, SOURCE_EVENT='workflow_dispatch', CI_RESULT='')
+        self.assertEqual('a' * 40, policy.verify_operation(context, self.remote))
+        for branch in ['develop', 'integration/main-kafka-production-20261011', 'feature/example']:
+            with self.subTest(branch=branch), self.assertRaises(ValueError):
+                policy.verify_operation(dict(context, SOURCE_REF='refs/heads/' + branch),
+                                        dict(name=branch, commit=dict(sha='a' * 40)))
 
     def test_operation_rejects_forks_pr_tags_other_branches_and_stale_sha(self):
         context = dict(self.context, SOURCE_EVENT='workflow_dispatch')

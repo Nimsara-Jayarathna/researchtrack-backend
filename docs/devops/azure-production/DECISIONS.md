@@ -25,7 +25,7 @@ Infrastructure VM
 ## Frozen rules
 
 - Test/develop deployment stays unchanged.
-- Production deploys to Azure only from `integration/main-kafka-production-20261011`;
+- Production deploys to Azure only from `main`;
   `main` remains the repository default branch. See `RUNBOOK.md` for branch-policy
   setup and the repository-wide cutover requirement.
 - Only the OIDC/RBAC bootstrap is manual.

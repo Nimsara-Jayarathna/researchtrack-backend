@@ -7,10 +7,10 @@ This is the inventory derived from `secrets.*` and `vars.*` references in `.gith
 | GitHub Environment | Branch | Entry workflow | Implementation | Target |
 |---|---|---|---|---|
 | `test` | `develop` (push) or manual | `backend-deploy-test.yml` | `backend-deploy-reusable.yml` | Existing VPS, Docker Compose project `researchtrack-test` |
-| `production` | `integration/main-kafka-production-20261011` (push) or manual on that branch | `backend-deploy-production.yml` | `backend-deploy-azure-production.yml` | Azure Container Apps + infrastructure VM |
-| `production` | `integration/main-kafka-production-20261011` pushes touching infrastructure paths, or manual on that branch | `azure-infrastructure.yml` | same file | Azure infrastructure (Bicep) + VM stack |
+| `production` | `main` (push) or manual on that branch | `backend-deploy-production.yml` | `backend-deploy-azure-production.yml` | Azure Container Apps + infrastructure VM |
+| `production` | `main` pushes touching infrastructure paths, or manual on that branch | `azure-infrastructure.yml` | same file | Azure infrastructure (Bicep) + VM stack |
 
-> `main` is the permanent default branch. Both production deployment workflows temporarily select `integration/main-kafka-production-20261011`. Manual runtime/performance operations permit main and integration in the revised workflows. No new integration ruleset or GitHub setting change is required by TASK 02. Expected OIDC trust is Environment-based; actual Azure federation must be inventoried separately. GitHub now reports immutable subject claims, so the older name-only bootstrap subject must not be assumed correct. Remote settings were not changed.
+> `main` is the permanent default branch. Both production deployment workflows deploy from `main`. Manual runtime/performance operations also require `main`. No new integration ruleset or GitHub setting change is required by TASK 02. Expected OIDC trust is Environment-based; actual Azure federation must be inventoried separately. GitHub now reports immutable subject claims, so the older name-only bootstrap subject must not be assumed correct. Remote settings were not changed.
 
 `backend-ci.yml` (reused by production entrypoints; independently on pull requests) and `backend-build-images.yml` use no environment secrets. Image pushes use the automatic `GITHUB_TOKEN`.
 

@@ -1,13 +1,13 @@
 # Configuring the GitHub `production` Environment (Azure)
 
-Production = `integration/main-kafka-production-20261011` → Azure. There are two workflows:
+Production = `main` → Azure. There are two workflows:
 
 - **`azure-infrastructure.yml`**: Bicep (network, VM, Container Apps environment, private DNS) plus the VM stack (Nginx, MySQL, Kafka, Prometheus, Grafana).
 - **`backend-deploy-production.yml`** → **`backend-deploy-azure-production.yml`**: image build, DB migrations, rollout of the seven Container Apps, verification.
 
 Both run in the GitHub Environment **`production`** and authenticate to Azure with OIDC. Architecture: [`../azure-production/`](../azure-production/README.md). Full inventory: [GITHUB_ENVIRONMENTS.md](GITHUB_ENVIRONMENTS.md).
 
-Use the existing **Settings → Environments → `production`**. An owner should restrict deployment branches to `integration/main-kafka-production-20261011` and preserve existing secrets and protection rules. These remote settings are not changed by local workflow edits. The OIDC trust is bound to the environment name, not the branch. Follow the [runbook cutover procedure](../azure-production/RUNBOOK.md#repository-wide-cutover) to account for old workflow copies on other branches.
+Use the existing **Settings → Environments → `production`**. An owner should restrict deployment branches to `main` and preserve existing secrets and protection rules. These remote settings are not changed by local workflow edits. The OIDC trust is bound to the environment name, not the branch. Follow the [runbook cutover procedure](../azure-production/RUNBOOK.md#repository-wide-cutover) to account for old workflow copies on other branches.
 
 ## Authentication model: user-assigned managed identity + OIDC
 

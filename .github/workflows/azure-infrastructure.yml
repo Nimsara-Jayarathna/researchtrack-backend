@@ -6,7 +6,7 @@ name: Azure Infrastructure - Production
 
 on:
   push:
-    branches: ["integration/main-kafka-production-20261011"]
+    branches: ["main"]
     paths:
       - "deploy/azure/main.bicep"
       - "deploy/azure/modules/**"
@@ -50,7 +50,7 @@ permissions:
 
 jobs:
   eligibility:
-    if: ${{ github.ref == 'refs/heads/integration/main-kafka-production-20261011' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+    if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
     name: Required CI and infrastructure source eligibility
     uses: ./.github/workflows/backend-release-validation.yml
     permissions:
@@ -72,7 +72,7 @@ jobs:
           az bicep build --file deploy/azure/modules/container-app.bicep --stdout >/dev/null
 
   deploy:
-    if: ${{ github.ref == 'refs/heads/integration/main-kafka-production-20261011' }}
+    if: ${{ github.ref == 'refs/heads/main' }}
     name: Reconcile Azure Production infrastructure
     needs: [eligibility, validate]
     runs-on: ubuntu-latest

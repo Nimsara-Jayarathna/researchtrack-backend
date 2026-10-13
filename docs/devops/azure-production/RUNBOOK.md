@@ -6,30 +6,29 @@ Operator steps for the implementation in `deploy/azure/`. The architecture is in
 
 | Workflow | Trigger | Does |
 |---|---|---|
-| `azure-infrastructure.yml` | manual; `integration/main-kafka-production-20261011` pushes touching the existing infrastructure path filters | required CI/Kafka → trusted exact SHA → Bicep build → production Environment → recheck SHA → OIDC → What-If gate → Bicep deploy (subscription scope) → `configure-vm.sh` → VM stack reconcile → VM/network validation → Container Apps network probe |
-| `backend-deploy-production.yml` → `backend-deploy-azure-production.yml` | `integration/main-kafka-production-20261011` pushes; manual | required static/.NET/coverage + isolated Kafka/upgrades CI → exact trusted SHA/current branch check → build changed images (GHCR, immutable source images) → recheck SHA → validate env → OIDC → capture/wake runtime → preflight → per changed service: `dbcheck`/`migrate` job → Bicep app deployment → readiness → rollback on failure → full verification → restore original runtime power states |
+| `azure-infrastructure.yml` | manual; `main` pushes touching the existing infrastructure path filters | required CI/Kafka → trusted exact SHA → Bicep build → production Environment → recheck SHA → OIDC → What-If gate → Bicep deploy (subscription scope) → `configure-vm.sh` → VM stack reconcile → VM/network validation → Container Apps network probe |
+| `backend-deploy-production.yml` → `backend-deploy-azure-production.yml` | `main` pushes; manual | required static/.NET/coverage + isolated Kafka/upgrades CI → exact trusted SHA/current branch check → build changed images (GHCR, immutable source images) → recheck SHA → validate env → OIDC → capture/wake runtime → preflight → per changed service: `dbcheck`/`migrate` job → Bicep app deployment → readiness → rollback on failure → full verification → restore original runtime power states |
 
 Both workflows share the concurrency group `researchtrack-azure-production`, so they never overlap. Neither falls back to the VPS.
 
-## Production deployment branch (2026-10-11)
+## Production deployment branch (2026-10-13)
 
-Automatic Azure production source: **`integration/main-kafka-production-20261011`**.
-This is the user's current deployment decision and supersedes both the earlier
-main-only proposal and the feature-branch deployment policy. The integration branch
-serves as the production source without renaming `main` or changing the repository
-default branch. Test remains on `develop`. Backend CI runs on integration-branch
-pushes through the production workflow’s reusable validation job, and independently on
+Automatic Azure production source: **`main`**.
+This supersedes the temporary integration-branch deployment policy. Test remains
+on `develop`. Backend CI runs on main-branch pushes through the production
+workflow's reusable validation job, and independently on
 PRs targeting `develop`, `main` or the integration branch. Existing CI build, coverage,
 regression and observability checks are retained; isolated Kafka recovery and real
 historical MySQL upgrades are required jobs, not ordinary conditional-test skips.
 
 Both production entrypoints use this exact push branch. Manual deployment and reusable
 Azure build/deploy jobs also require
-`refs/heads/integration/main-kafka-production-20261011`. The generic reusable
+`refs/heads/main`. The generic reusable
 workflow guards production while keeping Test calls available. Other branches and
 tags cannot pass these updated production deployment guards. Kafka integration,
-mutation, runtime and manual performance workflows can be run with this branch
-selected; their manual triggers and inputs are retained. Post-deployment k6 smoke
+mutation, runtime and manual performance workflows can be run with `main`
+selected. Production runtime and performance jobs reject every other branch;
+their manual inputs are retained. Post-deployment k6 smoke
 still follows a successful production deployment when enabled.
 
 ### Required same-commit release gate (2026-10-11)
@@ -78,16 +77,14 @@ to that snapshot, before the current CI dependency/source-gate changes.
 
 ### Repository-wide cutover
 
-GitHub reads push workflow definitions from the pushed ref. Updating this branch
-alone cannot stop main's or the old feature branch's workflow copies from deploying.
-Before release, an owner must publish the reviewed policy to other previously
-deploying branches or restrict production Environment deployment to the selected
-integration branch. Do not push any branch as part of this local task. Publishing
-integration-branch changes can immediately start application deployment and, when
-the existing path filters match, infrastructure reconciliation.
+GitHub reads push workflow definitions from the pushed ref. Publish this reviewed
+policy to `main` for the new trigger to take effect. Other branches may still
+contain older deployment workflows; restrict the production Environment to `main`
+or update those copies. Publishing changes to `main` can start application
+deployment and, when the existing path filters match, infrastructure reconciliation.
 
 An owner should restrict the `production` Environment to exact **Branch
-`integration/main-kafka-production-20261011`**, preserving existing secrets,
+`main`**, preserving existing secrets,
 reviewers, OIDC and protection settings. Use **Settings → Environments → production
 → Deployment branches and tags → Selected branches and tags**. This restriction
 blocks other refs at environment-bound deployment jobs; their old workflow copies
@@ -101,9 +98,9 @@ See [GitHub deployment environment policies](https://docs.github.com/en/actions/
 
 ### Source freshness and release order
 
-The selected integration branch combines main fixes with Kafka. Re-fetch and review
-subsequent main changes before releasing that source. Changing workflows alone does
-not import later application fixes. Preserve all integrated migration, contract,
+Production releases the current `main` commit. Merge reviewed integration changes
+into `main` before deployment. Changing workflows alone does not import application
+fixes from another branch. Preserve all integrated migration, contract,
 monitoring and test changes when promoting code.
 
 Shared concurrency serializes application/infrastructure runs but does not establish
@@ -158,7 +155,7 @@ separate Azure security change. No Azure security change is authorized by this b
 
 After separate authorization, dispatch **Azure Infrastructure - Production** or
 **Backend Deploy - Production** on branch
-**`integration/main-kafka-production-20261011`**. Keep destructive inputs false.
+**`main`**. Keep destructive inputs false.
 Dispatch the entrypoint, never the reusable workflow. Other refs are blocked by the
 new guards; old workflow copies still require the environment restriction.
 
@@ -167,7 +164,7 @@ Read-only log retrieval:
 ```bash
 gh run list --repo Nimsara-Jayarathna/researchtrack-backend \
   --workflow backend-deploy-production.yml \
-  --branch integration/main-kafka-production-20261011 --limit 10
+  --branch main --limit 10
 gh run view <run-id> --repo Nimsara-Jayarathna/researchtrack-backend --log-failed
 ```
 
@@ -331,7 +328,7 @@ for offline results and outstanding live evidence.
 Application gating is demonstrated in [38147705025](https://github.com/Nimsara-Jayarathna/researchtrack-backend/actions/runs/38147705025).
 New infrastructure gating, ARM-failure handling and summary regressions are local only.
 Follow [the exact GitHub UI checklist](../configuration/GITHUB_ENVIRONMENTS.md#owner-protection-checklist--verified-2026-10-11)
-before publishing: target only the integration branch, require the observed PR checks,
+before publishing: target only `main`, require the observed PR checks,
 restrict production Environment branches, and preserve reviewers/secrets/OIDC.
 The branch and Environment still lack protection in current read-only evidence.
 

@@ -9,46 +9,46 @@ import urllib.parse
 import urllib.request
 
 REPOSITORY = 'Nimsara-Jayarathna/researchtrack-backend'
-BRANCH = 'integration/main-kafka-production-20261011'
+BRANCH = 'main'
 
 
 class PolicyError(ValueError):
     """Fixed policy rejection messages are safe to report; external errors are not."""
 
 
-def verify(context, remote, branch=BRANCH):
+def verify(context, remote):
     if context.get('CI_RESULT') != 'success':
         raise PolicyError('Required CI did not succeed')
     if context.get('SOURCE_REPOSITORY') != REPOSITORY:
         raise PolicyError('Untrusted repository')
-    if context.get('SOURCE_REF') != 'refs/heads/' + branch:
+    if context.get('SOURCE_REF') != 'refs/heads/' + BRANCH:
         raise PolicyError('Unapproved branch or tag')
     if context.get('SOURCE_EVENT') not in ('push', 'workflow_dispatch'):
         raise PolicyError('Untrusted release event')
     sha = context.get('SOURCE_SHA', '')
     if not re.fullmatch(r'[0-9a-f]{40}', sha):
         raise PolicyError('Invalid immutable source SHA')
-    if remote.get('name') != branch or remote.get('commit', {}).get('sha') != sha:
+    if remote.get('name') != BRANCH or remote.get('commit', {}).get('sha') != sha:
         raise PolicyError('Source is stale or does not match the approved branch head')
     return sha
 
 
 def verify_operation(context, remote):
-    """Manual runtime work is not a release; retain main and temporary testing."""
+    """Authorize manual production operations only from the current main commit."""
     ref = context.get('SOURCE_REF')
     if context.get('SOURCE_EVENT') != 'workflow_dispatch':
         raise PolicyError('Manual production operations require workflow_dispatch')
-    if ref not in ('refs/heads/main', 'refs/heads/' + BRANCH):
+    if ref != 'refs/heads/' + BRANCH:
         raise PolicyError('Unapproved operation branch or tag')
     # No build/deploy is performed by these manual operational workflows.
-    return verify(dict(context, CI_RESULT='success'), remote, branch=ref.removeprefix('refs/heads/'))
+    return verify(dict(context, CI_RESULT='success'), remote)
 
 
 def main(operation=False):
     # Reject untrusted context before issuing even a read-only authenticated call.
     context = dict(os.environ)
     verifier = verify_operation if operation else verify
-    branch = context.get('SOURCE_REF', '').removeprefix('refs/heads/') if operation else BRANCH
+    branch = BRANCH
     verifier(context, {'name': branch, 'commit': {'sha': context.get('SOURCE_SHA')}})
     token = os.environ.get('GH_TOKEN', '')
     if not token:

@@ -60,7 +60,7 @@ class InfrastructureGate(unittest.TestCase):
         remote = dict(name=policy.BRANCH, commit=dict(sha='a' * 40))
         self.assertEqual('a' * 40, policy.verify(context, remote))
         overrides = [dict(CI_RESULT=result) for result in ['failure', 'cancelled', 'skipped', '', 'neutral', None]]
-        overrides += [dict(SOURCE_REF='refs/heads/main'), dict(SOURCE_EVENT='pull_request'),
+        overrides += [dict(SOURCE_REF='refs/heads/integration/main-kafka-production-20261011'), dict(SOURCE_EVENT='pull_request'),
                       dict(SOURCE_EVENT='pull_request_target'), dict(SOURCE_SHA='b' * 40)]
         for override in overrides:
             with self.subTest(override=override), self.assertRaises(ValueError):
@@ -141,14 +141,14 @@ class ProductionOperationGate(unittest.TestCase):
             guard = re.search(r'^    if: \$\{\{ (.+) \}\}$', block, re.M)[1]
             expression = guard.replace('&&', 'and').replace('||', 'or')
             cases = [(policy.REPOSITORY, 'workflow_dispatch', 'refs/heads/main', True),
-                     (policy.REPOSITORY, 'workflow_dispatch', 'refs/heads/' + policy.BRANCH, True),
+                     (policy.REPOSITORY, 'workflow_dispatch', 'refs/heads/integration/main-kafka-production-20261011', False),
                      ('fork/researchtrack-backend', 'workflow_dispatch', 'refs/heads/' + policy.BRANCH, False),
                      (policy.REPOSITORY, 'pull_request', 'refs/pull/1/merge', False),
                      (policy.REPOSITORY, 'pull_request_target', 'refs/heads/' + policy.BRANCH, False),
                      (policy.REPOSITORY, 'workflow_run', 'refs/heads/' + policy.BRANCH, False),
                      (policy.REPOSITORY, 'workflow_dispatch', 'refs/heads/develop', False),
                      (policy.REPOSITORY, 'workflow_dispatch', 'refs/tags/main', False),
-                     (policy.REPOSITORY, 'push', 'refs/heads/main', False),
+                     (policy.REPOSITORY, 'push', 'refs/heads/integration/main-kafka-production-20261011', False),
                      (policy.REPOSITORY, 'push', 'refs/heads/' + policy.BRANCH,
                       filename == 'azure-performance-k6-reusable.yml')]
             for repository, event, ref, allowed in cases:

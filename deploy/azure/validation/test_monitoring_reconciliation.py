@@ -13,7 +13,7 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[3]
-DEPLOYMENT_BRANCH = 'integration/main-kafka-production-20261011'
+DEPLOYMENT_BRANCH = 'main'
 
 class MonitoringReconciliation(unittest.TestCase):
     def setUp(self):
@@ -145,7 +145,7 @@ fi
         workflow = (ROOT / '.github/workflows/backend-ci.yml').read_text()
         self.assertNotIn('  push:', workflow)
         self.assertIn('  workflow_call:', workflow)
-        self.assertIn('branches: ["develop", "main", "' + DEPLOYMENT_BRANCH + '"]', workflow)
+        self.assertIn('branches: ["develop", "main", "integration/main-kafka-production-20261011"]', workflow)
         self.assertIn('backend-release-validation.yml', (ROOT / '.github/workflows/backend-deploy-azure-production.yml').read_text())
 
     def test_workflow_reads_outputs_without_deploying_bicep_in_monitoring_mode(self):

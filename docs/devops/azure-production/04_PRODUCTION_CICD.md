@@ -6,12 +6,11 @@
 
 ## Production
 
-`integration/main-kafka-production-20261011` is the production deployment branch.
-Production deployment jobs accept only that exact integration-branch ref, including
+`main` is the production deployment branch.
+Production deployment jobs accept only that exact main-branch ref, including
 manual and reusable workflow calls. Production entrypoints reuse Backend CI on pushes
-to this branch; standalone CI runs on PRs targeting it, while retaining PR checks for `main` and `develop`. The repository
-default branch setting is unchanged. Existing manual test/operations workflows
-remain available with the integration branch selected. See `RUNBOOK.md` for the
+to this branch; standalone CI also checks PRs targeting `develop` and the integration branch. The repository
+default branch setting is unchanged. Manual production operations also require `main`. See `RUNBOOK.md` for the
 cutover procedure and required same-SHA CI/source eligibility gate. Production pushes
 reuse Backend CI before image builds; manual production requests run the same checks.
 The isolated Kafka/recovery/MySQL-upgrade job is required. PR CI remains unprivileged.
