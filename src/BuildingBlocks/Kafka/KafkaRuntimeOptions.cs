@@ -9,8 +9,40 @@ using Microsoft.Extensions.DependencyInjection;
 namespace ResearchTrack.BuildingBlocks.Kafka;
 
 /// <summary>Validated transport settings only. Does not register a Kafka client or provision topics.</summary>
-public sealed class KafkaRuntimeOptions
+public sealed partial class KafkaRuntimeOptions
 {
+    // Source-generated regexes avoid runtime compilation and impose a strict execution limit
+    // on deployment-controlled configuration and CA trust material.
+    private const int RegexTimeoutMilliseconds = 1000;
+
+    [GeneratedRegex(
+        @"^researchtrack\.[a-z][a-z0-9-]*\.[a-z][a-z0-9-]*\.v[1-9][0-9]*$",
+        RegexOptions.CultureInvariant,
+        matchTimeoutMilliseconds: RegexTimeoutMilliseconds
+    )]
+    private static partial Regex TopicRegex();
+
+    [GeneratedRegex(
+        "CHANGE_ME|[<>]",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
+        matchTimeoutMilliseconds: RegexTimeoutMilliseconds
+    )]
+    private static partial Regex ContractPlaceholderRegex();
+
+    [GeneratedRegex(
+        @"^([A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?):([0-9]{1,5})$",
+        RegexOptions.CultureInvariant,
+        matchTimeoutMilliseconds: RegexTimeoutMilliseconds
+    )]
+    private static partial Regex BootstrapEndpointRegex();
+
+    [GeneratedRegex(
+        @"\A\s*-----BEGIN CERTIFICATE-----[A-Za-z0-9+/=\r\n]+-----END CERTIFICATE-----\s*\z",
+        RegexOptions.CultureInvariant,
+        matchTimeoutMilliseconds: RegexTimeoutMilliseconds
+    )]
+    private static partial Regex CaCertificatePemRegex();
+
     // Assigned by each service's messaging registration, never from deployment input.
     public string Service { get; set; } = "";
     public const string DeliveredCaLocation = "/tmp/researchtrack-kafka/ca.crt";
@@ -48,13 +80,10 @@ public sealed class KafkaRuntimeOptions
             options.SslEndpointIdentificationAlgorithm == "https",
             nameof(SslEndpointIdentificationAlgorithm)
         );
-        Require(
-            Regex.IsMatch(options.Topic, @"^researchtrack\.[a-z][a-z0-9-]*\.[a-z][a-z0-9-]*\.v[1-9][0-9]*$"),
-            nameof(Topic)
-        );
+        Require(TopicRegex().IsMatch(options.Topic), nameof(Topic));
         Require(
             !string.IsNullOrWhiteSpace(options.ContractVersion)
-                && !Regex.IsMatch(options.ContractVersion, "CHANGE_ME|[<>]", RegexOptions.IgnoreCase),
+                && !ContractPlaceholderRegex().IsMatch(options.ContractVersion),
             nameof(ContractVersion)
         );
         if (service is "github" or "jira")
@@ -68,7 +97,7 @@ public sealed class KafkaRuntimeOptions
         Require(!string.IsNullOrWhiteSpace(options.BootstrapServers), nameof(BootstrapServers));
         foreach (var endpoint in options.BootstrapServers.Split(','))
         {
-            var match = Regex.Match(endpoint, @"^([A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?):([0-9]{1,5})$");
+            var match = BootstrapEndpointRegex().Match(endpoint);
             Require(
                 match.Success
                     && !match.Groups[1].Value.Contains("..", StringComparison.Ordinal)
@@ -102,13 +131,7 @@ public sealed class KafkaRuntimeOptions
             var pem = string.IsNullOrEmpty(options.SslCaCertificateBase64)
                 ? File.ReadAllText(options.SslCaLocation)
                 : Encoding.ASCII.GetString(Convert.FromBase64String(options.SslCaCertificateBase64));
-            Require(
-                Regex.IsMatch(
-                    pem,
-                    @"\A\s*-----BEGIN CERTIFICATE-----[A-Za-z0-9+/=\r\n]+-----END CERTIFICATE-----\s*\z"
-                ),
-                nameof(SslCaLocation)
-            );
+            Require(CaCertificatePemRegex().IsMatch(pem), nameof(SslCaLocation));
             using var ca = X509Certificate2.CreateFromPem(pem);
             Require(
                 ca.Extensions.OfType<X509BasicConstraintsExtension>()

@@ -226,12 +226,15 @@ public sealed class KafkaConsumerWorker(
             metrics?.CommitFailed();
             throw new KafkaOffsetCommitException(exception.Error.Code);
         }
-        logger.LogInformation(
-            "Kafka durable handoff and offset commit completed. CorrelationId={CorrelationId} Partition={Partition} Offset={Offset}",
-            correlationId,
-            record.Partition.Value,
-            record.Offset.Value
-        );
+        if (logger.IsEnabled(LogLevel.Information))
+        {
+            logger.LogInformation(
+                "Kafka durable handoff and offset commit completed. CorrelationId={CorrelationId} Partition={Partition} Offset={Offset}",
+                correlationId,
+                record.Partition.Value,
+                record.Offset.Value
+            );
+        }
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
