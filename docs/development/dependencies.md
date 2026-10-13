@@ -13,4 +13,13 @@ Core packages include:
 
 Do not use floating versions for core dependencies. Package upgrades should be explicit pull requests and should run the full quality/integration checks.
 
-Docker/Testcontainers/Prometheus packages are intentionally absent from this current development baseline.
+The backend also uses `Confluent.Kafka`, `prometheus-net.AspNetCore`, `AWSSDK.S3`,
+JWT bearer authentication, and NSubstitute; consult the central package file for
+current versions. Docker/Compose runtime infrastructure and isolated integration
+fixtures live under `deploy/` and `tests/Kafka/`, rather than being inferred from
+NuGet package presence. Prometheus/Grafana deployment is implemented.
+
+The SDK is selected by [global.json](../../global.json). Tools for EF, coverage and
+mutation are pinned in [.config/dotnet-tools.json](../../.config/dotnet-tools.json);
+production formatting has a separate manifest described in the
+[code-quality guide](../testing/code-quality/README.md).

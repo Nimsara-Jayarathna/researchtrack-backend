@@ -2,6 +2,10 @@
 
 Guides and implementation evidence are grouped by testing topic.
 
+## Code quality
+
+- [Production C# quality checks](code-quality/README.md)
+
 ## Unit
 
 - [ResearchTrack Unit Testing Strategy](unit/UNIT_TESTING_STRATEGY.md)

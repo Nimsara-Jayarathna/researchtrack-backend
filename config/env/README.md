@@ -8,7 +8,7 @@ Each runtime component owns one committed `.env.example`:
 config/env/
 ├── admin/.env.example       # local DB provisioning only
 ├── mysql/.env.example       # remote Compose MySQL contract
-├── shared/.env.example      # JWT values shared by Auth + Project + GitHub + Jira
+├── shared/.env.example      # JWT values shared by all six business services
 ├── gateway/.env.example
 ├── auth/.env.example
 ├── project/.env.example
@@ -84,11 +84,21 @@ Local scripts map those values into the ASP.NET/YARP hierarchy. The Gateway also
 
 ## Shared JWT configuration
 
-Auth, Project, GitHub, and Jira receive the same `Jwt__Issuer`, `Jwt__Audience`, and `Jwt__SigningKey` from `config/env/shared/.env.example`. Test and Production must use different signing keys.
+Auth, Project, GitHub, Jira, Meeting, and Submission receive the same `Jwt__Issuer`, `Jwt__Audience`, and `Jwt__SigningKey` from `config/env/shared/.env.example`. Test and Production must use different signing keys.
 
-## Future integration keys
+## Storage and integration settings
 
-Some service examples contain currently optional keys reserved for the later object-storage implementation. They remain in the canonical service contract but may be empty until the corresponding feature is implemented. The Test validator only requires currently operational settings to be populated. The Production validator additionally rejects `CHANGE_ME`-style placeholders in every key except the reserved `Storage__*` keys; leave other unused keys empty rather than `CHANGE_ME`.
+Submission object storage is implemented. Populate the service's required
+`Storage__*` and `Submission__*` settings for the actual bucket/provider; an
+endpoint may be omitted where the SDK uses the configured region's AWS endpoint.
+Consult [service configuration](../../docs/development/service-configuration.md)
+and the canonical template for required versus optional values. A validator
+accepting a contract shape is not proof that provider credentials or operations work.
+
+Deployment validators enforce environment-specific rules and placeholder checks.
+Use their current output and the service's startup validation rather than assuming
+older reserved-key exceptions still apply. Kafka has its own optional enablement
+rules below.
 
 ## Security rules
 
