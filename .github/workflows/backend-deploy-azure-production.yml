@@ -24,6 +24,9 @@ on:
 permissions:
   contents: read
   packages: read
+  actions: read
+  checks: read
+  pull-requests: read
 
 jobs:
   validate:
@@ -32,9 +35,46 @@ jobs:
     uses: ./.github/workflows/backend-release-validation.yml
     permissions:
       contents: read
+      actions: read
+      checks: read
+      pull-requests: read
+
+  sonar_gate:
+    name: Require same-commit SonarQube quality gate
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout verified analysis scope and release guard
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Decide whether cloud analysis is required
+        id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before || '' }}
+        run: python3 deploy/automation/change-scope.py --mode sonar --event "$EVENT_NAME" --base "$BEFORE_SHA" --head "$GITHUB_SHA"
+      - name: Await current main SHA quality gate before any registry or Azure operation
+        if: ${{ steps.scope.outputs.execute == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_REF: ${{ github.ref }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
+          SOURCE_EVENT: ${{ github.event_name }}
+        run: python3 deploy/azure/scripts/release-evidence.py require-sonar
+      - name: Report analysis not required
+        if: ${{ steps.scope.outputs.execute == 'false' }}
+        run: echo 'SonarQube skipped only because all changed files were confirmed unrelated to analysis.' >> "$GITHUB_STEP_SUMMARY"
 
   build:
-    needs: validate
+    needs: [validate, sonar_gate]
     if: ${{ github.ref == 'refs/heads/main' }}
     name: Build Changed Images
     uses: ./.github/workflows/backend-build-images.yml
@@ -52,7 +92,7 @@ jobs:
   deploy:
     if: ${{ github.ref == 'refs/heads/main' }}
     name: Deploy Azure Production
-    needs: [build, validate]
+    needs: [build, validate, sonar_gate]
     runs-on: ubuntu-latest
     environment: production
 
