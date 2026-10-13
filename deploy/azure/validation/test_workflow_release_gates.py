@@ -34,6 +34,32 @@ def body(block):
     return '\n'.join(line[10:] for line in block.split('        run: |\n', 1)[1].splitlines()) + '\n'
 
 
+class ReusableWorkflowPermissions(unittest.TestCase):
+    def test_each_caller_grants_the_permissions_requested_by_its_callee(self):
+        # GitHub rejects the entire workflow before jobs run if a nested
+        # workflow requests permissions absent from the calling job.
+        calls = (
+            ('backend-deploy-production.yml', 'deploy', 'backend-deploy-azure-production.yml'),
+            ('backend-deploy-azure-production.yml', 'validate', 'backend-release-validation.yml'),
+            ('azure-infrastructure.yml', 'eligibility', 'backend-release-validation.yml'),
+        )
+        levels = {'none': 0, 'read': 1, 'write': 2}
+        for caller, job, callee in calls:
+            with self.subTest(caller=caller, job=job, callee=callee):
+                caller_source = (WORKFLOWS / caller).read_text()
+                block = job_blocks(caller_source)[job]
+                self.assertIn('uses: ./.github/workflows/' + callee, block)
+                permissions = re.search(r'^    permissions:\n((?:      [^\n]+\n)+)', block, re.M)
+                self.assertIsNotNone(permissions, 'Calling job must declare explicit permissions')
+                allowed = dict(re.findall(r'^      ([\w-]+): (none|read|write)$', permissions[1], re.M))
+                callee_source = (WORKFLOWS / callee).read_text().split('\njobs:\n', 1)[0]
+                required = dict(re.findall(r'^  ([\w-]+): (none|read|write)$', callee_source, re.M))
+                self.assertTrue(required, 'Callee must declare its permission contract')
+                for permission, access in required.items():
+                    self.assertGreaterEqual(levels[allowed.get(permission, 'none')], levels[access],
+                                            f'{caller}:{job} does not grant {permission}: {access}')
+
+
 class InfrastructureGate(unittest.TestCase):
     def setUp(self):
         self.source = (WORKFLOWS / 'azure-infrastructure.yml').read_text()
