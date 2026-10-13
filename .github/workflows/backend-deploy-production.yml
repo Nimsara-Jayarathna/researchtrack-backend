@@ -39,6 +39,9 @@ jobs:
       force_redeploy: ${{ inputs.force_redeploy || false }}
     permissions:
       contents: read
+      actions: read
+      checks: read
+      pull-requests: read
       packages: write
       id-token: write
     secrets: inherit
