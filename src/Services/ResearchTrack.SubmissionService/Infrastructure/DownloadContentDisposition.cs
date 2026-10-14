@@ -76,7 +76,14 @@ internal static class DownloadContentDisposition
             if (CharUnicodeInfo.GetUnicodeCategory(character) == UnicodeCategory.NonSpacingMark)
                 continue;
 
-            var ascii = character is '\u2010' or '\u2011' or '\u2012' or '\u2013' or '\u2014' or '\u2015' or '\u2212'
+            var ascii = character
+                is '\u2010'
+                or '\u2011'
+                or '\u2012'
+                or '\u2013'
+                or '\u2014'
+                or '\u2015'
+                or '\u2212'
                 ? '-'
                 : character;
 
