@@ -78,20 +78,29 @@ internal static class DownloadContentDisposition
 
             var ascii = character
                 is '\u2010'
-                or '\u2011'
-                or '\u2012'
-                or '\u2013'
-                or '\u2014'
-                or '\u2015'
-                or '\u2212'
+                    or '\u2011'
+                    or '\u2012'
+                    or '\u2013'
+                    or '\u2014'
+                    or '\u2015'
+                    or '\u2212'
                 ? '-'
                 : character;
 
             if (
-                ascii is >= 'a' and <= 'z'
-                or >= 'A' and <= 'Z'
-                or >= '0' and <= '9'
-                or ' ' or '.' or '_' or '-' or '(' or ')'
+                ascii
+                is >= 'a'
+                    and <= 'z'
+                    or >= 'A'
+                    and <= 'Z'
+                    or >= '0'
+                    and <= '9'
+                    or ' '
+                    or '.'
+                    or '_'
+                    or '-'
+                    or '('
+                    or ')'
             )
             {
                 result.Append(ascii);
