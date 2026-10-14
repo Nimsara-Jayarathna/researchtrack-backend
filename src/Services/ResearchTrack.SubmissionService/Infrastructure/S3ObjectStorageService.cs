@@ -130,8 +130,6 @@ public sealed class S3ObjectStorageService : IObjectStorageService
     {
         cancellationToken.ThrowIfCancellationRequested();
         var expiresAt = _timeProvider.GetUtcNow().AddSeconds(_options.PresignedUrlExpirySeconds);
-        var disposition = inline ? "inline" : "attachment";
-        var safeFileName = fileName.Replace("\"", string.Empty, StringComparison.Ordinal);
         var request = new GetPreSignedUrlRequest
         {
             BucketName = _options.Bucket,
@@ -140,7 +138,7 @@ public sealed class S3ObjectStorageService : IObjectStorageService
             Expires = expiresAt.UtcDateTime,
             ResponseHeaderOverrides = new ResponseHeaderOverrides
             {
-                ContentDisposition = $"{disposition}; filename=\"{safeFileName}\"",
+                ContentDisposition = DownloadContentDisposition.Create(fileName, inline),
             },
         };
 
